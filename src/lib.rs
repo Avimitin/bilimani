@@ -1,12 +1,12 @@
-pub mod bilibili;
 pub mod catalog;
 pub mod config;
-pub mod controls;
 pub mod engine;
+pub mod game;
+pub mod games;
+pub mod host;
 pub mod logging;
-#[cfg(windows)]
-pub mod native;
 pub mod output;
 pub mod overlay;
+pub mod platforms;
 #[cfg(windows)]
 mod runtime;

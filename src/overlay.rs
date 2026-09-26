@@ -1,6 +1,9 @@
 //! Read-only loopback overlay. Network requests only access owned snapshots;
 //! they never call the game or hold the engine's state across an await.
-use crate::engine::{Engine, Request as SongRequest};
+use crate::{
+    engine::{Engine, Request as SongRequest},
+    platforms::Connection,
+};
 use anyhow::Result;
 use http_body_util::Full;
 use hyper::{
@@ -22,30 +25,31 @@ use tokio::{
     task::{JoinHandle, JoinSet},
 };
 
-fn request(r: &SongRequest) -> Value {
+fn request(e: &Engine, r: &SongRequest) -> Value {
     json!({"token": r.token, "title": r.song.title, "requester": r.name,
-        "mode": r.mode, "chart": r.chart.map(|c| c.label())})
+        "mode": r.mode, "chart": r.chart.map(|c| c.label()), "chart_style": e.chart_style(r.chart)})
 }
 
 /// Deliberately excludes configuration, cookies, identity codes and sender IDs.
-pub fn snapshot(engine: Option<&Engine>, status: &str, now: u64) -> Value {
+pub fn snapshot(engine: Option<&Engine>, status: &Connection, now: u64) -> Value {
     let mut state = json!({
         "version": env!("CARGO_PKG_VERSION"),
-        "connected": status.starts_with("弹幕已连接"), "status": status,
+        "connected": status.connected, "status": status.text,
         "ready": engine.is_some(), "current": null, "queue": [],
         "capacity": 0, "pending": [], "notices": []
     });
     if let Some(e) = engine {
         state["capacity"] = json!(e.config.requests.queue_capacity);
         if let Some(c) = &e.current {
-            let mut current = request(&c.request);
+            let mut current = request(e, &c.request);
             current["remaining"] = json!(c.until.saturating_sub(now));
             current["duration"] = json!(e.config.requests.current_timeout_seconds);
             state["current"] = current;
         }
-        state["queue"] = e.queue.iter().map(request).collect();
+        state["queue"] = e.queue.iter().map(|r| request(e, r)).collect();
         state["pending"] = e.pending.values().map(|p| json!({
             "requester": p.name, "mode": p.mode, "chart": p.chart.map(|c| c.label()),
+            "chart_style": e.chart_style(p.chart),
             "remaining": p.until.saturating_sub(now), "duration": e.config.requests.selection_timeout_seconds,
             "candidates": p.songs.iter().map(|s| json!({"title": s.title,
                 "available": s.supports(p.mode, p.chart)})).collect::<Vec<_>>()

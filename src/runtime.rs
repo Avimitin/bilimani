@@ -1,20 +1,24 @@
 use crate::{
-    bilibili::{self, Event},
-    catalog::{Catalog, parse_database},
+    catalog::Catalog,
     config::Config,
-    controls::sdk,
     engine::{Engine, Phase, Snapshot},
+    game::GameAdapter,
+    games,
+    host::{spice as sdk, windows::module_path},
     logging::Logger,
-    native,
     output::{TextFile, resolved_output},
     overlay,
+    platforms::{self, Connection, Event},
 };
 use anyhow::{Result, ensure};
 use std::{
     ffi::c_void,
     io::Write,
     path::Path,
-    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
+    sync::{
+        OnceLock,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+    },
     time::{Duration, Instant},
 };
 use windows_sys::Win32::{
@@ -28,6 +32,8 @@ use windows_sys::Win32::{
     },
 };
 
+static GAME: OnceLock<Box<dyn GameAdapter>> = OnceLock::new();
+
 static STOP: AtomicBool = AtomicBool::new(false);
 static WORKER: AtomicUsize = AtomicUsize::new(0);
 
@@ -35,7 +41,7 @@ fn log(root: &Path, message: &str) {
     Logger::new(root, &Config::default()).info("startup", message);
 }
 fn start(module: HMODULE) -> Result<()> {
-    let path = native::module_path(module)?;
+    let path = module_path(module)?;
     let root = path.parent().unwrap();
     // Keep callback code mapped for the process lifetime. Shutdown stops work;
     // unmapping a DLL while another thread is returning through it is unsafe.
@@ -91,23 +97,26 @@ fn start(module: HMODULE) -> Result<()> {
     let mut interaction = TextFile::new(interaction_path);
     queue.write("当前点歌\n暂无\n\n等待队列\n暂无\n")?;
     interaction.write("正在初始化 chart-requester…\n")?;
-    native::configure_controls(config.controls.clone());
-    logger.info("input", &format!("Opposite Start skip: enabled={} double_tap_ms={}; single-player SP song select only, read-only input", config.controls.skip_enabled, config.controls.double_tap_ms));
-    if let Err(e) = native::install(&config.game.module) {
-        interaction.write(&format!("点歌功能未启用：{e}\n"))?;
-        return Err(e);
+    let game = match games::attach(&config.game, &config.controls) {
+        Ok(game) => game,
+        Err(e) => {
+            interaction.write(&format!("点歌功能未启用：{e}\n"))?;
+            return Err(e);
+        }
+    };
+    for (category, message) in game.startup_messages() {
+        logger.info(category, &message);
     }
-    logger.info(
-        "game",
-        "Native hooks installed for the verified IIDX 33 build; waiting for song select.",
-    );
+    GAME.set(game)
+        .map_err(|_| anyhow::anyhow!("Game adapter already installed"))?;
+    let game = GAME.get().unwrap();
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
     rt.block_on(async {
         let mut overlay_error = String::new();
         let mut web = if config.overlay.enabled {
-            match overlay::Server::start(config.overlay.port, &overlay::snapshot(None, "等待弹幕连接", 0)).await {
+            match overlay::Server::start(config.overlay.port, &overlay::snapshot(None, &Connection::waiting(), 0)).await {
                 Ok(server) => {
                     logger.info("overlay", &format!("Browser source: http://{}/queue", server.address));
                     Some(server)
@@ -121,13 +130,16 @@ fn start(module: HMODULE) -> Result<()> {
         } else { None };
         let (tx, mut rx) = tokio::sync::mpsc::channel(512);
         let (shutdown, stop) = tokio::sync::watch::channel(false);
-        let network = tokio::spawn(bilibili::run(config.bilibili.clone(), tx, stop));
+        let source = platforms::create(config.source());
+        let shutdown_message = source.shutdown_message();
+        let network = tokio::spawn(source.run(tx, stop));
         let mut engine: Option<Engine> = None;
         let mut interval = tokio::time::interval(Duration::from_millis(100));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let start = Instant::now();
         let mut plays = 0;
-        let mut status = String::from("等待弹幕连接");
+        let mut connection = Connection::waiting();
+        let mut status = connection.text.clone();
         let mut catalog_notice = String::new();
         let mut last_error = String::new();
         let mut last_game_state = String::new();
@@ -140,25 +152,18 @@ fn start(module: HMODULE) -> Result<()> {
             if STOP.load(Ordering::Acquire) {
                 break;
             }
-            if native::DISABLED.load(Ordering::Acquire) {
+            if game.disabled() {
                 let _ = interaction.write("点歌 hook 已停止，请查看日志并重启游戏\n");
                 break;
             }
             let now = start.elapsed().as_secs();
             if engine.is_none() {
-                let data = if !config.game.database_path.as_os_str().is_empty() {
-                    Some(std::fs::read(&config.game.database_path))
-                } else {
-                    native::LIVE_DATABASE.get().map(|d| Ok(d.clone()))
-                };
-                if let Some(data) = data {
+                let loaded = game.catalog(&config.game.database_path);
+                if !matches!(loaded, Ok(None)) {
                     let created = (|| -> Result<Engine> {
-                        let catalog = Catalog::new(parse_database(&data?)?, &config.aliases)?;
-                        logger.info(
-                            "catalog",
-                            &format!("Loaded {} canonical songs", catalog.songs.len()),
-                        );
-                        Ok(Engine::new(config.clone(), catalog))
+                        let catalog = Catalog::new(loaded?.unwrap(), &config.aliases)?;
+                        logger.info("catalog", &format!("Loaded {} canonical songs", catalog.songs.len()));
+                        Ok(Engine::new(config.clone(), catalog, game.rules()))
                     })();
                     match created {
                         Ok(mut e) => {
@@ -174,11 +179,9 @@ fn start(module: HMODULE) -> Result<()> {
                 }
             }
             // Report game state even before the catalog becomes available.
-            let (snapshot, new_plays, ack, skip, skip_side) = {
-                let mut m = native::MAILBOX.lock().unwrap();
-                (m.snapshot, m.plays, m.ack.take(), m.skip_event.take(), m.skip_side)
-            };
-            let input_state = format!("active_side={:?} sdk_status={} (-1=unavailable, -2=not_sampled, 0=ok)", skip_side.map(|s| s + 1), sdk::status());
+            let update = game.poll();
+            let (snapshot, new_plays, ack, skip) = (update.snapshot, update.plays, update.selection_result, update.skip);
+            let input_state = update.input_status;
             if input_state != last_input_state {
                 logger.info("input", &input_state);
                 last_input_state = input_state;
@@ -189,8 +192,8 @@ fn start(module: HMODULE) -> Result<()> {
                 last_game_state = game_state;
             }
             if let Some(e) = engine.as_mut() {
-                if let Some(entries) = native::SEARCH_INDEX.lock().unwrap().take() {
-                    let added = e.catalog.set_native_index(&entries);
+                if let Some(entries) = game.take_search_index() {
+                    let added = e.catalog.set_search_index(&entries);
                     logger.info("catalog", &format!("Native search index captured: entries={} additional_terms={added}; fuzzy matching enabled", entries.len()));
                 }
                 // Acknowledge the jump before consuming the request on gameplay start.
@@ -210,8 +213,8 @@ fn start(module: HMODULE) -> Result<()> {
                 }
                 e.observe(snapshot, now);
                 if let Some(event) = skip {
-                    let accepted = skip_side == Some(event.side) && e.skip_current(event.token, event.epoch, now);
-                    logger.info("input", &format!("Opposite Start double tap: active_side={} token={} epoch={} skipped={accepted}", event.side + 1, event.token, event.epoch));
+                    let accepted = e.skip_current(event.token, event.epoch, now);
+                    logger.info("input", &format!("{} token={} epoch={} skipped={accepted}", event.description, event.token, event.epoch));
                 }
             }
             for _ in 0..128 {
@@ -220,8 +223,9 @@ fn start(module: HMODULE) -> Result<()> {
                 };
                 match event {
                     Event::Status(s) => {
-                        logger.info("connection", &s);
-                        status = s;
+                        logger.info("connection", &s.text);
+                        status = s.text.clone();
+                        connection = s;
                         if let Some(e) = engine.as_mut() {
                             e.status = status.clone();
                         }
@@ -250,7 +254,7 @@ fn start(module: HMODULE) -> Result<()> {
                 if let Some(j) = e.next_jump(now) {
                     logger.info("jump", &format!("submit token={} song_id={} song={:?} mode={:?} chart={:?} epoch={}",
                         j.request.token, j.request.song.id, j.request.song.title, j.request.mode, j.request.chart, j.epoch));
-                    native::MAILBOX.lock().unwrap().command = Some(j);
+                    game.submit(j.selection());
                 }
                 for message in e.take_diagnostics() { logger.info("request", &message); }
                 e.render(now)
@@ -260,14 +264,14 @@ fn start(module: HMODULE) -> Result<()> {
                     format!("{status}\n{catalog_notice}\n等待游戏曲库…\n"),
                 )
             };
-            native::MAILBOX.lock().unwrap().skip_target = engine.as_ref().and_then(|e| e.current.as_ref().map(|c| c.request.token));
+            game.set_skip_target(engine.as_ref().and_then(|e| e.current.as_ref().map(|c| c.request.token)));
             if web.as_ref().is_some_and(overlay::Server::is_finished) {
                 overlay_error = "网页界面服务已停止，请重启游戏；文本点歌仍可使用".into();
                 logger.info("overlay", &overlay_error);
                 web = None;
             }
             if let Some(server) = &web {
-                server.publish(&overlay::snapshot(engine.as_ref(), &status, now));
+                server.publish(&overlay::snapshot(engine.as_ref(), &connection, now));
             }
             if !overlay_error.is_empty() { i.push_str(&format!("\n{overlay_error}\n")); }
             if now >= next_status {
@@ -275,7 +279,7 @@ fn start(module: HMODULE) -> Result<()> {
                 logger.info("status", &format!("connection={:?} received={received} handled={handled} activity={activity} queue={} pending={} current={:?}",
                     status, engine.as_ref().map_or(0, |e| e.queue.len()), engine.as_ref().map_or(0, |e| e.pending.len()),
                     engine.as_ref().and_then(|e| e.current.as_ref().map(|c| c.request.token))));
-                logger.info("game", &native::diagnostics());
+                logger.info("game", &game.diagnostics());
                 next_status = now + config.logging.status_interval_seconds;
             }
             let write_result = queue.write(&q).and_then(|_| interaction.write(&i));
@@ -289,9 +293,9 @@ fn start(module: HMODULE) -> Result<()> {
                 last_error.clear();
             }
         }
-        native::DISABLED.store(true, Ordering::Release);
+        if let Some(game) = GAME.get() { game.stop(); }
         if let Some(server) = web.as_mut() { server.stop().await; }
-        logger.info("shutdown", "Stopping chat worker and closing the Open Live session");
+        logger.info("shutdown", shutdown_message);
         let _ = shutdown.send(true);
         if !network.is_finished() {
             match tokio::time::timeout(Duration::from_secs(18), network).await {
@@ -302,7 +306,7 @@ fn start(module: HMODULE) -> Result<()> {
         while let Ok(event) = rx.try_recv() {
             match event {
                 Event::Diagnostic(s) => logger.debug("transport", &s),
-                Event::Status(s) => logger.info("connection", &s),
+                Event::Status(s) => logger.info("connection", &s.text),
                 Event::Chat(_) => {}
             }
         }
@@ -315,14 +319,16 @@ fn start(module: HMODULE) -> Result<()> {
 }
 unsafe extern "system" fn worker(module: *mut c_void) -> u32 {
     let result = std::panic::catch_unwind(|| start(module));
-    if let Ok(path) = native::module_path(module) {
+    if let Ok(path) = module_path(module) {
         match result {
             Ok(Err(e)) => log(path.parent().unwrap(), &format!("Startup failed: {e}")),
             Err(_) => log(path.parent().unwrap(), "Worker panic; hook disabled"),
             _ => {}
         }
     }
-    native::DISABLED.store(true, Ordering::Release);
+    if let Some(game) = GAME.get() {
+        game.stop();
+    }
     0
 }
 /// LoadLibrary entry point. No network, file IO, waits or game calls under loader lock.
@@ -351,7 +357,9 @@ pub unsafe extern "system" fn DllMain(module: HMODULE, reason: u32, _reserved: *
 #[unsafe(no_mangle)]
 pub extern "C" fn chart_requester_shutdown() {
     STOP.store(true, Ordering::Release);
-    native::DISABLED.store(true, Ordering::Release);
+    if let Some(game) = GAME.get() {
+        game.stop();
+    }
     sdk::set(None);
 }
 extern "C" fn spice_destroy() {

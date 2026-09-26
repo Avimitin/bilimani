@@ -1,6 +1,7 @@
 //! Rust port of the protocol used by xfgryujk/blivedm and blivechat.
 //! See THIRD-PARTY-NOTICES.md for upstream licenses and source revisions.
-use crate::{config::Bilibili, engine::Chat};
+use super::{Chat, ChatSource, Connection, Event};
+use crate::config::Bilibili;
 use anyhow::{Context, Result, bail, ensure};
 use futures_util::{SinkExt, StreamExt};
 use hmac::{Hmac, Mac};
@@ -22,11 +23,31 @@ const MAX_PACKET: usize = 4 * 1024 * 1024;
 const USER_AGENT: &str =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36";
 
-#[derive(Debug)]
-pub enum Event {
-    Chat(Chat),
-    Status(String),
-    Diagnostic(String),
+pub struct Source(pub Bilibili);
+pub(super) fn redaction_secrets(config: &Bilibili) -> Vec<String> {
+    [
+        &config.auth_code,
+        &config.access_key_id,
+        &config.access_key_secret,
+        &config.sessdata,
+        &config.buvid3,
+    ]
+    .into_iter()
+    .filter(|s| !s.is_empty())
+    .cloned()
+    .collect()
+}
+impl ChatSource for Source {
+    fn shutdown_message(&self) -> &'static str {
+        "Stopping chat worker and closing the Open Live session"
+    }
+    fn run(
+        self: Box<Self>,
+        tx: mpsc::Sender<Event>,
+        stop: watch::Receiver<bool>,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
+        Box::pin(run(self.0, tx, stop))
+    }
 }
 #[derive(Debug)]
 pub enum Packet {
@@ -168,7 +189,9 @@ fn unix_time() -> u64 {
         .as_secs()
 }
 fn status(tx: &mpsc::Sender<Event>, s: impl Into<String>) {
-    let _ = tx.try_send(Event::Status(s.into()));
+    let text = s.into();
+    let connected = text.starts_with("弹幕已连接");
+    let _ = tx.try_send(Event::Status(Connection { connected, text }));
 }
 fn diagnostic(tx: &mpsc::Sender<Event>, s: impl Into<String>) {
     // Leave channel space for real chat/status events during bursts.
@@ -767,7 +790,7 @@ mod tests {
                 tokio::select! {
                     _ = &mut deadline => break,
                     event = rx.recv() => match event {
-                        Some(Event::Status(s)) if s.starts_with("弹幕已连接") => {
+                        Some(Event::Status(s)) if s.connected => {
                             authenticated = true;
                             println!("Live WebSocket authentication succeeded");
                         }

@@ -1,5 +1,8 @@
 # IIDX 33 adapter evidence
 
+Implementation: `src/games/iidx/v33/`. Game/version selection lives in
+`src/games/mod.rs`; upper layers use the contracts in `src/game.rs`.
+
 Analyzed with IDA/Hex-Rays using a local copy of `modules/bm2dx.dll` from the
 user-supplied share. The share was only read. IDA database and game files remain
 under ignored `analysis/`; no game assets are shipped or checked into git.

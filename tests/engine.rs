@@ -1,15 +1,17 @@
 use chart_requester::{
-    catalog::{Catalog, Chart, Mode, Song, parse_database},
+    catalog::Catalog,
     config::Config,
     engine::{Chat, Engine, Phase, Snapshot},
+    game::Song,
+    games::iidx::{self, v33::catalog::parse_database},
 };
 use std::collections::BTreeMap;
 fn song(id: u32, title: &str) -> Song {
     Song {
         id,
         title: title.into(),
-        reading: String::new(),
-        levels: [0, 4, 7, 10, 12, 0, 4, 7, 10, 12],
+        search_terms: vec![],
+        charts: iidx::available_charts([0, 4, 7, 10, 12, 0, 4, 7, 10, 12]),
     }
 }
 fn engine() -> Engine {
@@ -23,12 +25,13 @@ fn engine() -> Engine {
         &BTreeMap::new(),
     )
     .unwrap();
-    let mut e = Engine::new(Config::default(), catalog);
+    let mut e = Engine::new(Config::default(), catalog, &iidx::RULES);
     e.observe(
         Snapshot {
             phase: Phase::Select,
-            mode: Some(Mode::SP),
+            mode: Some(iidx::SP),
             epoch: 1,
+            can_skip: true,
         },
         0,
     );
@@ -86,9 +89,11 @@ fn manual_skip_rejects_stale_context_disabled_controls_and_inflight_jump() {
     e.snapshot.phase = Phase::Playing;
     assert!(!e.skip_current(token, 1, 1));
     e.snapshot.phase = Phase::Select;
-    e.snapshot.mode = Some(Mode::DP);
+    e.snapshot.mode = Some(iidx::DP);
+    e.snapshot.can_skip = false;
     assert!(!e.skip_current(token, 1, 1));
-    e.snapshot.mode = Some(Mode::SP);
+    e.snapshot.mode = Some(iidx::SP);
+    e.snapshot.can_skip = true;
     e.config.controls.skip_enabled = false;
     assert!(!e.skip_current(token, 1, 1));
     assert_eq!(e.current.as_ref().unwrap().request.token, token);
@@ -114,13 +119,13 @@ fn all_ten_difficulty_tokens() {
     for mode in ["SP", "DP"] {
         for (i, d) in ["B", "N", "H", "A", "L"].iter().enumerate() {
             let token = format!("{mode}{d}");
-            let c = Chart::parse(&token.to_lowercase()).unwrap();
+            let c = iidx::parse_chart(&token.to_lowercase()).unwrap();
             assert_eq!(c.label(), token);
-            assert_eq!(c.difficulty, i as u8);
+            assert_eq!(iidx::difficulty(c).unwrap(), i as u32);
         }
     }
     for bad in ["A", "SP", "DPAx", "SPX", "DPＡ"] {
-        assert!(Chart::parse(bad).is_none());
+        assert!(iidx::parse_chart(bad).is_none());
     }
 }
 #[test]
@@ -132,7 +137,7 @@ fn fuzzy_uses_native_index_ids_and_deduplicates_keyword_matches() {
         (3, "mei alternate".into()),
         (999, "nonexistent".into()),
     ];
-    assert_eq!(e.catalog.set_native_index(&entries), 2);
+    assert_eq!(e.catalog.set_search_index(&entries), 2);
     let found = e.catalog.search("mem", 5);
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].id, 3);
@@ -140,7 +145,7 @@ fn fuzzy_uses_native_index_ids_and_deduplicates_keyword_matches() {
     chat(&mut e, "1", "点歌 mem SPA", 0);
     assert_eq!(e.queue[0].song.id, 3);
     assert_eq!(e.queue[0].chart.unwrap().label(), "SPA");
-    e.catalog.set_native_index(&[]);
+    e.catalog.set_search_index(&[]);
     assert!(e.catalog.search("mem", 5).is_empty());
     assert_eq!(e.catalog.search("冥", 5)[0].id, 3);
 }
@@ -152,7 +157,7 @@ fn command_boundary_and_optional_difficulty() {
     assert!(e.queue.is_empty());
     chat(&mut e, "1", "点歌 冥", 1);
     assert_eq!(e.queue[0].chart, None);
-    assert_eq!(e.queue[0].mode, Mode::SP);
+    assert_eq!(e.queue[0].mode, iidx::SP);
     chat(&mut e, "2", "点歌 雪月花 spa", 2);
     assert_eq!(e.queue[1].chart.unwrap().label(), "SPA");
 }
@@ -196,7 +201,7 @@ fn mode_and_nonexistent_chart_rejected() {
     chat(&mut e, "1", "点歌 AA", 0);
     e.observe(
         Snapshot {
-            mode: Some(Mode::DP),
+            mode: Some(iidx::DP),
             ..e.snapshot
         },
         1,
@@ -369,7 +374,7 @@ fn example_config_is_valid() {
 #[test]
 fn fuzzy_search_does_not_span_title_and_reading_or_parse_title_operators() {
     let mut a = song(10, "A");
-    a.reading = "A".into();
+    a.search_terms = vec!["A".into()];
     let mut c = Catalog::new(
         vec![a, song(11, "AA"), song(12, "!Viva!")],
         &BTreeMap::new(),

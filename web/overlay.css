@@ -29,11 +29,11 @@ body { font: 13px/1.4 var(--font); color: var(--text); -webkit-font-smoothing: a
 .remaining { font-size: 10px; font-variant-numeric: tabular-nums; color: var(--muted); white-space: nowrap; }
 .remaining b { color: var(--text); font-weight: 500; }
 .chart { display: inline-flex; align-items: center; padding: 1px 5px; font-size: 10px; font-weight: 600; letter-spacing: .04em; border-radius: 4px; border: 1px solid currentColor; color: #aebac2; white-space: nowrap; }
-.chart[data-difficulty="A"] { color: #ee9298; background: #ee92980b; }
-.chart[data-difficulty="H"] { color: #e2c774; background: #e2c7740b; }
-.chart[data-difficulty="N"] { color: #88bce8; background: #88bce80b; }
-.chart[data-difficulty="L"] { color: #c7a1e8; background: #c7a1e80b; }
-.chart[data-difficulty="B"] { color: #9dc5ac; }
+.chart[data-tone="red"] { color: #ee9298; background: #ee92980b; }
+.chart[data-tone="amber"] { color: #e2c774; background: #e2c7740b; }
+.chart[data-tone="blue"] { color: #88bce8; background: #88bce80b; }
+.chart[data-tone="purple"] { color: #c7a1e8; background: #c7a1e80b; }
+.chart[data-tone="green"] { color: #9dc5ac; }
 .time-track { height: 1px; background: #ffffff09; margin: 0 -12px; }
 .time-track span { display: block; height: 100%; background: var(--accent); opacity: .55; transition: width .5s linear; }
 .current-idle { margin: 4px 0 9px; }

@@ -32,9 +32,9 @@ with sync_playwright() as p:
     expect(page.locator("button, input")).to_have_count(0)
     live = {
         "connected": True, "ready": True, "status": "弹幕已连接", "capacity": 20,
-        "current": {"token": 1, "title": "冥", "requester": "观众甲", "mode": "SP", "chart": "SPA", "remaining": 590, "duration": 600},
-        "queue": [{"token": i + 2, "title": "很长的曲名 / " * 8, "requester": "观众乙", "mode": "SP", "chart": "SPH"} for i in range(9)],
-        "pending": [{"requester": f"观众{i}", "mode": "SP", "chart": "SPA", "remaining": 47, "duration": 60,
+        "current": {"token": 1, "title": "冥", "requester": "观众甲", "mode": "SP", "chart": "SPA", "chart_style": "red", "remaining": 590, "duration": 600},
+        "queue": [{"token": i + 2, "title": "很长的曲名 / " * 8, "requester": "观众乙", "mode": "SP", "chart": "SPH", "chart_style": "amber"} for i in range(9)],
+        "pending": [{"requester": f"观众{i}", "mode": "SP", "chart": "SPA", "chart_style": "red", "remaining": 47, "duration": 60,
                      "candidates": [{"title": "AA", "available": True}, {"title": "AA -rebuild-", "available": False}]} for i in range(3)],
         "notices": [{"at": 1, "text": "已加入队列"}]
     }
@@ -49,6 +49,8 @@ with sync_playwright() as p:
     page.set_viewport_size({"width": 480, "height": 800})
     page.goto(args.url + "/queue")
     expect(page.locator(".current-title")).to_have_text("冥")
+    expect(page.locator("#current-content .chart")).to_have_css("color", "rgb(238, 146, 152)")
+    expect(page.locator(".queue-row .chart").first).to_have_css("color", "rgb(226, 199, 116)")
     expect(page.locator(".queue-row")).to_have_count(6)
     expect(page.locator("#queue-more")).to_have_text("另有 3 首等待中")
     assert page.evaluate("getComputedStyle(document.body).backgroundColor") == "rgba(0, 0, 0, 0)"
@@ -63,6 +65,10 @@ with sync_playwright() as p:
     expect(page.locator(".remaining b")).to_have_text("09:49")
     assert page.evaluate("window.previousTitle === document.querySelector('.current-title')"), "Timer caused a full rebuild"
     page.screenshot(path=str(shots / "queue.png"), omit_background=True)
+    payload["current"]["chart"] = "EXPERT+"
+    payload["current"]["chart_style"] = "purple"
+    expect(page.locator("#current-content .chart")).to_have_text("EXPERT+")
+    expect(page.locator("#current-content .chart")).to_have_css("color", "rgb(199, 161, 232)")
     injection = '<img src=x onerror="window.injected=true">'
     payload["current"]["title"] = injection
     expect(page.locator(".current-title")).to_have_text(injection)

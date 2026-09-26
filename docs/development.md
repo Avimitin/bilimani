@@ -2,6 +2,8 @@
 
 日常安装、点歌和常见问题请看 [使用手册](../README.md)。本文保留连接方式、版本校验、构建发布和详细日志说明，供开发与深入排错使用。
 
+新增游戏、游戏版本或直播平台前，请先阅读 [适配层与扩展方式](architecture.md)。核心只依赖统一契约，版本选择集中在注册入口。
+
 ## 本地网页界面
 
 `src/overlay.rs` 使用 Hyper 提供只读 HTTP 服务，默认只监听 `127.0.0.1:32133`。
@@ -40,7 +42,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "& ./scripts/build.ps1 -C
 
 ## Controller skip
 
-`src/controls.rs` samples the opposite Start through SDK v0.1 `get_button` (table
+`src/games/iidx/controls.rs` samples the opposite Start through the host bridge
+in `src/host/spice.rs`, using SDK v0.1 `get_button` (table
 slot 3, IIDX Start IDs 14/26). The SDK getter is kept behind an `RwLock`; shutdown
 disables hooks and clears it while waiting for any active read to finish. Missing
 SDK support or nonzero status disables gesture recognition without stopping chat.

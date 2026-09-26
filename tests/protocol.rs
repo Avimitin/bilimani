@@ -1,4 +1,4 @@
-use chart_requester::bilibili::{Packet, chat_from_command, decode, packet, wbi_key};
+use chart_requester::platforms::bilibili::{Packet, chat_from_command, decode, packet, wbi_key};
 use serde_json::json;
 use std::io::Write;
 #[test]

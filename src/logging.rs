@@ -12,18 +12,7 @@ pub struct Logger {
 }
 impl Logger {
     pub fn new(root: &Path, config: &Config) -> Self {
-        let b = &config.bilibili;
-        let mut secrets: Vec<_> = [
-            &b.auth_code,
-            &b.access_key_id,
-            &b.access_key_secret,
-            &b.sessdata,
-            &b.buvid3,
-        ]
-        .into_iter()
-        .filter(|s| !s.is_empty())
-        .cloned()
-        .collect();
+        let mut secrets = config.source().redaction_secrets();
         secrets.sort_by_key(|s| std::cmp::Reverse(s.len()));
         // Callers use Debug formatting for quoted chat fields; also redact its escaped form.
         let escaped: Vec<_> = secrets

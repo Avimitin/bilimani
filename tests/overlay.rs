@@ -1,10 +1,19 @@
+use chart_requester::platforms::Connection;
 use chart_requester::{
-    catalog::{Catalog, Mode, Song},
+    catalog::Catalog,
     config::Config,
     engine::{Chat, Engine, Phase, Snapshot},
+    game::Song,
+    games::iidx,
     overlay::{Server, snapshot},
 };
 use std::collections::BTreeMap;
+fn connection(text: &str) -> Connection {
+    Connection {
+        connected: text == "弹幕已连接",
+        text: text.into(),
+    }
+}
 
 #[test]
 fn public_snapshot_preserves_choices_and_timers_without_credentials_or_sender_ids() {
@@ -17,16 +26,21 @@ fn public_snapshot_preserves_choices_and_timers_without_credentials_or_sender_id
         .map(|(i, title)| Song {
             id: i as u32 + 1,
             title: title.into(),
-            reading: String::new(),
-            levels: [4; 10],
+            search_terms: vec![],
+            charts: iidx::available_charts([4; 10]),
         })
         .collect();
-    let mut engine = Engine::new(config, Catalog::new(songs, &BTreeMap::new()).unwrap());
+    let mut engine = Engine::new(
+        config,
+        Catalog::new(songs, &BTreeMap::new()).unwrap(),
+        &iidx::RULES,
+    );
     engine.observe(
         Snapshot {
             phase: Phase::Select,
-            mode: Some(Mode::SP),
+            mode: Some(iidx::SP),
             epoch: 1,
+            can_skip: true,
         },
         0,
     );
@@ -48,9 +62,11 @@ fn public_snapshot_preserves_choices_and_timers_without_credentials_or_sender_id
     );
     let jump = engine.next_jump(10).unwrap();
     engine.jump_result(jump.request.token, Some(Ok(())), 10);
-    let state = snapshot(Some(&engine), "弹幕已连接", 20);
+    let state = snapshot(Some(&engine), &connection("弹幕已连接"), 20);
     assert_eq!(state["current"]["title"], "冥");
     assert_eq!(state["current"]["chart"], "SPA");
+    assert_eq!(state["current"]["chart_style"], "red");
+    assert_eq!(state["pending"][0]["chart_style"], "neutral");
     assert_eq!(state["current"]["remaining"], 590);
     assert_eq!(state["pending"][0]["remaining"], 40);
     assert_eq!(
@@ -73,7 +89,7 @@ fn public_snapshot_preserves_choices_and_timers_without_credentials_or_sender_id
 
 #[tokio::test]
 async fn serves_embedded_assets_live_snapshots_and_releases_port_on_shutdown() {
-    let mut server = Server::start(0, &snapshot(None, "等待弹幕连接", 0))
+    let mut server = Server::start(0, &snapshot(None, &connection("等待弹幕连接"), 0))
         .await
         .unwrap();
     assert!(server.address.ip().is_loopback());
@@ -116,7 +132,7 @@ async fn serves_embedded_assets_live_snapshots_and_releases_port_on_shutdown() {
             .status(),
         404
     );
-    let updated = snapshot(None, "新连接状态", 1);
+    let updated = snapshot(None, &connection("新连接状态"), 1);
     server.publish(&updated);
     assert_eq!(
         client

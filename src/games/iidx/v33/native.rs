@@ -2,36 +2,31 @@
 //! ABI/offset evidence and supported file hash are recorded in docs/game-analysis.md.
 #![allow(unsafe_op_in_unsafe_fn)]
 use crate::{
-    catalog::Mode,
     config::Controls,
-    controls::{DoubleTap, Target, sdk, single_side},
-    engine::{Jump, Phase, Snapshot},
+    game::{Mode, Phase, Selection, SelectionResult as Ack, Snapshot},
+    games::iidx::{
+        self,
+        controls::{DoubleTap, Target, opposite_start, single_side},
+    },
+    host::windows::ModuleImage,
 };
 use anyhow::{Context, Result, ensure};
-use sha2::{Digest, Sha256};
 use std::{
     ffi::c_void,
-    path::PathBuf,
     sync::{
         Mutex, OnceLock,
         atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     time::{Duration, Instant},
 };
-use windows_sys::Win32::{
-    Foundation::HMODULE,
-    System::{
-        Diagnostics::Debug::ReadProcessMemory,
-        LibraryLoader::{GetModuleFileNameW, GetModuleHandleW},
-        Memory::{PAGE_READWRITE, VirtualProtect},
-        Threading::GetCurrentProcess,
-    },
+use windows_sys::Win32::System::{
+    Diagnostics::Debug::ReadProcessMemory,
+    Memory::{PAGE_READWRITE, VirtualProtect},
+    Threading::GetCurrentProcess,
 };
 
-mod search_index;
+use super::{SUPPORTED_SHA256, search_index};
 
-pub const SUPPORTED_SHA256: &str =
-    "c61b6dcb8894062e56d60da8ca90053b27f129e1a8e8da5e54457aa42602397d";
 const SELECT_VTABLE: usize = 0xd84788;
 const TITLE_DICTIONARY_VTABLE: usize = 0xce9f40;
 const DATABASE_GETTER: usize = 0x951fd0;
@@ -101,16 +96,11 @@ fn try_capture_database() {
     *DATABASE_ERROR.lock().unwrap() = capture_database().err().map(|e| e.to_string());
 }
 
-#[derive(Clone, Debug)]
-pub struct Ack {
-    pub token: u64,
-    pub result: Option<std::result::Result<(), String>>,
-}
 #[derive(Default)]
 pub struct Mailbox {
     pub snapshot: Snapshot,
     pub plays: u64,
-    pub command: Option<Jump>,
+    pub command: Option<Selection>,
     pub ack: Option<Ack>,
     pub skip_target: Option<u64>,
     pub skip_event: Option<Target>,
@@ -122,6 +112,7 @@ pub static MAILBOX: Mutex<Mailbox> = Mutex::new(Mailbox {
         phase: Phase::Other,
         mode: None,
         epoch: 0,
+        can_skip: false,
     },
     plays: 0,
     command: None,
@@ -132,27 +123,10 @@ pub static MAILBOX: Mutex<Mailbox> = Mutex::new(Mailbox {
     taps: DoubleTap::new(),
 });
 
-// HMODULE is an opaque OS handle; this function never dereferences it in Rust.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
-pub fn module_path(module: HMODULE) -> Result<PathBuf> {
-    let mut buf = vec![0u16; 32768];
-    let len = unsafe { GetModuleFileNameW(module, buf.as_mut_ptr(), buf.len() as u32) } as usize;
-    ensure!(len > 0 && len < buf.len(), "Cannot determine module path");
-    use std::os::windows::ffi::OsStringExt;
-    Ok(std::ffi::OsString::from_wide(&buf[..len]).into())
-}
-pub fn install(module_name: &str) -> Result<()> {
+pub fn install(image: ModuleImage) -> Result<()> {
     ensure!(cfg!(target_arch = "x86_64"), "Only x64 IIDX is supported");
-    let name: Vec<u16> = module_name.encode_utf16().chain(Some(0)).collect();
-    let module = unsafe { GetModuleHandleW(name.as_ptr()) };
-    ensure!(!module.is_null(), "Game DLL not loaded: {module_name}");
-    let path = module_path(module)?;
-    let file = std::fs::read(&path).context("Cannot fingerprint game DLL")?;
-    ensure!(
-        hex::encode(Sha256::digest(&file)) == SUPPORTED_SHA256,
-        "Unsupported bm2dx.dll build; hook disabled (see docs/game-analysis.md)"
-    );
-    let base = module as usize;
+    ensure!(image.sha256 == SUPPORTED_SHA256, "Wrong IIDX 33 profile");
+    let base = image.base;
     // Guard native entry points against incompatible in-memory patches as well.
     for (rva, expected) in [
         (0x7d60e0, "4883ec288b051e2f010aa801755483c8"),
@@ -264,8 +238,8 @@ unsafe fn get_mode() -> Option<Mode> {
     let f: unsafe extern "system" fn() -> u32 =
         std::mem::transmute(ADAPTER.get().unwrap().base + 0x82ded0);
     match f() {
-        0 => Some(Mode::SP),
-        1 => Some(Mode::DP),
+        0 => Some(iidx::SP),
+        1 => Some(iidx::DP),
         _ => None,
     }
 }
@@ -275,7 +249,7 @@ unsafe fn reserve() -> usize {
     f()
 }
 unsafe fn skip_side(mode: Option<Mode>) -> Option<u8> {
-    if mode != Some(Mode::SP) {
+    if mode != Some(iidx::SP) {
         return None;
     }
     let joined: unsafe extern "system" fn(u32) -> u8 =
@@ -287,6 +261,7 @@ fn reset_input(m: &mut Mailbox) {
     m.taps.reset();
     m.skip_event = None;
     m.skip_side = None;
+    m.snapshot.can_skip = false;
 }
 
 unsafe fn sample_input(m: &mut Mailbox, mode: Option<Mode>, ready: bool) -> Option<Target> {
@@ -295,12 +270,13 @@ unsafe fn sample_input(m: &mut Mailbox, mode: Option<Mode>, ready: bool) -> Opti
         return None;
     };
     m.skip_side = if ready { skip_side(mode) } else { None };
+    m.snapshot.can_skip = m.skip_side.is_some();
     let target = m.skip_side.zip(m.skip_target).map(|(side, token)| Target {
         side,
         token,
         epoch: m.snapshot.epoch,
     });
-    let pressed = target.and_then(|t| sdk::opposite_start(t.side));
+    let pressed = target.and_then(|t| opposite_start(t.side));
     if target.is_none() || pressed.is_none() || m.skip_event.is_some_and(|e| Some(e) != target) {
         m.skip_event = None;
     }
@@ -431,7 +407,7 @@ fn snapshot_database(getter: unsafe extern "system" fn() -> usize) -> Result<Vec
 fn cancel_command(m: &mut Mailbox) {
     if let Some(j) = m.command.take() {
         m.ack = Some(Ack {
-            token: j.request.token,
+            token: j.token,
             result: None,
         });
     }
@@ -459,7 +435,7 @@ unsafe extern "system" fn stage_init(this: usize, a2: usize, a3: usize, a4: usiz
 }
 unsafe extern "system" fn select_update(this: usize, a2: usize, a3: usize, a4: usize) -> usize {
     SELECT_UPDATES.fetch_add(1, Ordering::Relaxed);
-    let mut executing: Option<Jump> = None;
+    let mut executing: Option<Selection> = None;
     let mut detected_skip = None;
     guard(|| {
         let mode = get_mode();
@@ -481,7 +457,7 @@ unsafe extern "system" fn select_update(this: usize, a2: usize, a3: usize, a4: u
         };
         detected_skip = sample_input(&mut m, mode, is_ready);
         if let Some(j) = m.command.as_ref() {
-            if j.epoch != m.snapshot.epoch || Some(j.request.mode) != mode {
+            if j.epoch != m.snapshot.epoch || Some(j.mode) != mode {
                 cancel_command(&mut m);
             } else if is_ready && m.ack.is_none() {
                 executing = m.command.take();
@@ -501,20 +477,22 @@ unsafe extern "system" fn select_update(this: usize, a2: usize, a3: usize, a4: u
             } // Do not replace a touchscreen request.
             let can: unsafe extern "system" fn(usize, u32, u32, u64) -> u8 =
                 std::mem::transmute(base + 0x7d5eb0);
-            let difficulty = j.request.chart.map(|c| c.difficulty as i32).unwrap_or(-1);
-            let optional = j
-                .request
+            let difficulty = j
                 .chart
-                .map(|c| (1u64 << 32) | c.difficulty as u64)
+                .map(|c| iidx::difficulty(c).expect("IIDX chart") as i32)
+                .unwrap_or(-1);
+            let optional = j
+                .chart
+                .map(|c| (1u64 << 32) | iidx::difficulty(c).expect("IIDX chart") as u64)
                 .unwrap_or(0);
-            let mode = if j.request.mode == Mode::DP { 1 } else { 0 };
-            if can(r, j.request.song.id, mode, optional) == 0 {
+            let mode = if j.mode == iidx::DP { 1 } else { 0 };
+            if can(r, j.song_id, mode, optional) == 0 {
                 error = Some("谱面未解锁或当前选曲模式不可用".to_owned());
                 return;
             }
             let set: unsafe extern "system" fn(usize, u32, u32, i32) =
                 std::mem::transmute(base + 0x7d6150);
-            set(r, j.request.song.id, mode, difficulty);
+            set(r, j.song_id, mode, difficulty);
             submitted = true;
         }
     });
@@ -548,7 +526,7 @@ unsafe extern "system" fn select_update(this: usize, a2: usize, a3: usize, a4: u
                 let r = reserve();
                 if *((r + 9) as *const u8) == 0 {
                     // A modal/transition won the frame. Withdraw only our reservation.
-                    if *((r + 16) as *const u32) == j.request.song.id {
+                    if *((r + 16) as *const u32) == j.song_id {
                         *((r + 9) as *mut u8) = 1;
                     }
                     None
@@ -564,13 +542,14 @@ unsafe extern "system" fn select_update(this: usize, a2: usize, a3: usize, a4: u
                         std::mem::transmute(base + 0x606e60);
                     let mut success = bar_type(this + 408) == 1
                         && music != 0
-                        && *((music + 1660) as *const u32) == j.request.song.id;
-                    if let Some(c) = j.request.chart {
+                        && *((music + 1660) as *const u32) == j.song_id;
+                    if let Some(c) = j.chart {
                         let player: unsafe extern "system" fn() -> u32 =
                             std::mem::transmute(base + 0x949230);
                         let difficulty: unsafe extern "system" fn(usize, u32) -> u32 =
                             std::mem::transmute(base + 0x607030);
-                        success &= difficulty(this + 408, player()) == c.difficulty as u32;
+                        success &= difficulty(this + 408, player())
+                            == iidx::difficulty(c).expect("IIDX chart");
                     }
                     Some(if success {
                         Ok(())
@@ -583,7 +562,7 @@ unsafe extern "system" fn select_update(this: usize, a2: usize, a3: usize, a4: u
             };
             let mut m = MAILBOX.lock().unwrap();
             m.ack = Some(Ack {
-                token: j.request.token,
+                token: j.token,
                 result: outcome,
             });
             if ACTIVE_SCENE.load(Ordering::Acquire) == this {

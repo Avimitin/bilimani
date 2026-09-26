@@ -23,7 +23,7 @@
   const chart = (r) => {
     const label = r.chart || `${r.mode} · 当前难度`;
     const el = node("span", "chart", label);
-    el.dataset.difficulty = r.chart ? r.chart.slice(-1) : "";
+    el.dataset.tone = r.chart_style || "neutral";
     return el;
   };
   function changed(key, value, draw) {
@@ -40,7 +40,7 @@
     const warning = offline ? "等待游戏连接 · 游戏启动后会自动恢复" : !s.connected ? s.status : !s.ready ? "等待游戏曲库 · 请进入普通选曲界面" : "";
     document.querySelectorAll(".connection-banner").forEach((el) => { el.hidden = !warning; text(el, warning); });
     const c = s.current;
-    changed("current", c ? [c.token, c.title, c.requester, c.chart, c.mode] : [null, offline, s.ready, s.queue.length > 0], () => {
+    changed("current", c ? [c.token, c.title, c.requester, c.chart, c.mode, c.chart_style] : [null, offline, s.ready, s.queue.length > 0], () => {
       const box = $("current-content");
       box.replaceChildren();
       if (c) {

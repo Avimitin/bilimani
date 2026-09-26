@@ -77,34 +77,10 @@ impl DoubleTap {
 }
 
 #[cfg(windows)]
-pub(crate) mod sdk {
-    use std::sync::{
-        RwLock,
-        atomic::{AtomicI32, Ordering},
-    };
-    pub type GetButton = unsafe extern "C" fn(u32, *mut bool, *mut f32) -> i32;
-    static GET_BUTTON: RwLock<Option<GetButton>> = RwLock::new(None);
-    static STATUS: AtomicI32 = AtomicI32::new(-1);
+pub fn opposite_start(side: u8) -> Option<bool> {
     // SPICE_SDK_IIDX_BUTTONS, SDK v0.1 spicesdk_io.h.
     const START: [u32; 2] = [14, 26];
-
-    pub fn set(get: Option<GetButton>) {
-        *GET_BUTTON.write().unwrap() = get;
-        STATUS.store(if get.is_some() { -2 } else { -1 }, Ordering::Relaxed);
-    }
-    pub fn status() -> i32 {
-        STATUS.load(Ordering::Relaxed)
-    }
-    pub fn opposite_start(side: u8) -> Option<bool> {
-        let button = *START.get(usize::from(side ^ 1))?;
-        // Keep the read guard through the call; shutdown clears it before returning.
-        let api = GET_BUTTON.read().unwrap();
-        let get = api.as_ref()?;
-        let mut pressed = false;
-        let result = unsafe { get(button, &mut pressed, std::ptr::null_mut()) };
-        STATUS.store(result, Ordering::Relaxed);
-        (result == 0).then_some(pressed)
-    }
+    crate::host::spice::button(*START.get(usize::from(side ^ 1))?)
 }
 
 #[cfg(test)]
@@ -190,6 +166,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn sdk_reads_opposite_start_and_handles_missing_or_failed_getter() {
+        use crate::host::spice as sdk;
         use std::sync::atomic::{AtomicU32, Ordering};
         static BUTTON: AtomicU32 = AtomicU32::new(0);
         unsafe extern "C" fn get(id: u32, pressed: *mut bool, velocity: *mut f32) -> i32 {
@@ -204,14 +181,14 @@ mod tests {
             7
         }
         sdk::set(Some(get));
-        assert_eq!(sdk::opposite_start(0), Some(true));
+        assert_eq!(opposite_start(0), Some(true));
         assert_eq!(BUTTON.load(Ordering::Relaxed), 26);
-        assert_eq!(sdk::opposite_start(1), Some(true));
+        assert_eq!(opposite_start(1), Some(true));
         assert_eq!(BUTTON.load(Ordering::Relaxed), 14);
         sdk::set(Some(fail));
-        assert_eq!(sdk::opposite_start(0), None);
+        assert_eq!(opposite_start(0), None);
         assert_eq!(sdk::status(), 7);
         sdk::set(None);
-        assert_eq!(sdk::opposite_start(0), None);
+        assert_eq!(opposite_start(0), None);
     }
 }

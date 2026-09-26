@@ -19,6 +19,24 @@ pub struct Config {
     pub aliases: BTreeMap<String, String>,
 }
 
+/// Only queue/output policy reaches the engine; credentials and native settings
+/// stay in the composition layer and their adapters.
+#[derive(Clone, Debug, Default)]
+pub struct EngineConfig {
+    pub requests: Requests,
+    pub output: Output,
+    pub controls: Controls,
+}
+impl From<Config> for EngineConfig {
+    fn from(config: Config) -> Self {
+        Self {
+            requests: config.requests,
+            output: config.output,
+            controls: config.controls,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Controls {
@@ -170,6 +188,10 @@ impl Default for Game {
 }
 
 impl Config {
+    /// Preserve the existing TOML shape; backend selection is centralized here.
+    pub fn source(&self) -> crate::platforms::SourceConfig {
+        crate::platforms::SourceConfig::Bilibili(self.bilibili.clone())
+    }
     pub fn load(path: &Path) -> Result<Self> {
         let mut result: Self = toml::from_str(
             &std::fs::read_to_string(path)

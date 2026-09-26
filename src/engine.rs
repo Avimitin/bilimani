@@ -1,15 +1,13 @@
 use crate::{
-    catalog::{Catalog, Chart, Mode, Song},
-    config::Config,
+    catalog::Catalog,
+    config::EngineConfig,
+    game::{Chart, ChartStyle, GameRules, Mode, Selection, Song},
 };
 use std::collections::{BTreeMap, HashMap, VecDeque};
 
-#[derive(Clone, Debug)]
-pub struct Chat {
-    pub user: String,
-    pub name: String,
-    pub text: String,
-}
+pub use crate::game::{Phase, Snapshot};
+pub use crate::platforms::Chat;
+
 #[derive(Clone, Debug)]
 pub struct Request {
     pub token: u64,
@@ -25,7 +23,7 @@ impl Request {
             "{} [{}] — {}",
             self.song.title,
             self.chart
-                .map(|c| c.label())
+                .map(|c| c.label().to_owned())
                 .unwrap_or_else(|| format!("{:?}", self.mode)),
             self.name
         )
@@ -42,27 +40,27 @@ pub struct Current {
     pub request: Request,
     pub until: u64,
 }
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Phase {
-    #[default]
-    Other,
-    Select,
-    Playing,
-}
-#[derive(Clone, Copy, Debug, Default)]
-pub struct Snapshot {
-    pub phase: Phase,
-    pub mode: Option<Mode>,
-    pub epoch: u64,
-}
 #[derive(Clone, Debug)]
 pub struct Jump {
     pub request: Request,
     pub epoch: u64,
 }
 
+impl Jump {
+    pub fn selection(&self) -> Selection {
+        Selection {
+            token: self.request.token,
+            song_id: self.request.song.id,
+            mode: self.request.mode,
+            chart: self.request.chart,
+            epoch: self.epoch,
+        }
+    }
+}
+
 pub struct Engine {
-    pub config: Config,
+    pub config: EngineConfig,
+    rules: &'static dyn GameRules,
     pub catalog: Catalog,
     pub queue: VecDeque<Request>,
     pub current: Option<Current>,
@@ -77,9 +75,18 @@ pub struct Engine {
     skipped_before_jump: Option<String>,
 }
 impl Engine {
-    pub fn new(config: Config, catalog: Catalog) -> Self {
+    pub fn chart_style(&self, chart: Option<Chart>) -> ChartStyle {
+        chart.map_or(ChartStyle::Neutral, |c| self.rules.chart_style(c))
+    }
+
+    pub fn new(
+        config: impl Into<EngineConfig>,
+        catalog: Catalog,
+        rules: &'static dyn GameRules,
+    ) -> Self {
         Self {
-            config,
+            config: config.into(),
+            rules,
             catalog,
             queue: VecDeque::new(),
             current: None,
@@ -123,7 +130,7 @@ impl Engine {
     }
     pub fn chat(&mut self, mut chat: Chat, now: u64) -> &'static str {
         self.expire(now);
-        if chat.user.is_empty() || chat.user == "0" || chat.text.len() > 1024 {
+        if chat.user.is_empty() || chat.text.len() > 1024 {
             return "ignored_invalid_sender_or_oversized_message";
         }
         chat.name = clean(&chat.name, 40);
@@ -135,7 +142,10 @@ impl Engine {
             self.pending.remove(&chat.user);
             let rest = rest.trim();
             if rest.is_empty() {
-                self.notice(now, format!("{}：用法 点歌 <曲名> [SPA 等难度]", chat.name));
+                self.notice(
+                    now,
+                    format!("{}：用法 {}", chat.name, self.rules.request_hint()),
+                );
                 return "rejected_missing_song";
             }
             let Some(mode) = self.snapshot.mode else {
@@ -143,8 +153,8 @@ impl Engine {
                 return "rejected_game_mode_not_ready";
             };
             let (query, chart) = match rest.rsplit_once(char::is_whitespace) {
-                Some((name, tail)) if Chart::parse(tail).is_some() => {
-                    (name.trim(), Chart::parse(tail))
+                Some((name, tail)) if self.rules.parse_chart(tail).is_some() => {
+                    (name.trim(), self.rules.parse_chart(tail))
                 }
                 _ => (rest, None),
             };
@@ -272,7 +282,7 @@ impl Engine {
     pub fn skip_current(&mut self, token: u64, epoch: u64, now: u64) -> bool {
         if !self.config.controls.skip_enabled
             || self.snapshot.phase != Phase::Select
-            || self.snapshot.mode != Some(Mode::SP)
+            || !self.snapshot.can_skip
             || self.snapshot.epoch != epoch
             || self.in_flight.is_some()
             || self.current.as_ref().map(|c| c.request.token) != Some(token)
