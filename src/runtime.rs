@@ -6,6 +6,7 @@ use crate::{
     logging::Logger,
     native,
     output::{TextFile, resolved_output},
+    overlay,
 };
 use anyhow::{Result, ensure};
 use std::{
@@ -101,6 +102,20 @@ fn start(module: HMODULE) -> Result<()> {
         .enable_all()
         .build()?;
     rt.block_on(async {
+        let mut overlay_error = String::new();
+        let mut web = if config.overlay.enabled {
+            match overlay::Server::start(config.overlay.port, &overlay::snapshot(None, "等待弹幕连接", 0)).await {
+                Ok(server) => {
+                    logger.info("overlay", &format!("Browser sources: http://{}/queue and http://{}/interaction; preview: http://{}/", server.address, server.address, server.address));
+                    Some(server)
+                }
+                Err(e) => {
+                    overlay_error = format!("网页界面启动失败（端口 {}）：{e}；可修改 overlay.port 后重启，文本点歌仍可使用", config.overlay.port);
+                    logger.info("overlay", &overlay_error);
+                    None
+                }
+            }
+        } else { None };
         let (tx, mut rx) = tokio::sync::mpsc::channel(512);
         let (shutdown, stop) = tokio::sync::watch::channel(false);
         let network = tokio::spawn(bilibili::run(config.bilibili.clone(), tx, stop));
@@ -218,7 +233,7 @@ fn start(module: HMODULE) -> Result<()> {
                     Event::Diagnostic(s) => logger.debug("transport", &s),
                 }
             }
-            let (q, i) = if let Some(e) = engine.as_mut() {
+            let (q, mut i) = if let Some(e) = engine.as_mut() {
                 if let Some(j) = e.next_jump(now) {
                     logger.info("jump", &format!("submit token={} song_id={} song={:?} mode={:?} chart={:?} epoch={}",
                         j.request.token, j.request.song.id, j.request.song.title, j.request.mode, j.request.chart, j.epoch));
@@ -232,6 +247,15 @@ fn start(module: HMODULE) -> Result<()> {
                     format!("{status}\n{catalog_notice}\n等待游戏曲库…\n"),
                 )
             };
+            if web.as_ref().is_some_and(overlay::Server::is_finished) {
+                overlay_error = "网页界面服务已停止，请重启游戏；文本点歌仍可使用".into();
+                logger.info("overlay", &overlay_error);
+                web = None;
+            }
+            if let Some(server) = &web {
+                server.publish(&overlay::snapshot(engine.as_ref(), &status, now));
+            }
+            if !overlay_error.is_empty() { i.push_str(&format!("\n{overlay_error}\n")); }
             if now >= next_status {
                 let activity = engine.as_ref().map_or("waiting_for_catalog", Engine::activity);
                 logger.info("status", &format!("connection={:?} received={received} handled={handled} activity={activity} queue={} pending={} current={:?}",
@@ -252,6 +276,7 @@ fn start(module: HMODULE) -> Result<()> {
             }
         }
         native::DISABLED.store(true, Ordering::Release);
+        if let Some(server) = web.as_mut() { server.stop().await; }
         logger.info("shutdown", "Stopping chat worker and closing the Open Live session");
         let _ = shutdown.send(true);
         if !network.is_finished() {

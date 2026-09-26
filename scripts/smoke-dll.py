@@ -1,25 +1,38 @@
 """Exercise real DLL startup/shutdown without executing game code or networking.
 
-Usage: py scripts/smoke-dll.py [--reject]
+Usage: py scripts/smoke-dll.py [--reject | --occupied-port]
 Requires the built release DLL and the ignored local game copy for positive mode.
 Artifacts remain under analysis/smoke-* for inspection.
 """
 import ctypes
+import json
 import pathlib
 import shutil
+import socket
 import struct
 import sys
 import time
 import uuid
+import urllib.request
+import urllib.error
 
 root = pathlib.Path(__file__).resolve().parent.parent
 reject = "--reject" in sys.argv
+occupied_port = "--occupied-port" in sys.argv
 work = root / "analysis" / ("smoke-" + uuid.uuid4().hex)
 work.mkdir(parents=True)
 dll_path = work / "chart_requester.dll"
 shutil.copy2(root / "target/release/chart_requester.dll", dll_path)
 config = (root / "chart-requester.example.toml").read_text(encoding="utf-8")
-config = config.replace("enabled = true", "enabled = false")
+config = config.replace("enabled = true", "enabled = false", 1)
+port_blocker = socket.socket()
+port_blocker.bind(("127.0.0.1", 0))
+overlay_port = port_blocker.getsockname()[1]
+if occupied_port:
+    port_blocker.listen()
+else:
+    port_blocker.close()
+config = config.replace("port = 32133", f"port = {overlay_port}")
 if reject:
     config = config.replace('module = "bm2dx.dll"', 'module = "kernel32.dll"')
 (work / "chart-requester.toml").write_text(config, encoding="utf-8")
@@ -53,6 +66,15 @@ else:
     assert "Native hooks installed" in text, text
     assert "[status]" in text and "select_updates=0" in text, text
     assert "select_hooks_intact=true" in text, text
+    if occupied_port:
+        assert "网页界面启动失败" in text, text
+        assert "网页界面启动失败" in (work / "obs/interaction.txt").read_text(encoding="utf-8")
+    else:
+        with urllib.request.urlopen(f"http://127.0.0.1:{overlay_port}/queue", timeout=3) as response:
+            assert b"/overlay.js" in response.read()
+        with urllib.request.urlopen(f"http://127.0.0.1:{overlay_port}/api/state", timeout=3) as response:
+            state = json.load(response)
+            assert state["ready"] is False and state["queue"] == []
     for table, slot, rva in [(0xd84788, 13, 0x8eb820), (0xd84788, 14, 0x8ebeb0),
                              (0xd84788, 15, 0x8ec1f0), (0xce9f40, 1, 0x7f2fd0)]:
         hooked = ctypes.c_void_p.from_address(game + table + slot*8).value
@@ -78,4 +100,12 @@ assert destroy_callback
 destroy_callback()
 if not reject:
     assert (work / "obs/queue.txt").read_text(encoding="utf-8").strip() == "点歌已停止"
-print("PASS: " + ("unsupported image rejected" if reject else "mapped-image hooks, OBS files, and SDK shutdown") + f" ({work.name})")
+    if not occupied_port:
+        try:
+            urllib.request.urlopen(f"http://127.0.0.1:{overlay_port}/api/state", timeout=1)
+        except urllib.error.URLError:
+            pass
+        else:
+            raise AssertionError("Overlay server still running after shutdown")
+port_blocker.close()
+print("PASS: " + ("unsupported image rejected" if reject else "occupied-port fallback and SDK shutdown" if occupied_port else "mapped-image hooks, web overlay, OBS files, and SDK shutdown") + f" ({work.name})")

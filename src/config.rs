@@ -13,8 +13,24 @@ pub struct Config {
     pub bilibili: Bilibili,
     pub game: Game,
     pub logging: Logging,
+    pub overlay: Overlay,
     /// Alias -> exact song title or numeric music ID.
     pub aliases: BTreeMap<String, String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Overlay {
+    pub enabled: bool,
+    pub port: u16,
+}
+impl Default for Overlay {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            port: 32133,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
@@ -167,6 +183,7 @@ impl Config {
         Ok(result)
     }
     pub fn validate(&self) -> Result<()> {
+        ensure!(self.overlay.port != 0, "overlay.port must be 1..65535");
         ensure!(
             (1..=100).contains(&self.logging.max_file_mb),
             "logging.max_file_mb must be 1..100"

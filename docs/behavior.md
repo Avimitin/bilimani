@@ -17,5 +17,8 @@
 - Current request expires 600 seconds after a successful jump, configurable.
   Expiration can advance while still in song select; never jump during gameplay.
 - Separate UTF-8 OBS files for current/waiting requests and interactions.
+- Optional embedded loopback HTTP service with transparent queue/interaction browser
+  overlays, enabled by default on port 32133. HTML/CSS/JS ship inside the DLL.
+  Existing text files remain available; web bind failures do not stop requests.
 - Queue and pending selections are not persisted across game restarts.
 - Game share is read-only. Analysis uses local copies, excluded from git and releases.
