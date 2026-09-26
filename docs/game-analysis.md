@@ -32,8 +32,16 @@ in-memory guards for native entry points. An update needs a new analysis/profile
 | `0x607030` | Get selected difficulty for a player |
 | `0x951e80` | Canonical music ID lookup; rejects records whose embedded ID does not match |
 | `0x951e40` | Record lookup by index; stride `0x7f8` |
+| `0x951fd0` | Native database accessor; original LEA returns static buffer, verified Omnifix MOV returns relocated allocation |
 | `0x952c20` | Loads `/data/info/1/music_data.bin` into the live buffer |
-| `0xacd8900` | Live music database buffer, maximum `0x400000` bytes |
+| `0xacd8900` | Original static database buffer (`0x400000` bytes); becomes a pointer slot under Omnifix |
+| `0xce9f40` | `CMusicSearchStateInput::CMusicTitleDictionary` vtable; slot 1 is the XML loader |
+| `0x7f0250` | Search input initialization, loads title/artist dictionaries through AVS |
+| `0x7f2fd0` | Dictionary XML loader, iterates `data_list/data` and invokes supplied callback |
+| `0x7ef460` | Title entry parser: `index` is music ID, `yomi` produces keyword keys |
+| `0x7f4990` | Rebuilds active title map from full map according to native chart availability |
+| `0x7f2b60` / `0x7f2910` | Native prefix / substring search over title map |
+| `0x7f35d0` | Search update calls substring search, resolves IDs using `0x951e80`, deduplicates results |
 
 `MusicReserveImpl` fields: +8 enabled, +9 consumed flag, +16 music ID, +20 mode,
 +24 difficulty. Passing difficulty `-1` follows the native song-only path and
@@ -73,10 +81,49 @@ every non-sentinel entry would create bogus IDs. The parser iterates records and
 validates each record's canonical ID against the lookup table, matching the native
 getter's identity check. The copied active database parses as 1,932 canonical songs.
 
+The DLL calls `0x951fd0` on the selection thread and copies the returned buffer.
+It verifies the accessor's eight bytes, accepting only the original
+`48 8d 05 29 69 38 0a c3` or the verified relocated-buffer variant with byte 1
+changed to `8b`. The supplied installation's log records Omnifix patching precisely
+that byte, along with the loader limits and record accessors. Reading the old
+buffer directly would instead see a heap pointer and fail the `IIDX` header check.
+Snapshot size now comes from validated header dimensions (up to 10,000 records
+and 100,000 lookup entries), supporting databases larger than the original 4 MiB.
+Other accessor patches are rejected with a diagnostic, not executed.
+
+## Native search index
+
+Search input initialization loads `/data/info/1//music_title_yomi.xml` through AVS.
+Installed resource overrides can change the actual XML, so the DLL observes the
+populated in-memory dictionary rather than reopening a hardcoded filesystem path.
+Title-dictionary vtable slot 1 is wrapped with its original three-argument, byte
+return ABI. After the original succeeds, the wrapper copies its map at `this+8`
+on the same thread. The loader destroys the path and callback arguments; the
+wrapper never accesses them afterwards. The caller then copies that map to the
+master map at `this+24`, so capturing the master map inside the loader is too early.
+
+The map contains a head pointer and count. MSVC tree nodes store left/parent/right
+at +0/+8/+16, sentinel flag at +25, `std::wstring` key at +32 (length +48,
+capacity +56; capacities below 8 use inline UTF-16), and a shared item pointer at
++64. The item's canonical music ID is at +8. Snapshot reads use ReadProcessMemory,
+bounded dimensions/string lengths, cycle detection and node-count validation.
+Only owned Rust strings and IDs cross to the worker, never borrowed C++ objects.
+
+The worker adds those native keywords to the fuzzy matcher's canonical title and
+reading terms, resolves them by music ID, and emits each song only once. Unknown
+IDs are skipped. A later dictionary load replaces previous native keywords.
+The full index is captured before mode/availability filtering; the existing chart
+and native reservation checks still reject unavailable requests at selection.
+If the search dictionary has not initialized, canonical titles/readings remain
+usable. No extra install, manual XML copy, or search-window prerequisite is needed
+for basic requests. The touchscreen's own matching and result ownership are unchanged.
+
 ## Validation boundary
 
 `scripts/check-profile.py` checks the file hash, architecture, function guards and
-selection vtable targets. Automated tests cover request state and transport;
+selection/search vtable targets and the database accessor. Automated tests cover
+request state, transport, expanded native snapshots, dictionary layouts and fuzzy
+matching of native keywords;
 the DLL smoke test maps the game image without resolving imports or running its
 entry point, then tests hook installation. This is not a live gameplay test.
 The README lists the remaining interactive checks, especially frame timing,

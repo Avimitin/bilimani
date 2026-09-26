@@ -25,10 +25,13 @@ use windows_sys::Win32::{
     },
 };
 
+mod search_index;
+
 pub const SUPPORTED_SHA256: &str =
     "c61b6dcb8894062e56d60da8ca90053b27f129e1a8e8da5e54457aa42602397d";
 const SELECT_VTABLE: usize = 0xd84788;
-const DATABASE: usize = 0xacd8900;
+const TITLE_DICTIONARY_VTABLE: usize = 0xce9f40;
+const DATABASE_GETTER: usize = 0x951fd0;
 const STAGES: &[usize] = &[
     0xda50a8, 0xda5188, 0xda5268, 0xda5348, 0xda5428, 0xda5508, 0xda55e8, 0xda56c8, 0xdae1e8,
     0xdae2c8, 0xdae3a8, 0xdae488, 0xdae728,
@@ -51,6 +54,10 @@ static DATABASE_RETRY: AtomicUsize = AtomicUsize::new(0);
 static SELECT_UPDATES: AtomicUsize = AtomicUsize::new(0);
 static DATABASE_ATTEMPTS: AtomicUsize = AtomicUsize::new(0);
 static DATABASE_ERROR: Mutex<Option<String>> = Mutex::new(None);
+pub static SEARCH_INDEX: Mutex<Option<Vec<(u32, String)>>> = Mutex::new(None);
+static INDEX_LOADS: AtomicUsize = AtomicUsize::new(0);
+static INDEX_ENTRIES: AtomicUsize = AtomicUsize::new(0);
+static INDEX_ERROR: Mutex<Option<String>> = Mutex::new(None);
 
 /// Read-only diagnostics. Native callbacks update counters; disk IO stays on the worker.
 pub fn diagnostics() -> String {
@@ -67,13 +74,16 @@ pub fn diagnostics() -> String {
         })
     });
     format!(
-        "select_updates={} active_scene={} select_hooks_intact={} database_attempts={} database_bytes={} database_error={:?}",
+        "select_updates={} active_scene={} select_hooks_intact={} database_attempts={} database_bytes={} database_error={:?} index_loads={} index_entries={} index_error={:?}",
         SELECT_UPDATES.load(Ordering::Relaxed),
         ACTIVE_SCENE.load(Ordering::Acquire) != 0,
         slots_intact,
         DATABASE_ATTEMPTS.load(Ordering::Relaxed),
         LIVE_DATABASE.get().map_or(0, Vec::len),
-        DATABASE_ERROR.lock().unwrap().as_deref()
+        DATABASE_ERROR.lock().unwrap().as_deref(),
+        INDEX_LOADS.load(Ordering::Relaxed),
+        INDEX_ENTRIES.load(Ordering::Relaxed),
+        INDEX_ERROR.lock().unwrap().as_deref()
     )
 }
 
@@ -145,6 +155,7 @@ pub fn install(module_name: &str) -> Result<()> {
     }
     let mut hooks = Vec::new();
     for (table, slots) in std::iter::once((SELECT_VTABLE, &[13usize, 14, 15][..]))
+        .chain(std::iter::once((TITLE_DICTIONARY_VTABLE, &[1usize][..])))
         .chain(STAGES.iter().map(|&r| (r, &[13usize][..])))
     {
         for &slot in slots {
@@ -172,6 +183,8 @@ pub fn install(module_name: &str) -> Result<()> {
                 14 => select_exit as *const () as usize,
                 _ => select_update as *const () as usize,
             }
+        } else if hook.table == base + TITLE_DICTIONARY_VTABLE {
+            title_dictionary_load as *const () as usize
         } else {
             stage_init as *const () as usize
         };
@@ -269,6 +282,30 @@ fn guard(f: impl FnOnce()) {
         DISABLED.store(true, Ordering::Release);
     }
 }
+unsafe extern "system" fn title_dictionary_load(this: usize, path: usize, callback: usize) -> u8 {
+    let load: unsafe extern "system" fn(usize, usize, usize) -> u8 =
+        std::mem::transmute(original(this, 1));
+    let result = load(this, path, callback);
+    // The native loader destroys path/callback. Only inspect the populated map,
+    // while still on its owning thread, and pass owned strings to our worker.
+    guard(|| {
+        INDEX_LOADS.fetch_add(1, Ordering::Relaxed);
+        let captured = if result != 0 {
+            search_index::snapshot(this, read_memory)
+        } else {
+            Err(anyhow::anyhow!("Native title dictionary XML load failed"))
+        };
+        match captured {
+            Ok(entries) => {
+                INDEX_ENTRIES.store(entries.len(), Ordering::Relaxed);
+                *SEARCH_INDEX.lock().unwrap() = Some(entries);
+                *INDEX_ERROR.lock().unwrap() = None;
+            }
+            Err(e) => *INDEX_ERROR.lock().unwrap() = Some(e.to_string()),
+        }
+    });
+    result
+}
 unsafe extern "system" fn select_init(this: usize, a2: usize, a3: usize, a4: usize) -> usize {
     let result = original(this, 13)(this, a2, a3, a4);
     guard(|| {
@@ -284,7 +321,32 @@ unsafe extern "system" fn select_init(this: usize, a2: usize, a3: usize, a4: usi
     result
 }
 fn capture_database() -> Result<()> {
-    let address = ADAPTER.get().context("Adapter not installed")?.base + DATABASE;
+    let entry = ADAPTER.get().context("Adapter not installed")?.base + DATABASE_GETTER;
+    // The game/search dictionary uses this accessor. Omnifix changes LEA to MOV
+    // so the old global becomes a pointer to its larger allocation. Accept only
+    // these two verified instruction forms, then call the game's current accessor.
+    let code = read_memory(entry, 8)?;
+    validate_database_getter(&code)?;
+    let getter: unsafe extern "system" fn() -> usize = unsafe { std::mem::transmute(entry) };
+    let _ = LIVE_DATABASE.set(snapshot_database(getter)?);
+    Ok(())
+}
+fn validate_database_getter(code: &[u8]) -> Result<()> {
+    ensure!(
+        code.len() == 8
+            && code[0] == 0x48
+            && matches!(code[1], 0x8d | 0x8b)
+            && code[2..] == [0x05, 0x29, 0x69, 0x38, 0x0a, 0xc3],
+        "Unsupported native database getter; expected original or relocated-buffer accessor"
+    );
+    Ok(())
+}
+fn snapshot_database(getter: unsafe extern "system" fn() -> usize) -> Result<Vec<u8>> {
+    let address = unsafe { getter() };
+    ensure!(
+        address != 0,
+        "Native database getter returned null; database not ready"
+    );
     let header = read_memory(address, 16)?;
     ensure!(
         &header[..4] == b"IIDX" && u32::from_le_bytes(header[4..8].try_into()?) == 33,
@@ -295,13 +357,20 @@ fn capture_database() -> Result<()> {
     let count = u32::from_le_bytes(header[8..12].try_into()?) as usize;
     let ids = u32::from_le_bytes(header[12..16].try_into()?) as usize;
     ensure!(
-        (1..=2250).contains(&count) && (1..=100000).contains(&ids),
+        (1..=10000).contains(&count) && (1..=100000).contains(&ids),
         "Invalid live database dimensions: records={count} ids={ids}"
     );
     let size = 16 + ids * 4 + count * 0x7f8;
-    ensure!(size <= 0x400000, "Live database too large: bytes={size}");
-    let _ = LIVE_DATABASE.set(read_memory(address, size)?);
-    Ok(())
+    ensure!(
+        size <= 32 * 1024 * 1024,
+        "Live database too large: bytes={size}"
+    );
+    let data = read_memory(address, size)?;
+    ensure!(
+        data[..16] == header,
+        "Live database header changed during snapshot"
+    );
+    Ok(data)
 }
 fn cancel_command(m: &mut Mailbox) {
     if let Some(j) = m.command.take() {
@@ -448,4 +517,42 @@ unsafe extern "system" fn select_update(this: usize, a2: usize, a3: usize, a4: u
         }
     });
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn native_database_accessor_accepts_relocation_but_rejects_unknown_patches() {
+        let mut code = [0x48, 0x8d, 0x05, 0x29, 0x69, 0x38, 0x0a, 0xc3];
+        validate_database_getter(&code).unwrap();
+        code[1] = 0x8b;
+        validate_database_getter(&code).unwrap();
+        code[3] ^= 1;
+        assert!(validate_database_getter(&code).is_err());
+        assert!(validate_database_getter(&[]).is_err());
+    }
+
+    #[test]
+    fn snapshot_uses_native_returned_buffer_and_supports_expanded_database() {
+        static BUFFER: OnceLock<Vec<u8>> = OnceLock::new();
+        unsafe extern "system" fn getter() -> usize {
+            BUFFER.get().unwrap().as_ptr() as usize
+        }
+        unsafe extern "system" fn empty_getter() -> usize {
+            0
+        }
+        let count = 2300u32;
+        let ids = 34000u32;
+        let mut data = vec![0; 16 + ids as usize * 4 + count as usize * 0x7f8];
+        data[..4].copy_from_slice(b"IIDX");
+        data[4..8].copy_from_slice(&33u32.to_le_bytes());
+        data[8..12].copy_from_slice(&count.to_le_bytes());
+        data[12..16].copy_from_slice(&ids.to_le_bytes());
+        BUFFER.set(data).unwrap();
+        let snapshot = snapshot_database(getter).unwrap();
+        assert!(snapshot.len() > 0x400000);
+        assert_eq!(&snapshot, BUFFER.get().unwrap());
+        assert!(snapshot_database(empty_getter).is_err());
+    }
 }

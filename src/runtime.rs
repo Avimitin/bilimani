@@ -165,6 +165,10 @@ fn start(module: HMODULE) -> Result<()> {
                 last_game_state = game_state;
             }
             if let Some(e) = engine.as_mut() {
+                if let Some(entries) = native::SEARCH_INDEX.lock().unwrap().take() {
+                    let added = e.catalog.set_native_index(&entries);
+                    logger.info("catalog", &format!("Native search index captured: entries={} additional_terms={added}; fuzzy matching enabled", entries.len()));
+                }
                 // Acknowledge the jump before consuming the request on gameplay start.
                 if let Some(ack) = ack {
                     logger.info("jump", &format!("ack token={} result={:?}", ack.token, ack.result));

@@ -36,7 +36,11 @@ interaction file. Requests can start after entering the first supported song-sel
 screen; this supplies the current mode and the live song database.
 
 Search uses case-insensitive, Unicode-normalized, fzf-style fuzzy subsequence
-matching. Titles and the game's title readings are searched separately. Exact
+matching. Titles, title readings and keywords from the game's native title search
+dictionary are searched separately. The DLL captures that dictionary after the
+game loads it, including AVS resource overrides; until then, titles and readings
+remain searchable. Results are deduplicated by music ID and use the native jump.
+This applies to danmu requests; the touchscreen search UI keeps its normal behavior. Exact
 titles rank first, but still require a numbered choice if other candidates match.
 This is subsequence matching, not edit-distance spelling correction. Chinese
 nicknames or additional romanizations can be added as aliases:
@@ -205,6 +209,13 @@ the supported selection scene has not been observed. A nonempty database error
 identifies the failed read/header/size check; `select_hooks_intact=false` means
 the installed selection callbacks have been replaced. These diagnostics help
 distinguish waiting for the selection screen from a hook/database failure.
+
+The live database now comes from the game's native accessor, including the
+verified Omnifix relocated-buffer patch, rather than a fixed buffer address.
+`index_loads`, `index_entries`, and `index_error` track the native search dictionary.
+`[catalog] Native search index captured` confirms its keywords have reached the
+fuzzy matcher. Zero index loads only means the dictionary callback has not run;
+canonical titles/readings still work once the song database is ready.
 
 Set `danmu = false` to omit individual chat bodies and sender details; request
 notices still contain song titles and requester names. Set `level = "info"` to

@@ -53,8 +53,9 @@ else:
     assert "Native hooks installed" in text, text
     assert "[status]" in text and "select_updates=0" in text, text
     assert "select_hooks_intact=true" in text, text
-    for slot, rva in [(13, 0x8eb820), (14, 0x8ebeb0), (15, 0x8ec1f0)]:
-        hooked = ctypes.c_void_p.from_address(game + 0xd84788 + slot*8).value
+    for table, slot, rva in [(0xd84788, 13, 0x8eb820), (0xd84788, 14, 0x8ebeb0),
+                             (0xd84788, 15, 0x8ec1f0), (0xce9f40, 1, 0x7f2fd0)]:
+        hooked = ctypes.c_void_p.from_address(game + table + slot*8).value
         assert hooked != game+rva, f"Slot {slot} was not patched"
         assert abs(hooked-plugin._handle) < 0x4000000, "Hook is not inside plugin image"
 

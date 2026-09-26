@@ -65,6 +65,27 @@ fn all_ten_difficulty_tokens() {
     }
 }
 #[test]
+fn fuzzy_uses_native_index_ids_and_deduplicates_keyword_matches() {
+    let mut e = engine();
+    let entries = vec![
+        (3, "meimei".into()),
+        (3, "ＭＥＩＭＥＩ".into()),
+        (3, "mei alternate".into()),
+        (999, "nonexistent".into()),
+    ];
+    assert_eq!(e.catalog.set_native_index(&entries), 2);
+    let found = e.catalog.search("mem", 5);
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].id, 3);
+    assert!(e.catalog.search("nonexistent", 5).is_empty());
+    chat(&mut e, "1", "点歌 mem SPA", 0);
+    assert_eq!(e.queue[0].song.id, 3);
+    assert_eq!(e.queue[0].chart.unwrap().label(), "SPA");
+    e.catalog.set_native_index(&[]);
+    assert!(e.catalog.search("mem", 5).is_empty());
+    assert_eq!(e.catalog.search("冥", 5)[0].id, 3);
+}
+#[test]
 fn command_boundary_and_optional_difficulty() {
     let mut e = engine();
     chat(&mut e, "1", "普通聊天 AA", 0);

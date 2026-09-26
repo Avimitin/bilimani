@@ -47,7 +47,8 @@ buvid3 = ""
 
 [game]
 module = "bm2dx.dll"
-# 通常留空，使用游戏实际加载的歌曲数据库。
+# 通常留空，通过游戏原生入口读取实际加载的曲库（支持已确认的 Omnifix 曲库搬移）。
+# 游戏加载原生搜索词典后，插件自动复用其中的关键词进行 fuzzy 匹配。
 database_path = ""
 
 [logging]

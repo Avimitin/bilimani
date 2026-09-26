@@ -41,4 +41,6 @@ for rva, expected in guards.items():
     assert read(rva, 16).hex() == expected, f"Function guard mismatch at {rva:x}"
 for slot, expected in [(13, 0x8eb820), (14, 0x8ebeb0), (15, 0x8ec1f0)]:
     assert struct.unpack("<Q", read(0xd84788+slot*8, 8))[0] == image_base+expected
-print(f"Verified x64 image, SHA-256, {len(guards)} entry-point guards and selection vtable slots.")
+assert read(0x951fd0, 8).hex() == "488d052969380ac3", "Database accessor mismatch"
+assert struct.unpack("<Q", read(0xce9f40+8, 8))[0] == image_base+0x7f2fd0, "Title dictionary loader mismatch"
+print(f"Verified x64 image, SHA-256, {len(guards)} entry-point guards, database accessor, selection and search vtable slots.")
