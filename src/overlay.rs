@@ -149,7 +149,8 @@ fn route(req: Request<Incoming>, state: &RwLock<Bytes>, port: u16) -> Response<F
         )
     } else {
         match req.uri().path() {
-            "/" | "/queue" | "/interaction" => (
+            "/" => (StatusCode::TEMPORARY_REDIRECT, "text/plain", Bytes::new()),
+            "/queue" => (
                 StatusCode::OK,
                 "text/html; charset=utf-8",
                 Bytes::from_static(include_bytes!("../web/index.html")),
@@ -172,12 +173,16 @@ fn route(req: Request<Incoming>, state: &RwLock<Bytes>, port: u16) -> Response<F
             _ => (StatusCode::NOT_FOUND, "text/plain", "Not found".into()),
         }
     };
-    Response::builder()
+    let mut response = Response::builder()
         .status(status)
         .header("Content-Type", mime)
         .header("Cache-Control", "no-store")
         .header("X-Content-Type-Options", "nosniff")
-        .header("Content-Length", body.len())
+        .header("Content-Length", body.len());
+    if status == StatusCode::TEMPORARY_REDIRECT {
+        response = response.header("Location", "/queue");
+    }
+    response
         .body(Full::new(if req.method() == Method::HEAD {
             Bytes::new()
         } else {

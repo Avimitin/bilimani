@@ -80,9 +80,7 @@ async fn serves_embedded_assets_live_snapshots_and_releases_port_on_shutdown() {
     let root = format!("http://{}", server.address);
     let client = reqwest::Client::builder().no_proxy().build().unwrap();
     for (path, mime) in [
-        ("/", "text/html"),
         ("/queue", "text/html"),
-        ("/interaction", "text/html"),
         ("/overlay.css", "text/css"),
         ("/overlay.js", "text/javascript"),
         ("/api/state", "application/json"),
@@ -98,6 +96,26 @@ async fn serves_embedded_assets_live_snapshots_and_releases_port_on_shutdown() {
         assert_eq!(response.headers()["cache-control"], "no-store");
         assert!(!response.text().await.unwrap().is_empty());
     }
+    let redirect = reqwest::Client::builder()
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .unwrap()
+        .get(format!("{root}/"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(redirect.status(), 307);
+    assert_eq!(redirect.headers()["location"], "/queue");
+    assert_eq!(
+        client
+            .get(format!("{root}/interaction"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        404
+    );
     let updated = snapshot(None, "新连接状态", 1);
     server.publish(&updated);
     assert_eq!(

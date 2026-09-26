@@ -106,7 +106,7 @@ fn start(module: HMODULE) -> Result<()> {
         let mut web = if config.overlay.enabled {
             match overlay::Server::start(config.overlay.port, &overlay::snapshot(None, "等待弹幕连接", 0)).await {
                 Ok(server) => {
-                    logger.info("overlay", &format!("Browser sources: http://{}/queue and http://{}/interaction; preview: http://{}/", server.address, server.address, server.address));
+                    logger.info("overlay", &format!("Browser source: http://{}/queue", server.address));
                     Some(server)
                 }
                 Err(e) => {

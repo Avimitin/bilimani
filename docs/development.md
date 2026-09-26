@@ -6,17 +6,19 @@
 
 `src/overlay.rs` 使用 Hyper 提供只读 HTTP 服务，默认只监听 `127.0.0.1:32133`。
 HTML、CSS 和 JavaScript 位于 `web/`，编译时嵌入 DLL，无前端构建步骤、CDN 或外部字体依赖。
-`/` 是可切换示例/实时数据的预览页；`/queue`、`/interaction` 是透明背景的 OBS 来源。
-两种来源默认读取实时数据，只有显式指定 `?demo=1` 才使用示例。
+`/queue` 是唯一的页面，背景透明，包含队列及底部按需弹出的交互区域。
+`/` 仅重定向到 `/queue`；旧 `/interaction` 路径返回 404。
+页面始终读取 `/api/state` 的实时数据，不包含示例模式或预览控件。
 
 工作线程从 Engine 发布独立 JSON 快照，`/api/state` 只读该快照，不访问游戏内存、
 配置文件或游戏线程。快照包含当前点歌、队列、候选、剩余秒数和最近提示，不含身份码、
 Cookie、应用凭据或观众平台 ID。网页每 500 毫秒读取一次，曲名和昵称通过 `textContent`
 写入 DOM，倒计时更新不重建整张卡片。连接持续失败时清空旧数据，成功后自动恢复。
 
-队列最多显示前 6 首；候选按每页 2 位观众、6 秒一页轮换。超过 6 个候选时每页显示
-1 位观众并使用紧凑排版。最近提示显示最后 2 条，其过期由 Engine 控制。长文本仍可能
-需要用户增加 OBS 来源高度。展示层不修改排队、选择期限或跳转行为。
+队列最多显示前 6 首；底部候选按每页 1 位观众、6 秒一页轮换。普通通知只显示最新
+1 条，以通知的时间与内容识别新事件，出现 6 秒后隐藏（Engine 提前移除时同步隐藏），
+轮询不会重复弹出同一事件。无候选、通知或连接警告时，整个弹出区隐藏并释放占用高度。
+长文本或较多候选仍可能需要用户增加 OBS 来源高度。展示层不修改排队、选择期限或跳转行为。
 
 服务器仅允许明确的资源路径与 GET/HEAD，请求 Host/Origin 限制为本地地址，禁用缓存，
 每次连接只处理一个请求，上限 32 个并发连接、5 秒超时。启动失败会记录日志并保留文本
@@ -28,10 +30,12 @@ Cookie、应用凭据或观众平台 ID。网页每 500 毫秒读取一次，曲
 powershell -NoProfile -ExecutionPolicy Bypass -Command "& ./scripts/build.ps1 -CargoArgs @('run','--example','overlay_preview')"
 ```
 
-打开输出的网址，完成后按 Ctrl+C 关闭预览服务，释放端口。自动 HTTP/快照测试位于
+此工具仅用于开发，不随 DLL 打包；打开输出的网址可查看未连接游戏的状态。
+浏览器检查脚本通过拦截 `/api/state` 提供测试数据，模拟数据不进入 DLL。
+完成后按 Ctrl+C 关闭本地服务，释放端口。自动 HTTP/快照测试位于
 `tests/overlay.rs`。可选的浏览器检查需要 Python Playwright：启动预览后运行
 `py scripts/check-overlay.py --browser "C:/Program Files/Google/Chrome/Application/chrome.exe"`。
-不提供 `--browser` 时使用 Playwright 安装的 Chromium；截图保存在忽略的 `analysis/overlay/`。
+不提供 `--browser` 时使用 Playwright 安装的 Chromium；截图保存在忽略的 `analysis/overlay-compact/`。
 `scripts/smoke-dll.py` 也会检查真实 DLL 启动 HTTP 服务、提供页面/状态，以及关闭后释放端口。
 
 ## Bilibili connection
