@@ -14,8 +14,24 @@ pub struct Config {
     pub game: Game,
     pub logging: Logging,
     pub overlay: Overlay,
+    pub controls: Controls,
     /// Alias -> exact song title or numeric music ID.
     pub aliases: BTreeMap<String, String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Controls {
+    pub skip_enabled: bool,
+    pub double_tap_ms: u64,
+}
+impl Default for Controls {
+    fn default() -> Self {
+        Self {
+            skip_enabled: true,
+            double_tap_ms: 400,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -183,6 +199,10 @@ impl Config {
         Ok(result)
     }
     pub fn validate(&self) -> Result<()> {
+        ensure!(
+            (100..=2000).contains(&self.controls.double_tap_ms),
+            "controls.double_tap_ms must be 100..2000"
+        );
         ensure!(self.overlay.port != 0, "overlay.port must be 1..65535");
         ensure!(
             (1..=100).contains(&self.logging.max_file_mb),

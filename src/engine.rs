@@ -74,6 +74,7 @@ pub struct Engine {
     in_flight: Option<Jump>,
     next_token: u64,
     diagnostics: VecDeque<String>,
+    skipped_before_jump: Option<String>,
 }
 impl Engine {
     pub fn new(config: Config, catalog: Catalog) -> Self {
@@ -90,6 +91,7 @@ impl Engine {
             in_flight: None,
             next_token: 1,
             diagnostics: VecDeque::new(),
+            skipped_before_jump: None,
         }
     }
     pub fn notice(&mut self, now: u64, message: impl Into<String>) {
@@ -254,6 +256,9 @@ impl Engine {
         "enqueued"
     }
     pub fn observe(&mut self, snapshot: Snapshot, now: u64) {
+        if snapshot.phase == Phase::Playing || snapshot.epoch != self.snapshot.epoch {
+            self.skipped_before_jump = None;
+        }
         // Gameplay consumes the request even when a different song was chosen.
         if snapshot.phase == Phase::Playing
             && let Some(c) = self.current.take()
@@ -262,6 +267,23 @@ impl Engine {
         }
         self.snapshot = snapshot;
         self.expire(now);
+    }
+    /// The native frame detector ties the gesture to one current request/scene.
+    pub fn skip_current(&mut self, token: u64, epoch: u64, now: u64) -> bool {
+        if !self.config.controls.skip_enabled
+            || self.snapshot.phase != Phase::Select
+            || self.snapshot.mode != Some(Mode::SP)
+            || self.snapshot.epoch != epoch
+            || self.in_flight.is_some()
+            || self.current.as_ref().map(|c| c.request.token) != Some(token)
+        {
+            return false;
+        }
+        let request = self.current.take().unwrap().request;
+        let message = format!("已跳过：{}", request.label());
+        self.skipped_before_jump = (!self.queue.is_empty()).then(|| message.clone());
+        self.notice(now, message);
+        true
     }
     pub fn expire(&mut self, now: u64) {
         let expired: Vec<_> = self
@@ -297,6 +319,10 @@ impl Engine {
             let r = self.queue.pop_front().unwrap();
             self.notice(now, format!("模式不符，已跳过：{}", r.label()));
         }
+        if self.queue.is_empty() {
+            self.skipped_before_jump = None;
+            return None;
+        }
         let jump = Jump {
             request: self.queue.front()?.clone(),
             epoch: self.snapshot.epoch,
@@ -317,15 +343,24 @@ impl Engine {
             return;
         }
         let request = self.queue.pop_front().unwrap();
+        // Keep the skip visible when the following jump acknowledges immediately.
+        let skipped = self
+            .skipped_before_jump
+            .take()
+            .map(|s| format!("{s}\n"))
+            .unwrap_or_default();
         match result {
             Ok(()) => {
-                self.notice(now, format!("已定位：{}", request.label()));
+                self.notice(now, format!("{skipped}已定位：{}", request.label()));
                 self.current = Some(Current {
                     request,
                     until: now + self.config.requests.current_timeout_seconds,
                 });
             }
-            Err(e) => self.notice(now, format!("无法定位 {}：{}", request.song.title, e)),
+            Err(e) => self.notice(
+                now,
+                format!("{skipped}无法定位 {}：{}", request.song.title, e),
+            ),
         }
     }
     pub fn render(&self, now: u64) -> (String, String) {

@@ -2,6 +2,7 @@ use crate::{
     bilibili::{self, Event},
     catalog::{Catalog, parse_database},
     config::Config,
+    controls::sdk,
     engine::{Engine, Phase, Snapshot},
     logging::Logger,
     native,
@@ -90,6 +91,8 @@ fn start(module: HMODULE) -> Result<()> {
     let mut interaction = TextFile::new(interaction_path);
     queue.write("当前点歌\n暂无\n\n等待队列\n暂无\n")?;
     interaction.write("正在初始化 chart-requester…\n")?;
+    native::configure_controls(config.controls.clone());
+    logger.info("input", &format!("Opposite Start skip: enabled={} double_tap_ms={}; single-player SP song select only, read-only input", config.controls.skip_enabled, config.controls.double_tap_ms));
     if let Err(e) = native::install(&config.game.module) {
         interaction.write(&format!("点歌功能未启用：{e}\n"))?;
         return Err(e);
@@ -131,6 +134,7 @@ fn start(module: HMODULE) -> Result<()> {
         let mut next_status = 0;
         let mut received = 0u64;
         let mut handled = 0u64;
+        let mut last_input_state = String::new();
         loop {
             interval.tick().await;
             if STOP.load(Ordering::Acquire) {
@@ -170,10 +174,15 @@ fn start(module: HMODULE) -> Result<()> {
                 }
             }
             // Report game state even before the catalog becomes available.
-            let (snapshot, new_plays, ack) = {
+            let (snapshot, new_plays, ack, skip, skip_side) = {
                 let mut m = native::MAILBOX.lock().unwrap();
-                (m.snapshot, m.plays, m.ack.take())
+                (m.snapshot, m.plays, m.ack.take(), m.skip_event.take(), m.skip_side)
             };
+            let input_state = format!("active_side={:?} sdk_status={} (-1=unavailable, -2=not_sampled, 0=ok)", skip_side.map(|s| s + 1), sdk::status());
+            if input_state != last_input_state {
+                logger.info("input", &input_state);
+                last_input_state = input_state;
+            }
             let game_state = format!("phase={:?} mode={:?} select_entries={} plays={new_plays}", snapshot.phase, snapshot.mode, snapshot.epoch);
             if game_state != last_game_state {
                 logger.info("game", &game_state);
@@ -200,6 +209,10 @@ fn start(module: HMODULE) -> Result<()> {
                     plays = new_plays;
                 }
                 e.observe(snapshot, now);
+                if let Some(event) = skip {
+                    let accepted = skip_side == Some(event.side) && e.skip_current(event.token, event.epoch, now);
+                    logger.info("input", &format!("Opposite Start double tap: active_side={} token={} epoch={} skipped={accepted}", event.side + 1, event.token, event.epoch));
+                }
             }
             for _ in 0..128 {
                 let Ok(event) = rx.try_recv() else {
@@ -247,6 +260,7 @@ fn start(module: HMODULE) -> Result<()> {
                     format!("{status}\n{catalog_notice}\n等待游戏曲库…\n"),
                 )
             };
+            native::MAILBOX.lock().unwrap().skip_target = engine.as_ref().and_then(|e| e.current.as_ref().map(|c| c.request.token));
             if web.as_ref().is_some_and(overlay::Server::is_finished) {
                 overlay_error = "网页界面服务已停止，请重启游戏；文本点歌仍可使用".into();
                 logger.info("overlay", &overlay_error);
@@ -338,6 +352,7 @@ pub unsafe extern "system" fn DllMain(module: HMODULE, reason: u32, _reserved: *
 pub extern "C" fn chart_requester_shutdown() {
     STOP.store(true, Ordering::Release);
     native::DISABLED.store(true, Ordering::Release);
+    sdk::set(None);
 }
 extern "C" fn spice_destroy() {
     chart_requester_shutdown();
@@ -349,8 +364,8 @@ extern "C" fn spice_destroy() {
         }
     }
 }
-/// Spice SDK v0.1 ABI, used solely for orderly shutdown. Older Spice versions
-/// without this entry point still load through DllMain; sessions then expire by TTL.
+/// Spice SDK v0.1 ABI: orderly shutdown and read-only controller state.
+/// Older Spice versions still load, but controller skipping is unavailable.
 #[repr(C)]
 struct SdkV0 {
     size: u32,
@@ -366,5 +381,11 @@ pub unsafe extern "C" fn spice_sdk_entry_point(init: Option<SdkInit>) -> i32 {
         size: std::mem::size_of::<SdkV0>() as u32,
         functions: [0; 13],
     };
-    unsafe { init(0, spice_destroy, (&mut api as *mut SdkV0).cast()) }
+    let status = unsafe { init(0, spice_destroy, (&mut api as *mut SdkV0).cast()) };
+    if status == 0 && api.functions[3] != 0 && !STOP.load(Ordering::Acquire) {
+        sdk::set(Some(unsafe {
+            std::mem::transmute::<usize, sdk::GetButton>(api.functions[3])
+        }));
+    }
+    status
 }

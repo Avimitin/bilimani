@@ -51,6 +51,65 @@ fn jump(e: &mut Engine, now: u64) -> u64 {
 }
 
 #[test]
+fn manual_skip_advances_once_and_preserves_notice_after_jump_ack() {
+    let mut e = engine();
+    chat(&mut e, "a", "点歌 冥", 0);
+    chat(&mut e, "b", "点歌 雪月花", 0);
+    let first = jump(&mut e, 0);
+    assert!(e.skip_current(first, 1, 1));
+    assert!(!e.skip_current(first, 1, 1));
+    assert!(e.current.is_none());
+    assert_eq!(e.queue.len(), 1);
+    let second = jump(&mut e, 1);
+    assert_ne!(first, second);
+    assert_eq!(e.current.as_ref().unwrap().request.song.title, "雪月花");
+    let message = &e.messages.back().unwrap().1;
+    assert!(message.contains("已跳过：冥"));
+    assert!(message.contains("已定位：雪月花"));
+    assert!(!e.skip_current(first, 1, 2));
+    assert!(e.skip_current(second, 1, 2)); // Last item can be dismissed too.
+    assert!(e.next_jump(2).is_none());
+}
+
+#[test]
+fn manual_skip_rejects_stale_context_disabled_controls_and_inflight_jump() {
+    let mut e = engine();
+    chat(&mut e, "a", "点歌 冥", 0);
+    let j = e.next_jump(0).unwrap();
+    assert!(!e.skip_current(j.request.token, 1, 0));
+    e.jump_result(j.request.token, Some(Ok(())), 0);
+    let token = j.request.token;
+    assert!(!e.skip_current(token, 2, 1));
+    assert!(!e.skip_current(token + 1, 1, 1));
+    e.snapshot.phase = Phase::Other;
+    assert!(!e.skip_current(token, 1, 1));
+    e.snapshot.phase = Phase::Playing;
+    assert!(!e.skip_current(token, 1, 1));
+    e.snapshot.phase = Phase::Select;
+    e.snapshot.mode = Some(Mode::DP);
+    assert!(!e.skip_current(token, 1, 1));
+    e.snapshot.mode = Some(Mode::SP);
+    e.config.controls.skip_enabled = false;
+    assert!(!e.skip_current(token, 1, 1));
+    assert_eq!(e.current.as_ref().unwrap().request.token, token);
+}
+
+#[test]
+fn controls_defaults_and_window_validation() {
+    let mut c: Config = toml::from_str("").unwrap();
+    assert!(c.controls.skip_enabled);
+    assert_eq!(c.controls.double_tap_ms, 400);
+    for ms in [0, 99, 2001] {
+        c.controls.double_tap_ms = ms;
+        assert!(c.validate().is_err());
+    }
+    for ms in [100, 400, 2000] {
+        c.controls.double_tap_ms = ms;
+        c.validate().unwrap();
+    }
+}
+
+#[test]
 fn all_ten_difficulty_tokens() {
     for mode in ["SP", "DP"] {
         for (i, d) in ["B", "N", "H", "A", "L"].iter().enumerate() {

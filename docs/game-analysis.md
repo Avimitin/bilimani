@@ -26,6 +26,7 @@ in-memory guards for native entry points. An update needs a new analysis/profile
 | `0x7d6090` | Consume request; returns `[difficulty, mode, music_id]`, marks it consumed |
 | `0x82ded0` | Current mode thunk, 0 = SP, 1 = DP |
 | `0x949230` | Active player side, 0/1 (handles SP on the right side) |
+| `0x9493e0` | Per-side participation query `(u32 side) -> u8`; checks two flags at `0xacd79b0`, used by opposite-Start gating |
 | `0x806f60` | Modal overlay/input-blocked query |
 | `0x606fd0` | Get selected music record from selection widget; fallback exists, so bar type is also checked |
 | `0x606e60` | Selected bar type; 1 denotes a song/chart |
@@ -90,6 +91,14 @@ buffer directly would instead see a heap pointer and fail the `IIDX` header chec
 Snapshot size now comes from validated header dimensions (up to 10,000 records
 and 100,000 lookup entries), supporting databases larger than the original 4 MiB.
 Other accessor patches are rejected with a diagnostic, not executed.
+
+## Opposite-Start input eligibility
+
+The shortcut reads `0x9493e0(0/1)` on selection frames and requires exactly one
+participating side plus SP mode. Unlike `0x949230`, which can return zero for
+ambiguous states, these two flags allow both absent and both present states to
+disable the shortcut. The function's first 16 bytes are guarded at installation.
+No card identifiers or authentication state are inferred from it.
 
 ## Native search index
 

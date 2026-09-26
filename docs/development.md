@@ -38,6 +38,28 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "& ./scripts/build.ps1 -C
 不提供 `--browser` 时使用 Playwright 安装的 Chromium；截图保存在忽略的 `analysis/overlay-compact/`。
 `scripts/smoke-dll.py` 也会检查真实 DLL 启动 HTTP 服务、提供页面/状态，以及关闭后释放端口。
 
+## Controller skip
+
+`src/controls.rs` samples the opposite Start through SDK v0.1 `get_button` (table
+slot 3, IIDX Start IDs 14/26). The SDK getter is kept behind an `RwLock`; shutdown
+disables hooks and clears it while waiting for any active read to finish. Missing
+SDK support or nonzero status disables gesture recognition without stopping chat.
+
+Native selection updates sample input every frame, only when the normal selection
+gate is open, SP is active and exactly one side is participating. `DoubleTap`
+requires two rising edges within the configured window and keys its state to the
+request token, selection epoch and active side. Holding on entry, switching songs
+or sides, leaving selection, opening a modal or a failed read resets the gesture.
+The original game update always runs; no button state is overridden.
+
+The mailbox carries a token/epoch/side event to the worker, where the engine checks
+it again against the current request. Skipping clears only that current request;
+the existing native jump/ack path advances the waiting queue. The skip notice is
+included with the next jump result so a fast acknowledgement cannot hide it.
+`[input]` records configuration, eligibility/read status changes and accepted or
+discarded double taps. Tests cover input edges, context resets, unavailable SDK,
+single-player gating and stale/current/in-flight queue behavior.
+
 ## Bilibili connection
 
 The default **Open Live** mode follows blivechat: it sends the broadcaster identity
@@ -166,6 +188,8 @@ summary every 30 seconds. See `[logging]` in the Chinese example config.
   `ignored_not_a_request`, `ignored_catalog_not_ready`, `awaiting_selection`,
   `enqueued`, rejection reasons, candidates and timeout/queue notices.
 - `[jump]`: submission token, song/chart and the game's acknowledgement.
+- `[input]`: enabled/window settings, eligible player side, SDK read status and
+  double-tap token/epoch/acceptance. No card IDs are read or logged.
 - `[status]` and `[game]`: connection status, received/handled counts, queue,
   pending/current requests, waiting reason, selection phase and callback counts.
   `handled` counts messages recognized as requests or pending selections,

@@ -3,6 +3,8 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 use crate::{
     catalog::Mode,
+    config::Controls,
+    controls::{DoubleTap, Target, sdk, single_side},
     engine::{Jump, Phase, Snapshot},
 };
 use anyhow::{Context, Result, ensure};
@@ -14,6 +16,7 @@ use std::{
         Mutex, OnceLock,
         atomic::{AtomicBool, AtomicUsize, Ordering},
     },
+    time::{Duration, Instant},
 };
 use windows_sys::Win32::{
     Foundation::HMODULE,
@@ -58,6 +61,12 @@ pub static SEARCH_INDEX: Mutex<Option<Vec<(u32, String)>>> = Mutex::new(None);
 static INDEX_LOADS: AtomicUsize = AtomicUsize::new(0);
 static INDEX_ENTRIES: AtomicUsize = AtomicUsize::new(0);
 static INDEX_ERROR: Mutex<Option<String>> = Mutex::new(None);
+static CONTROLS: OnceLock<Controls> = OnceLock::new();
+static INPUT_CLOCK: OnceLock<Instant> = OnceLock::new();
+
+pub fn configure_controls(config: Controls) {
+    let _ = CONTROLS.set(config);
+}
 
 /// Read-only diagnostics. Native callbacks update counters; disk IO stays on the worker.
 pub fn diagnostics() -> String {
@@ -103,6 +112,10 @@ pub struct Mailbox {
     pub plays: u64,
     pub command: Option<Jump>,
     pub ack: Option<Ack>,
+    pub skip_target: Option<u64>,
+    pub skip_event: Option<Target>,
+    pub skip_side: Option<u8>,
+    taps: DoubleTap,
 }
 pub static MAILBOX: Mutex<Mailbox> = Mutex::new(Mailbox {
     snapshot: Snapshot {
@@ -113,6 +126,10 @@ pub static MAILBOX: Mutex<Mailbox> = Mutex::new(Mailbox {
     plays: 0,
     command: None,
     ack: None,
+    skip_target: None,
+    skip_event: None,
+    skip_side: None,
+    taps: DoubleTap::new(),
 });
 
 // HMODULE is an opaque OS handle; this function never dereferences it in Rust.
@@ -146,6 +163,7 @@ pub fn install(module_name: &str) -> Result<()> {
         (0x607030, "40534883ec204881c1280300008bdae8"),
         (0x606e60, "4883ec284881c128030000e880cdffff"),
         (0x949230, "4883ec28e84702000083f801751533c9"),
+        (0x9493e0, "85c9781783f90273124863c1488d0dbd"),
         (0x806f60, "4883ec28e8f7feffff85c07517e84eff"),
     ] {
         ensure!(
@@ -256,6 +274,43 @@ unsafe fn reserve() -> usize {
         std::mem::transmute(ADAPTER.get().unwrap().base + 0x7d60e0);
     f()
 }
+unsafe fn skip_side(mode: Option<Mode>) -> Option<u8> {
+    if mode != Some(Mode::SP) {
+        return None;
+    }
+    let joined: unsafe extern "system" fn(u32) -> u8 =
+        std::mem::transmute(ADAPTER.get().unwrap().base + 0x9493e0);
+    single_side(true, [joined(0) != 0, joined(1) != 0])
+}
+
+fn reset_input(m: &mut Mailbox) {
+    m.taps.reset();
+    m.skip_event = None;
+    m.skip_side = None;
+}
+
+unsafe fn sample_input(m: &mut Mailbox, mode: Option<Mode>, ready: bool) -> Option<Target> {
+    let Some(config) = CONTROLS.get().filter(|c| c.skip_enabled) else {
+        reset_input(m);
+        return None;
+    };
+    m.skip_side = if ready { skip_side(mode) } else { None };
+    let target = m.skip_side.zip(m.skip_target).map(|(side, token)| Target {
+        side,
+        token,
+        epoch: m.snapshot.epoch,
+    });
+    let pressed = target.and_then(|t| sdk::opposite_start(t.side));
+    if target.is_none() || pressed.is_none() || m.skip_event.is_some_and(|e| Some(e) != target) {
+        m.skip_event = None;
+    }
+    m.taps.sample(
+        target,
+        pressed,
+        INPUT_CLOCK.get_or_init(Instant::now).elapsed(),
+        Duration::from_millis(config.double_tap_ms),
+    )
+}
 unsafe fn ready(this: usize) -> bool {
     if ACTIVE_SCENE.load(Ordering::Acquire) != this || DISABLED.load(Ordering::Acquire) {
         return false;
@@ -315,6 +370,7 @@ unsafe extern "system" fn select_init(this: usize, a2: usize, a3: usize, a4: usi
         }
         let mut m = MAILBOX.lock().unwrap();
         m.snapshot.epoch += 1;
+        reset_input(&mut m);
         m.snapshot.mode = get_mode();
         m.snapshot.phase = Phase::Other;
     });
@@ -386,6 +442,7 @@ unsafe extern "system" fn select_exit(this: usize, a2: usize, a3: usize, a4: usi
         let mut m = MAILBOX.lock().unwrap();
         m.snapshot.phase = Phase::Other;
         cancel_command(&mut m);
+        reset_input(&mut m);
     });
     original(this, 14)(this, a2, a3, a4)
 }
@@ -396,12 +453,14 @@ unsafe extern "system" fn stage_init(this: usize, a2: usize, a3: usize, a4: usiz
         m.plays += 1;
         m.snapshot.phase = Phase::Playing;
         cancel_command(&mut m);
+        reset_input(&mut m);
     });
     original(this, 13)(this, a2, a3, a4)
 }
 unsafe extern "system" fn select_update(this: usize, a2: usize, a3: usize, a4: usize) -> usize {
     SELECT_UPDATES.fetch_add(1, Ordering::Relaxed);
     let mut executing: Option<Jump> = None;
+    let mut detected_skip = None;
     guard(|| {
         let mode = get_mode();
         let is_ready = ready(this);
@@ -420,6 +479,7 @@ unsafe extern "system" fn select_update(this: usize, a2: usize, a3: usize, a4: u
         } else {
             Phase::Other
         };
+        detected_skip = sample_input(&mut m, mode, is_ready);
         if let Some(j) = m.command.as_ref() {
             if j.epoch != m.snapshot.epoch || Some(j.request.mode) != mode {
                 cancel_command(&mut m);
@@ -460,6 +520,26 @@ unsafe extern "system" fn select_update(this: usize, a2: usize, a3: usize, a4: u
     });
     let result = original(this, 15)(this, a2, a3, a4);
     guard(|| {
+        // The original update can open a modal, change sides or enter gameplay.
+        // Withdraw an unconsumed gesture if its context changed in this frame.
+        let is_ready = ready(this);
+        let mode = get_mode();
+        let mut mailbox = MAILBOX.lock().unwrap();
+        if !is_ready || skip_side(mode) != mailbox.skip_side {
+            reset_input(&mut mailbox);
+        } else if let Some(event) = detected_skip
+            && mailbox.skip_target == Some(event.token)
+            && mailbox.snapshot.epoch == event.epoch
+        {
+            mailbox.skip_event = Some(event);
+        }
+        mailbox.snapshot.mode = mode;
+        if is_ready {
+            mailbox.snapshot.phase = Phase::Select;
+        } else if mailbox.snapshot.phase == Phase::Select {
+            mailbox.snapshot.phase = Phase::Other;
+        }
+        drop(mailbox);
         if let Some(j) = executing {
             let outcome = if let Some(e) = error {
                 Some(Err(e))

@@ -51,6 +51,14 @@ module = "bm2dx.dll"
 # 游戏加载原生搜索词典后，插件自动复用其中的关键词进行 fuzzy 匹配。
 database_path = ""
 
+[controls]
+# 单人 SP 普通选曲时，双击另一侧 Start 跳过当前点歌。
+# 1P 游玩按 2P Start；2P 游玩按 1P Start。只读取按键，不拦截游戏操作。
+# DP、双人游玩、非选曲界面不启用；需要 Spice2x SDK 的按键读取支持。
+skip_enabled = true
+# 两次按下的最大间隔（毫秒，100–2000）；中间必须松开，长按不算双击。
+double_tap_ms = 400
+
 [overlay]
 # 网页样式：在 OBS 添加一个「浏览器」来源，填写以下地址。
 # http://127.0.0.1:32133/queue（建议 480 × 800，为底部弹出提示预留高度）

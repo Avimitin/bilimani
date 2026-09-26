@@ -13,7 +13,12 @@
 - FIFO waiting queue, configurable capacity. Pop only after a successful jump;
   retain the item separately as the current request.
 - Automatically jump once on entering song select, or upon a request when idle there.
-- No hotkey. Playing any song consumes/skips the current request; advance on return.
+- Playing any song consumes/skips the current request; advance on return.
+- In single-player SP song select, double-tap the opposite Start to skip the current
+  request and advance. Read-only Spice SDK input; no interception. Default 400 ms
+  between presses, configurable via `[controls]`, enabled by default. Requires a
+  release between presses; unavailable SDK, DP, two joined players and noninteractive
+  screens disable this shortcut. Each gesture is tied to a request token and scene.
 - Current request expires 600 seconds after a successful jump, configurable.
   Expiration can advance while still in song select; never jump during gameplay.
 - Separate UTF-8 OBS files for current/waiting requests and interactions.

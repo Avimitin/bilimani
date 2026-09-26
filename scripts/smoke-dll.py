@@ -1,6 +1,6 @@
 """Exercise real DLL startup/shutdown without executing game code or networking.
 
-Usage: py scripts/smoke-dll.py [--reject | --occupied-port]
+Usage: py scripts/smoke-dll.py [--reject | --occupied-port | --no-sdk-input]
 Requires the built release DLL and the ignored local game copy for positive mode.
 Artifacts remain under analysis/smoke-* for inspection.
 """
@@ -84,12 +84,22 @@ else:
 # Simulate Spice's documented SDK initialization/shutdown callback ABI.
 destroy_callback = None
 INIT = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_uint32, ctypes.c_void_p, ctypes.c_void_p)
+GET_BUTTON = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_uint32, ctypes.POINTER(ctypes.c_bool), ctypes.c_void_p)
+
+@GET_BUTTON
+def sdk_get_button(button, pressed, velocity):
+    assert button in (14, 26)
+    pressed[0] = False
+    return 0
 
 @INIT
 def sdk_init(version, destroy, api):
     global destroy_callback
     assert version == 0
     assert ctypes.c_uint32.from_address(api).value == 112
+    if "--no-sdk-input" not in sys.argv:
+        # Eight-byte-aligned function table, get_button is slot 3.
+        ctypes.c_void_p.from_address(api + 8 + 3 * 8).value = ctypes.cast(sdk_get_button, ctypes.c_void_p).value
     destroy_callback = ctypes.CFUNCTYPE(None)(destroy)
     return 0
 
@@ -97,6 +107,14 @@ plugin.spice_sdk_entry_point.argtypes = [INIT]
 plugin.spice_sdk_entry_point.restype = ctypes.c_int
 assert plugin.spice_sdk_entry_point(sdk_init) == 0
 assert destroy_callback
+if not reject and "--no-sdk-input" not in sys.argv:
+    deadline = time.monotonic() + 3
+    while time.monotonic() < deadline:
+        if "sdk_status=-2" in logfile.read_text(encoding="utf-8"):
+            break
+        time.sleep(0.05)
+    else:
+        raise AssertionError("DLL did not retain the SDK get_button function")
 destroy_callback()
 if not reject:
     assert (work / "obs/queue.txt").read_text(encoding="utf-8").strip() == "点歌已停止"
