@@ -1,230 +1,221 @@
-# chart-requester
+# chart-requester：IIDX 弹幕点歌
 
-A self-contained Windows x64 Rust DLL that turns Bilibili danmu into beatmania
-IIDX song requests. Load it with Spice's `-k` option. No Python, browser,
-blivechat executable, playlister, or companion process is needed at runtime.
+让观众在哔哩哔哩直播间发送 `点歌 曲名`，主播的游戏就会在选曲界面自动定位到对应歌曲。多首点歌按顺序排队；由主播决定是否开始游玩。
 
-**Supported game: IIDX 33, supplied installation configured as `2026081900`
-(2026-08-19), restricted to the exact DLL listed under [Game compatibility](#game-compatibility).**
+无需编程，也不用另外安装 Python、blivechat 或 playlister。你需要一份能正常运行的游戏、Spice 启动器，以及自己的哔哩哔哩直播间。OBS 用来把队列和点歌提示展示给观众。
 
-## Install
+**当前支持：Windows 64 位，IIDX 33，已适配版本标识 `2026081900`（2026-08-19）。** 不同更新版本的游戏文件可能不兼容；插件会检查实际文件。请在普通 STANDARD / FREE / PREMIUM FREE 选曲界面使用，其他特殊模式暂不支持。
 
-1. Put `chart_requester.dll` in a **local writable directory**.
-2. Copy `chart-requester.example.toml` beside it as `chart-requester.toml`.
-3. Set `[bilibili].auth_code` to the broadcaster identity code used by blivechat.
-4. Add `-k "C:\path\to\chart_requester.dll"` to your existing Spice launch command.
-5. In OBS, add two **Text (GDI+)** sources with **Read from file** enabled:
-   `obs/queue.txt` and `obs/interaction.txt` beside the DLL, or the paths you configured.
+- [第一次安装](#第一次安装)
+- [观众怎么点歌](#观众怎么点歌)
+- [主播日常使用](#主播日常使用)
+- [常用设置](#常用设置)
+- [常见问题](#常见问题)
 
-The DLL creates a default config if missing. Restart the game after editing it.
-Keep your existing game launch arguments. Do not replace the game DLL.
-The build output and ready-to-copy files are placed in `dist/` by the packaging script.
+## 第一次安装
 
-## Requests
+### 1. 下载并解压
+
+1. 打开 [下载页面](https://github.com/Avimitin/chart-requester/releases)。
+2. 展开对应版本的 **Assets**，下载 `chart-requester-版本号.zip`，例如 `chart-requester-0.1.0.zip`。`Source code` 是源代码，安装时不需要下载。
+3. 将 ZIP 解压到本机一个可以保存文件的文件夹。下文统一以 `C:\chart-requester` 为例。
+
+解压后应能找到 `chart_requester.dll` 和 `chart-requester.example.toml`。DLL 由启动器加载，不需要双击打开。
+
+### 2. 填写主播身份码
+
+1. 用主播账号登录 [哔哩哔哩身份码页面](https://play-live.bilibili.com/)，复制自己的身份码。找不到入口时，可参考 [blivechat 的获取说明](https://blive.chat/help)。
+2. 在解压后的文件夹里，复制一份 `chart-requester.example.toml`，将副本重命名为 **`chart-requester.toml`**。
+3. 用记事本打开这个副本，找到 `[bilibili]` 下的 `auth_code = ""`，把身份码填到英文双引号之间：
+
+```toml
+auth_code = "在这里填写你复制的身份码"
+```
+
+保存为 UTF-8 编码。其他设置先保持默认即可，默认连接方式不需要填写直播间号。
+
+在资源管理器中打开「文件扩展名」显示，确认文件没有被保存成 `chart-requester.toml.txt`。身份码请只保存在自己的配置文件中，不要展示在直播画面或发到弹幕里。
+
+### 3. 让启动器加载插件
+
+先退出游戏，再给你平时使用的启动命令加上这一段，保留原有参数：
 
 ```text
-点歌 AA SPA
+-k "C:\chart-requester\chart_requester.dll"
+```
+
+- **用 `.bat` 文件启动：** 右键该文件，选择编辑，找到运行 `spice64.exe` 的那一行，在该行末尾加一个空格，再加上面的参数。
+- **用快捷方式启动：** 右键快捷方式 → 属性，在「目标」原有内容末尾加一个空格，再加上面的参数。
+
+如果解压到了其他位置，把路径改成你自己的 DLL 完整路径。无需替换游戏的 `bm2dx.dll`。
+
+### 4. 启动游戏，确认连接
+
+1. 按平时的流程开启直播，并用刚修改的启动方式打开游戏。
+2. 进入普通选曲界面。
+3. 打开插件文件夹里的 `obs` 文件夹，用记事本查看 `interaction.txt`。
+
+看到 **「弹幕已连接」** 表示连接成功。插件运行后会自动生成以下文件：
+
+| 文件 | 用途 |
+| --- | --- |
+| `obs/queue.txt` | 当前点歌和等待队列 |
+| `obs/interaction.txt` | 候选歌曲、选择提示、连接状态和错误提示 |
+| `chart-requester.log` | 出问题时用于排查的日志 |
+
+如果文件没有生成，或出现错误，先看下方的 [常见问题](#常见问题)。
+
+### 5. 在 OBS 中显示点歌信息
+
+1. 在 OBS 当前场景的「来源」中点击 **＋**，添加「文本（GDI+）」，命名为「点歌队列」。
+2. 勾选「从文件读取」，选择 `C:\chart-requester\obs\queue.txt`。
+3. 设置字体、字号和颜色，调整到合适的位置。
+4. 再添加一个文本来源，命名为「点歌提示」，读取 `C:\chart-requester\obs\interaction.txt`。
+
+两个来源可以分别设置样式。**请把「点歌提示」也放在观众能看到的位置**，观众需要根据这里的编号选择歌曲。
+
+### 6. 发一条弹幕试试
+
+在自己的直播间发送：
+
+```text
+点歌 AA
+```
+
+如果出现多首候选，由发送这条弹幕的同一个账号再发送一个编号，例如 `1`。队列空闲且游戏处于可操作的选曲界面时，游戏会定位到选中的歌曲；有其他点歌时则加入等待队列。
+
+能看到提示、选出歌曲并完成定位，就可以开始使用了。
+
+## 观众怎么点歌
+
+发送 `点歌`、一个空格，再加曲名：
+
+```text
 点歌 冥
+点歌 AA SPA
 点歌 AA -rebuild- DPA
 ```
 
-Difficulty is optional. Valid tokens are **SPB, SPN, SPH, SPA, SPL, DPB, DPN,
-DPH, DPA, DPL**; lowercase is accepted. An omitted difficulty retains the game's
-current SP/DP mode and uses the game's native song-only jump. Opposite-mode,
-nonexistent, locked, or unavailable charts are rejected, with feedback in the
-interaction file. Requests can start after entering the first supported song-select
-screen; this supplies the current mode and the live song database.
+难度可以不填，不填时使用主播当前的 SP/DP 模式，并沿用游戏当前难度选择。指定难度时，使用下表中的写法，大小写均可：
 
-Search uses case-insensitive, Unicode-normalized, fzf-style fuzzy subsequence
-matching. Titles, title readings and keywords from the game's native title search
-dictionary are searched separately. The DLL captures that dictionary after the
-game loads it, including AVS resource overrides; until then, titles and readings
-remain searchable. Results are deduplicated by music ID and use the native jump.
-This applies to danmu requests; the touchscreen search UI keeps its normal behavior. Exact
-titles rank first, but still require a numbered choice if other candidates match.
-This is subsequence matching, not edit-distance spelling correction. Chinese
-nicknames or additional romanizations can be added as aliases:
+| 难度 | SP（单打） | DP（双打） |
+| --- | --- | --- |
+| Beginner | SPB | DPB |
+| Normal | SPN | DPN |
+| Hyper | SPH | DPH |
+| Another | SPA | DPA |
+| Leggendaria | SPL | DPL |
 
-```toml
-[aliases]
-"my nickname" = "AA -rebuild-"
-"another nickname" = "25009" # canonical music ID, quoted
-```
+主播正在 SP 模式时不能点 DP，反之亦然。不存在、未解锁或当前模式不可用的谱面会提示失败。
 
-Multiple candidates appear as a numbered list under the requester's name. Only
-that same user's numeric reply selects a candidate. Each user has one pending
-selection; a new `点歌` command replaces it. Separate users can choose concurrently.
-The default candidate limit is 5 and the deadline is 60 seconds. Open Live provides
-an opaque user ID rather than the viewer's public numeric UID; selection uses that
-stable ID, never the display name.
-
-The waiting queue holds 20 requests by default and rejects new requests when full.
-After a successful jump, the request leaves the waiting queue and appears as
-**current**. It remains there until gameplay starts or its 600-second timeout
-expires. Playing any song consumes/skips the current request. The next request
-jumps when you return to song select. A timeout can advance immediately if you
-remain at song select. The DLL never starts a chart or requires a hotkey.
-
-Optional per-user cooldown starts only on successful enqueue; `cooldown_seconds = 0`
-disables it, and `300` permits one accepted request per five minutes. Queue state
-resets when the game restarts. The queue capacity counts waiting requests, excluding
-the separately displayed current request.
-
-## Bilibili connection
-
-The default **Open Live** mode follows blivechat: it sends the broadcaster identity
-code to the configured `https://api1.blive.chat` public API to start a session, then
-receives messages directly from Bilibili's secure WebSocket servers. This uses
-blivechat's hosted service; it does not install or launch that application.
-Its availability and Bilibili's live-session limits still apply.
-The default service alternates between `api1.blive.chat` and `api2.blive.chat`
-on reconnect. The old `https://blive.chat` setting is automatically mapped to
-these API endpoints; the website itself does not serve this API. Custom relay
-URLs and direct Open Live access are kept as configured.
-
-For direct Open Live access, set `relay_url = ""` and supply your own `app_id`,
-`access_key_id`, `access_key_secret`, and `auth_code`. Requests are signed with
-HMAC-SHA256. The DLL sends both WebSocket and Open Live session heartbeats,
-reconnects with backoff, handles zlib/Brotli batches, and deduplicates messages.
-
-Alternative **web** mode uses `mode = "web"` and `room_id`. Set `sessdata` and
-`buvid3` if required by your account/room's authentication. This mode ports
-blivedm's room lookup, WBI signing and socket authentication. Anonymous access is
-not guaranteed, and messages without a usable sender ID cannot enter the queue.
-Credentials stay in the local TOML and are never included in OBS output or logs.
-
-## Game compatibility
-
-The current adapter supports only the following supplied game build:
-
-| Item | Supported value |
-|---|---|
-| Game | beatmania IIDX 33 (Windows x64) |
-| Configured software version | `LDJ:J:D:A:2026081900` (2026-08-19) |
-| Module | `bm2dx.dll` |
-
-The software version above comes from the supplied installation's
-`prop/ea3-config.xml`; it is an informational label, not a binary compatibility
-check. The exact supported `bm2dx.dll` is identified by this SHA-256:
+曲名支持模糊匹配，可以省略部分字符，但保留的字符顺序要一致。遇到多首候选时，提示会显示编号，例如：
 
 ```text
-c61b6dcb8894062e56d60da8ca90053b27f129e1a8e8da5e54457aa42602397d
+1. AA
+2. AA -rebuild-
 ```
 
-**The song-jump function addresses, byte signatures, vtable slots and structure
-offsets are version-dependent.** Other updates of IIDX 33 and other major versions
-are unsupported unless separately analyzed and given a matching adapter. The DLL
-checks both the game file hash and native entry-point bytes before installing
-hooks; changing a version label or bypassing the hash check does not make a new
-build compatible.
+**由点歌的同一个账号，在默认 60 秒内只发送编号**，例如 `2`。其他人的回复不会替你选择。即使输入了完整曲名，只要还有其他候选，也需要选择。
 
-It supports the main `CMusicSelectScene` used by normal song selection, including
-SP/DP. Special selection interfaces (such as Life/STEP UP, Arena/BPL and course
-selection) are not adapters in this release; requests wait until the supported
-screen is available. No unlocks or availability checks are bypassed. Unknown game
-builds and changed native entry points disable the hook and report an error.
+超时后重新发送点歌命令即可。等待选择时再次点歌，会替换自己上一次尚未确认的选择。
 
-The adapter uses the live database. `game.database_path` is an optional override
-for a matching IIDX 33 database, resolved relative to the DLL. It does not make a
-different game binary compatible. Other hooks may coexist, but patches to the
-guarded entry points cause this DLL to refuse installation.
+## 主播日常使用
 
-The game-thread bridge, reservation ABI and validation evidence are documented in
-[docs/game-analysis.md](docs/game-analysis.md). **Static analysis, automated tests,
-and DLL loading checks do not replace a live game test.** Verify the following
-with your game and stream before relying on it:
+每次开播时，启动游戏、进入普通选曲界面，确认「弹幕已连接」，并确认 OBS 的两份文本都能正常显示。
 
-- A song-only request and SPA/DPA requests select the intended chart; opposite-mode
-  and locked charts report errors.
-- `点歌 AA` produces candidates, and only the requesting viewer can select them.
-- One request jumps at a time; playing either it or a different song advances on return.
-- With a temporarily short timeout, an ignored request advances while at song select.
-- Opening a menu, starting gameplay, or leaving song select prevents jumps.
-- Both OBS sources update, and a connection interruption recovers.
+- **点歌按先后排队。** 默认最多等待 20 首，队列满时新请求会收到提示。
+- **定位成功就离开等待队列。** 该歌曲会显示为「当前点歌」，不会自动开始游玩。
+- **不想打这首，可以直接选别的歌。** 开始游玩任意歌曲后，当前点歌就算结束；回到选曲界面时再处理下一首。
+- **一直没开始游玩，默认 10 分钟后跳过。** 如果此时还在选曲界面，会继续处理下一首；游玩途中不会跳歌。
+- **没有额外热键。** 所有人都可以点歌，队列和待选候选在游戏重启后清空。
 
-## Build and test
+## 常用设置
 
-Tested with Rust 1.98.1 (edition 2024), Visual Studio C++ build tools and
-a Windows SDK. These are build-time requirements only; the release uses a static CRT.
+用记事本修改 DLL 旁的 `chart-requester.toml`，保存后**重启游戏**生效。找到已有分组中的同名设置并修改，不要把整段配置重复粘贴进去。
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -Command "& ./scripts/build.ps1 -CargoArgs @('test','--all-targets')"
-powershell -NoProfile -ExecutionPolicy Bypass -Command "& ./scripts/build.ps1 -CargoArgs @('clippy','--all-targets','--','-D','warnings')"
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package.ps1
+以下设置都在 `[requests]` 下，时间单位为秒：
+
+| 想调整什么 | 设置名称 | 默认值 | 例子 |
+| --- | --- | --- | --- |
+| 等待队列最多多少首 | `queue_capacity` | `20` | 改为 `10`，最多等待 10 首 |
+| 一次最多显示几个候选 | `candidates` | `5` | 改为 `3`，最多显示 3 个 |
+| 等观众回复编号多久 | `selection_timeout_seconds` | `60` | 直播延迟较高时改为 `120` |
+| 当前点歌多久没人打就跳过 | `current_timeout_seconds` | `600` | 改为 `300`，等待 5 分钟 |
+| 同一观众多久能成功点一次 | `cooldown_seconds` | `0` | `0` 不限制，`300` 为每 5 分钟一次 |
+
+想让观众用昵称点歌，在已有的 `[aliases]` 分组下添加，例如：
+
+```toml
+"重制AA" = "AA -rebuild-"
 ```
 
-The build script discovers MSVC and also supports workspace-local Microsoft SDK
-NuGet packages under `reference/sdk/`. It does not install tools automatically.
-Developers can run `scripts/fetch-sdk.ps1` to populate that fallback.
-`scripts/check-profile.py` verifies a local game copy without loading it; the
-`catalog_check` Cargo example validates and searches a local music database.
-Game binaries, databases, IDA files, reference repositories, credentials and build
-artifacts are excluded from git. None are included in the release bundle.
+重启后，观众就可以发送 `点歌 重制AA`。右边填写游戏里的完整曲名；遇到同名歌曲时，也可以填写带引号的歌曲 ID。别名配置有问题时，插件会提示错误。
 
-## Automated releases
+想把 OBS 文件放到其他位置，可以修改 `[output]` 下的 `queue_path` 和 `interaction_path`，然后在 OBS 中重新选择文件。完整设置说明见 [中文示例配置](chart-requester.example.toml)。
 
-Pushing a tag runs [Build and release](.github/workflows/release.yml) on a Windows
-x64 runner: formatting, tests and Clippy must pass before building the release ZIP.
-The ZIP is kept as an Actions artifact and uploaded to the GitHub Release for that
-tag. An existing release receives the rebuilt asset when the workflow is rerun.
+## 常见问题
 
-The archive name follows the package version in `Cargo.toml`, for example
-`chart-requester-0.1.0.zip`. Update the package version and `Cargo.lock` before
-tagging a new version, then push the tag:
+### 只填身份码，插件怎么知道我的直播间？
 
-```powershell
-git tag v0.1.0
-git push origin v0.1.0
-```
+身份码用于授权连接主播的直播间。默认方式会通过 blivechat 的公共服务创建连接，再接收哔哩哔哩弹幕，服务返回的信息包含对应直播间。因此只需要填写身份码，`room_id` 保持默认即可。无需安装或运行 blivechat。
 
-You can also run the workflow manually from the Actions tab to build and download
-the ZIP without publishing a release. Publication uses GitHub's built-in
-`GITHUB_TOKEN`; no personal token or extra repository secret is required.
-See GitHub's [tag push trigger documentation](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#push)
-and [release CLI documentation](https://cli.github.com/manual/gh_release_create).
+### 提示「弹幕断开」「认证失败」或「身份码无效」怎么办？
 
-## Diagnostic logging
+先查看 `obs/interaction.txt` 中的具体原因，再依次检查：
 
-`chart-requester.log` beside the DLL now records timestamps in local time. Existing
-configs automatically get the new defaults: `level = "debug"`, `danmu = true`,
-10 MiB per file, three rotated backups (`.log.1` through `.log.3`), and a status
-summary every 30 seconds. See `[logging]` in the Chinese example config.
+1. 修改的是 DLL 旁的 `chart-requester.toml`，保存后已经重启游戏。
+2. 填入的是主播身份码，复制时没有多余空格；使用刷新后的身份码时，也更新了配置。
+3. 网络能正常访问哔哩哔哩和 blivechat 公共服务。短暂断线时插件会自动重连。
+4. 如果提示连接数量达到上限，关闭不再使用的重复弹幕连接，等待一段时间后再试。
 
-- `[connection]` and `[transport]`: API attempts, session creation, socket
-  authentication, heartbeats, reconnect reasons and session cleanup.
-- `[danmu]`: received message sequence number, sender ID/name and actual text.
-- `[request]`: the matching sequence number and processing outcome, including
-  `ignored_not_a_request`, `ignored_catalog_not_ready`, `awaiting_selection`,
-  `enqueued`, rejection reasons, candidates and timeout/queue notices.
-- `[jump]`: submission token, song/chart and the game's acknowledgement.
-- `[status]` and `[game]`: connection status, received/handled counts, queue,
-  pending/current requests, waiting reason, selection phase and callback counts.
-  `handled` counts messages recognized as requests or pending selections,
-  including rejected requests; it is not the number of successfully played songs.
+仍然失败时，请按下方说明提供日志。
 
-If OBS says the song database is not ready, inspect `select_entries`,
-`select_updates`, `database_attempts` and `database_error`. Zero callbacks mean
-the supported selection scene has not been observed. A nonempty database error
-identifies the failed read/header/size check; `select_hooks_intact=false` means
-the installed selection callbacks have been replaced. These diagnostics help
-distinguish waiting for the selection screen from a hook/database failure.
+### 显示「等待游戏曲库」怎么办？
 
-The live database now comes from the game's native accessor, including the
-verified Omnifix relocated-buffer patch, rather than a fixed buffer address.
-`index_loads`, `index_entries`, and `index_error` track the native search dictionary.
-`[catalog] Native search index captured` confirms its keywords have reached the
-fuzzy matcher. Zero index loads only means the dictionary callback has not run;
-canonical titles/readings still work once the song database is ready.
+先进入普通 STANDARD / FREE / PREMIUM FREE 选曲界面，再重新发送点歌。首次进入选曲前，插件还没有获得点歌所需的信息。
 
-Set `danmu = false` to omit individual chat bodies and sender details; request
-notices still contain song titles and requester names. Set `level = "info"` to
-omit detailed transport/chat traces, or `"off"` to disable routine logging.
-Startup failures are still logged. Authentication packets and raw API responses
-are never logged; configured identity codes, access keys and cookies are redacted,
-even if they appear in chat. Control characters are escaped to keep each event
-on one line. Restart the game after changing logging settings.
+如果已经在这个界面仍持续提示等待，请确认使用的是最新版插件，然后退出并重新启动游戏。仍未恢复时，请附上日志反馈。
 
-Modern Spice SDK shutdown callbacks close the chat session. On older loaders or
-forced process termination, Bilibili expires the session through its heartbeat TTL.
-The DLL remains mapped until process exit; runtime unloading is not supported.
+### OBS 没有文字，或者文字不更新？
+
+先用记事本打开 OBS 正在读取的那份 `.txt` 文件：
+
+- 文件内容正常：检查 OBS 是否勾选「从文件读取」、路径是否正确，以及来源是否可见。
+- 文件不存在：检查插件是否加载成功、DLL 路径是否正确、插件文件夹能否保存文件。
+- 文件里有错误提示：按该提示排查。不要选择 `.toml` 配置文件或 `.log` 日志作为 OBS 来源。
+
+### 发了弹幕，没有跳到歌曲？
+
+查看「点歌提示」和「点歌队列」。可能正在等待你回复候选编号，也可能排在其他点歌之后。点歌命令中的 `点歌` 后面需要有空格。
+
+游戏需要处于可操作的普通选曲界面；菜单、过场和游玩途中不会跳歌。相反模式、未解锁或不可用的谱面也无法定位。
+
+### 搜不到昵称，或者拼错字也搜不到？
+
+模糊搜索允许省略字符，不会自动纠正所有错别字。先试试完整曲名；常用中文昵称可以按上方说明添加到 `[aliases]`。
+
+### 提示「Unsupported bm2dx.dll build」或版本不兼容？
+
+当前只适配了上方列出的 IIDX 33 游戏版本。同为 IIDX 33，不同更新包也可能不兼容。仅修改版本号文字不能解决；请等待相应适配，或在反馈中注明自己的游戏版本和报错。
+
+### 改了配置却没生效，或提示配置错误？
+
+确认文件名是 `chart-requester.toml`，并且与 DLL 在同一个文件夹。修改后需要重启游戏。
+
+配置使用英文双引号，数字设置不加引号。检查是否误删了引号、重复添加了 `[bilibili]` 等分组，或保存成了 `.toml.txt`。可以对照示例配置恢复后，再逐项修改。
+
+### 怎么更新、关闭或移除插件？
+
+更新前先退出游戏，备份自己的 `chart-requester.toml`。解压新版本并替换 DLL，保留原配置；新增选项可以参考新版本的示例文件。
+
+暂时停止接收点歌，可把 `[bilibili]` 下的 `enabled` 改为 `false` 后重启。完全移除时，退出游戏，删除启动命令中对应的 `-k "…\chart_requester.dll"` 参数，再删除插件文件夹即可。
+
+### 遇到问题，应该提供什么？
+
+在 [问题反馈页面](https://github.com/Avimitin/chart-requester/issues) 说明插件版本、游戏版本、当时所在界面、发送的点歌命令，以及实际看到的提示。附上 DLL 旁 `chart-requester.log` 中出问题时间附近的内容；较早的日志可能在 `.log.1` 等文件中。
+
+日志默认记录收到的弹幕及处理结果。分享前检查其中的用户名、弹幕等个人信息，**不要上传自己的 `chart-requester.toml` 或身份码**。想减少日常日志，可将 `[logging]` 下的 `level` 改为 `"info"` 后重启；排错时改回 `"debug"`。
+
+---
+
+需要编译插件或深入排错，请看 [技术参考与开发指南](docs/development.md)；游戏版本与适配依据见 [游戏适配分析](docs/game-analysis.md)。
