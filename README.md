@@ -4,6 +4,9 @@ A self-contained Windows x64 Rust DLL that turns Bilibili danmu into beatmania
 IIDX song requests. Load it with Spice's `-k` option. No Python, browser,
 blivechat executable, playlister, or companion process is needed at runtime.
 
+**Supported game: IIDX 33, supplied installation configured as `2026081900`
+(2026-08-19), restricted to the exact DLL listed under [Game compatibility](#game-compatibility).**
+
 ## Install
 
 1. Put `chart_requester.dll` in a **local writable directory**.
@@ -84,11 +87,28 @@ Credentials stay in the local TOML and are never included in OBS output or logs.
 
 ## Game compatibility
 
-The first adapter targets the supplied **IIDX 33 `bm2dx.dll`** with SHA-256:
+The current adapter supports only the following supplied game build:
+
+| Item | Supported value |
+|---|---|
+| Game | beatmania IIDX 33 (Windows x64) |
+| Configured software version | `LDJ:J:D:A:2026081900` (2026-08-19) |
+| Module | `bm2dx.dll` |
+
+The software version above comes from the supplied installation's
+`prop/ea3-config.xml`; it is an informational label, not a binary compatibility
+check. The exact supported `bm2dx.dll` is identified by this SHA-256:
 
 ```text
 c61b6dcb8894062e56d60da8ca90053b27f129e1a8e8da5e54457aa42602397d
 ```
+
+**The song-jump function addresses, byte signatures, vtable slots and structure
+offsets are version-dependent.** Other updates of IIDX 33 and other major versions
+are unsupported unless separately analyzed and given a matching adapter. The DLL
+checks both the game file hash and native entry-point bytes before installing
+hooks; changing a version label or bypassing the hash check does not make a new
+build compatible.
 
 It supports the main `CMusicSelectScene` used by normal song selection, including
 SP/DP. Special selection interfaces (such as Life/STEP UP, Arena/BPL and course
