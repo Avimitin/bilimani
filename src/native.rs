@@ -48,6 +48,39 @@ pub static DISABLED: AtomicBool = AtomicBool::new(false);
 pub static LIVE_DATABASE: OnceLock<Vec<u8>> = OnceLock::new();
 static ACTIVE_SCENE: AtomicUsize = AtomicUsize::new(0);
 static DATABASE_RETRY: AtomicUsize = AtomicUsize::new(0);
+static SELECT_UPDATES: AtomicUsize = AtomicUsize::new(0);
+static DATABASE_ATTEMPTS: AtomicUsize = AtomicUsize::new(0);
+static DATABASE_ERROR: Mutex<Option<String>> = Mutex::new(None);
+
+/// Read-only diagnostics. Native callbacks update counters; disk IO stays on the worker.
+pub fn diagnostics() -> String {
+    let slots_intact = ADAPTER.get().is_some_and(|a| {
+        [
+            (13, select_init as *const () as usize),
+            (14, select_exit as *const () as usize),
+            (15, select_update as *const () as usize),
+        ]
+        .iter()
+        .all(|&(slot, expected)| {
+            read_memory(a.base + SELECT_VTABLE + slot * 8, 8)
+                .is_ok_and(|b| usize::from_le_bytes(b.try_into().unwrap()) == expected)
+        })
+    });
+    format!(
+        "select_updates={} active_scene={} select_hooks_intact={} database_attempts={} database_bytes={} database_error={:?}",
+        SELECT_UPDATES.load(Ordering::Relaxed),
+        ACTIVE_SCENE.load(Ordering::Acquire) != 0,
+        slots_intact,
+        DATABASE_ATTEMPTS.load(Ordering::Relaxed),
+        LIVE_DATABASE.get().map_or(0, Vec::len),
+        DATABASE_ERROR.lock().unwrap().as_deref()
+    )
+}
+
+fn try_capture_database() {
+    DATABASE_ATTEMPTS.fetch_add(1, Ordering::Relaxed);
+    *DATABASE_ERROR.lock().unwrap() = capture_database().err().map(|e| e.to_string());
+}
 
 #[derive(Clone, Debug)]
 pub struct Ack {
@@ -241,7 +274,7 @@ unsafe extern "system" fn select_init(this: usize, a2: usize, a3: usize, a4: usi
     guard(|| {
         ACTIVE_SCENE.store(this, Ordering::Release);
         if LIVE_DATABASE.get().is_none() {
-            let _ = capture_database();
+            try_capture_database();
         }
         let mut m = MAILBOX.lock().unwrap();
         m.snapshot.epoch += 1;
@@ -255,16 +288,18 @@ fn capture_database() -> Result<()> {
     let header = read_memory(address, 16)?;
     ensure!(
         &header[..4] == b"IIDX" && u32::from_le_bytes(header[4..8].try_into()?) == 33,
-        "Database not ready"
+        "Database header not ready: magic={} version={}",
+        hex::encode(&header[..4]),
+        u32::from_le_bytes(header[4..8].try_into()?)
     );
     let count = u32::from_le_bytes(header[8..12].try_into()?) as usize;
     let ids = u32::from_le_bytes(header[12..16].try_into()?) as usize;
     ensure!(
         (1..=2250).contains(&count) && (1..=100000).contains(&ids),
-        "Invalid live database dimensions"
+        "Invalid live database dimensions: records={count} ids={ids}"
     );
     let size = 16 + ids * 4 + count * 0x7f8;
-    ensure!(size <= 0x400000, "Live database too large");
+    ensure!(size <= 0x400000, "Live database too large: bytes={size}");
     let _ = LIVE_DATABASE.set(read_memory(address, size)?);
     Ok(())
 }
@@ -296,6 +331,7 @@ unsafe extern "system" fn stage_init(this: usize, a2: usize, a3: usize, a4: usiz
     original(this, 13)(this, a2, a3, a4)
 }
 unsafe extern "system" fn select_update(this: usize, a2: usize, a3: usize, a4: usize) -> usize {
+    SELECT_UPDATES.fetch_add(1, Ordering::Relaxed);
     let mut executing: Option<Jump> = None;
     guard(|| {
         let mode = get_mode();
@@ -306,7 +342,7 @@ unsafe extern "system" fn select_update(this: usize, a2: usize, a3: usize, a4: u
                 .fetch_add(1, Ordering::Relaxed)
                 .is_multiple_of(120)
         {
-            let _ = capture_database();
+            try_capture_database();
         }
         let mut m = MAILBOX.lock().unwrap();
         m.snapshot.mode = mode;

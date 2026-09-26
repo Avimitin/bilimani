@@ -180,7 +180,40 @@ the ZIP without publishing a release. Publication uses GitHub's built-in
 See GitHub's [tag push trigger documentation](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#push)
 and [release CLI documentation](https://cli.github.com/manual/gh_release_create).
 
-Startup and file-output errors are written to `chart-requester.log` beside the DLL.
+## Diagnostic logging
+
+`chart-requester.log` beside the DLL now records timestamps in local time. Existing
+configs automatically get the new defaults: `level = "debug"`, `danmu = true`,
+10 MiB per file, three rotated backups (`.log.1` through `.log.3`), and a status
+summary every 30 seconds. See `[logging]` in the Chinese example config.
+
+- `[connection]` and `[transport]`: API attempts, session creation, socket
+  authentication, heartbeats, reconnect reasons and session cleanup.
+- `[danmu]`: received message sequence number, sender ID/name and actual text.
+- `[request]`: the matching sequence number and processing outcome, including
+  `ignored_not_a_request`, `ignored_catalog_not_ready`, `awaiting_selection`,
+  `enqueued`, rejection reasons, candidates and timeout/queue notices.
+- `[jump]`: submission token, song/chart and the game's acknowledgement.
+- `[status]` and `[game]`: connection status, received/handled counts, queue,
+  pending/current requests, waiting reason, selection phase and callback counts.
+  `handled` counts messages recognized as requests or pending selections,
+  including rejected requests; it is not the number of successfully played songs.
+
+If OBS says the song database is not ready, inspect `select_entries`,
+`select_updates`, `database_attempts` and `database_error`. Zero callbacks mean
+the supported selection scene has not been observed. A nonempty database error
+identifies the failed read/header/size check; `select_hooks_intact=false` means
+the installed selection callbacks have been replaced. These diagnostics help
+distinguish waiting for the selection screen from a hook/database failure.
+
+Set `danmu = false` to omit individual chat bodies and sender details; request
+notices still contain song titles and requester names. Set `level = "info"` to
+omit detailed transport/chat traces, or `"off"` to disable routine logging.
+Startup failures are still logged. Authentication packets and raw API responses
+are never logged; configured identity codes, access keys and cookies are redacted,
+even if they appear in chat. Control characters are escaped to keep each event
+on one line. Restart the game after changing logging settings.
+
 Modern Spice SDK shutdown callbacks close the chat session. On older loaders or
 forced process termination, Bilibili expires the session through its heartbeat TTL.
 The DLL remains mapped until process exit; runtime unloading is not supported.

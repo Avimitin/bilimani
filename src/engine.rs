@@ -73,6 +73,7 @@ pub struct Engine {
     cooldowns: HashMap<String, u64>,
     in_flight: Option<Jump>,
     next_token: u64,
+    diagnostics: VecDeque<String>,
 }
 impl Engine {
     pub fn new(config: Config, catalog: Catalog) -> Self {
@@ -88,18 +89,40 @@ impl Engine {
             cooldowns: HashMap::new(),
             in_flight: None,
             next_token: 1,
+            diagnostics: VecDeque::new(),
         }
     }
     pub fn notice(&mut self, now: u64, message: impl Into<String>) {
-        self.messages.push_back((now, message.into()));
+        let message = message.into();
+        self.diagnostics.push_back(message.clone());
+        if self.diagnostics.len() > 2048 {
+            self.diagnostics.pop_front();
+        }
+        self.messages.push_back((now, message));
         while self.messages.len() > self.config.output.recent_messages {
             self.messages.pop_front();
         }
     }
-    pub fn chat(&mut self, mut chat: Chat, now: u64) {
+    pub fn take_diagnostics(&mut self) -> impl Iterator<Item = String> + '_ {
+        self.diagnostics.drain(..)
+    }
+    pub fn activity(&self) -> &'static str {
+        if self.snapshot.phase != Phase::Select {
+            "waiting_for_song_select"
+        } else if self.current.is_some() {
+            "waiting_for_play_or_timeout"
+        } else if self.in_flight.is_some() {
+            "waiting_for_game_ack"
+        } else if self.queue.is_empty() {
+            "idle_queue_empty"
+        } else {
+            "ready_to_jump"
+        }
+    }
+    pub fn chat(&mut self, mut chat: Chat, now: u64) -> &'static str {
         self.expire(now);
         if chat.user.is_empty() || chat.user == "0" || chat.text.len() > 1024 {
-            return;
+            return "ignored_invalid_sender_or_oversized_message";
         }
         chat.name = clean(&chat.name, 40);
         let text = chat.text.trim();
@@ -111,11 +134,11 @@ impl Engine {
             let rest = rest.trim();
             if rest.is_empty() {
                 self.notice(now, format!("{}：用法 点歌 <曲名> [SPA 等难度]", chat.name));
-                return;
+                return "rejected_missing_song";
             }
             let Some(mode) = self.snapshot.mode else {
                 self.notice(now, "游戏模式尚未就绪，请进入选曲后重试");
-                return;
+                return "rejected_game_mode_not_ready";
             };
             let (query, chart) = match rest.rsplit_once(char::is_whitespace) {
                 Some((name, tail)) if Chart::parse(tail).is_some() => {
@@ -128,15 +151,15 @@ impl Engine {
                     now,
                     format!("{}：当前为 {:?}，无法接受另一模式的谱面", chat.name, mode),
                 );
-                return;
+                return "rejected_opposite_mode";
             }
             if self.cooling(&chat.user, now) {
                 self.notice(now, format!("{}：点歌冷却中，请稍后重试", chat.name));
-                return;
+                return "rejected_cooldown";
             }
             if self.queue.len() >= self.config.requests.queue_capacity {
                 self.notice(now, format!("{}：队列已满，请稍后重试", chat.name));
-                return;
+                return "rejected_queue_full";
             }
             let songs = self.catalog.search(query, self.config.requests.candidates);
             if songs.is_empty() {
@@ -144,10 +167,12 @@ impl Engine {
                     now,
                     format!("{}：未找到歌曲 {}", chat.name, clean(query, 100)),
                 );
+                "rejected_no_matches"
             } else if songs.len() == 1 {
-                self.enqueue(&chat.user, &chat.name, songs[0].clone(), mode, chart, now);
+                self.enqueue(&chat.user, &chat.name, songs[0].clone(), mode, chart, now)
             } else if self.pending.len() >= self.config.requests.max_pending_users {
                 self.notice(now, "待选择请求过多，请稍后重试");
+                "rejected_pending_limit"
             } else {
                 self.pending.insert(
                     chat.user,
@@ -159,15 +184,16 @@ impl Engine {
                         until: now + self.config.requests.selection_timeout_seconds,
                     },
                 );
+                "awaiting_selection"
             }
         } else if text.bytes().all(|b| b.is_ascii_digit()) && !text.is_empty() {
             let Some(pending) = self.pending.get(&chat.user) else {
-                return;
+                return "ignored_no_pending_selection";
             };
             let number = text.parse::<usize>().unwrap_or(0);
             if number == 0 || number > pending.songs.len() {
                 self.notice(now, format!("{}：请输入候选列表中的编号", chat.name));
-                return;
+                return "rejected_invalid_selection";
             }
             let pending = self.pending.remove(&chat.user).unwrap();
             self.enqueue(
@@ -177,7 +203,9 @@ impl Engine {
                 pending.mode,
                 pending.chart,
                 now,
-            );
+            )
+        } else {
+            "ignored_not_a_request"
         }
     }
     fn cooling(&self, user: &str, now: u64) -> bool {
@@ -191,22 +219,22 @@ impl Engine {
         mode: Mode,
         chart: Option<Chart>,
         now: u64,
-    ) {
+    ) -> &'static str {
         if self.snapshot.mode != Some(mode) {
             self.notice(now, format!("{name}：游戏模式已改变，请重新点歌"));
-            return;
+            return "rejected_mode_changed";
         }
         if !song.supports(mode, chart) {
             self.notice(now, format!("{name}：{} 不存在所请求的谱面", song.title));
-            return;
+            return "rejected_chart_missing";
         }
         if self.cooling(user, now) {
             self.notice(now, format!("{name}：点歌冷却中"));
-            return;
+            return "rejected_cooldown";
         }
         if self.queue.len() >= self.config.requests.queue_capacity {
             self.notice(now, format!("{name}：队列已满，请稍后重试"));
-            return;
+            return "rejected_queue_full";
         }
         let request = Request {
             token: self.next_token,
@@ -223,6 +251,7 @@ impl Engine {
             self.cooldowns
                 .insert(user.into(), now + self.config.requests.cooldown_seconds);
         }
+        "enqueued"
     }
     pub fn observe(&mut self, snapshot: Snapshot, now: u64) {
         // Gameplay consumes the request even when a different song was chosen.

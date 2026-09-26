@@ -26,6 +26,7 @@ const USER_AGENT: &str =
 pub enum Event {
     Chat(Chat),
     Status(String),
+    Diagnostic(String),
 }
 #[derive(Debug)]
 pub enum Packet {
@@ -168,6 +169,12 @@ fn unix_time() -> u64 {
 }
 fn status(tx: &mpsc::Sender<Event>, s: impl Into<String>) {
     let _ = tx.try_send(Event::Status(s.into()));
+}
+fn diagnostic(tx: &mpsc::Sender<Event>, s: impl Into<String>) {
+    // Leave channel space for real chat/status events during bursts.
+    if tx.capacity() > 16 {
+        let _ = tx.try_send(Event::Diagnostic(s.into()));
+    }
 }
 
 struct Session {
@@ -537,11 +544,27 @@ pub async fn run(cfg: Bilibili, tx: mpsc::Sender<Event>, mut stop: watch::Receiv
             break;
         }
         client.cfg.relay_url = relay_endpoint(&configured_relay, retries);
+        diagnostic(
+            &tx,
+            format!(
+                "connect attempt={} mode={} relay_host={}",
+                retries + 1,
+                client.cfg.mode,
+                reqwest::Url::parse(&client.cfg.relay_url)
+                    .ok()
+                    .and_then(|u| u.host_str().map(str::to_owned))
+                    .unwrap_or_else(|| "direct".into())
+            ),
+        );
         status(&tx, "正在连接弹幕…");
         let started = tokio::select! { _=stop.changed()=>break, result=client.start()=>result };
         // Never put authentication bodies, cookies or credentials in OBS/logs.
         let failure = match started {
             Ok(session) => {
+                diagnostic(
+                    &tx,
+                    format!("session_created websocket_endpoints={}", session.urls.len()),
+                );
                 let began = Instant::now();
                 let result = socket_session(
                     &client,
@@ -553,9 +576,16 @@ pub async fn run(cfg: Bilibili, tx: mpsc::Sender<Event>, mut stop: watch::Receiv
                 )
                 .await;
                 if let Some(id) = &session.game_id {
-                    let _ = client
+                    let ended = client
                         .api("end", json!({"app_id":client.cfg.app_id,"game_id":id}))
                         .await;
+                    diagnostic(
+                        &tx,
+                        match ended {
+                            Ok(_) => "session_closed".into(),
+                            Err(e) => format!("session_close_failed reason={}", failure_reason(&e)),
+                        },
+                    );
                 }
                 if began.elapsed() > Duration::from_secs(60) {
                     retries = 0;
@@ -576,6 +606,7 @@ pub async fn run(cfg: Bilibili, tx: mpsc::Sender<Event>, mut stop: watch::Receiv
         status(&tx, format!("{failure}；{delay} 秒后重试"));
         tokio::select! { _=stop.changed()=>break, _=tokio::time::sleep(Duration::from_millis(delay*1000+jitter))=>{} }
     }
+    diagnostic(&tx, "network_worker_stopped");
 }
 async fn socket_session(
     client: &Client,
@@ -592,6 +623,7 @@ async fn socket_session(
         _=stop.changed()=>return Ok(()),
         r=timeout(Duration::from_secs(15),tokio_tungstenite::connect_async_with_config(&session.urls[host%session.urls.len()],Some(ws_cfg),false))=>r??
     };
+    diagnostic(tx, "websocket_connected; sending_authentication");
     timeout(
         Duration::from_secs(5),
         ws.send(Message::Binary(packet(7, session.auth.as_bytes()).into())),
@@ -601,29 +633,46 @@ async fn socket_session(
     let mut game_heartbeat = tokio::time::interval(Duration::from_secs(20));
     let mut authenticated = false;
     let mut last_reply = Instant::now();
+    let mut received_danmu = 0u64;
+    let mut forwarded_danmu = 0u64;
+    let mut dropped_danmu = 0u64;
     loop {
         tokio::select! {
             _=stop.changed()=>{ let _=timeout(Duration::from_secs(2),ws.close(None)).await; return Ok(()); }
             _=heartbeat.tick()=>{
                 ensure!(last_reply.elapsed()<Duration::from_secs(if authenticated {45} else {15}),"Danmu heartbeat timed out");
                 timeout(Duration::from_secs(5),ws.send(Message::Binary(packet(2,b"{}").into()))).await??;
+                diagnostic(tx, "websocket_heartbeat_sent");
+                diagnostic(tx, format!("danmu_counts received={received_danmu} forwarded={forwarded_danmu} dropped={dropped_danmu}"));
             }
             _=game_heartbeat.tick(), if session.game_id.is_some()=>{
                 client.api("heartbeat",json!({"game_id":session.game_id})).await?;
+                diagnostic(tx, "open_live_heartbeat_ok");
             }
             message=ws.next()=>{
                 match message.context("Websocket closed")?? {
                     Message::Binary(data)=>for p in decode(&data)? {
                         match p {
-                            Packet::Auth(code)=>{ ensure!(code==0,"Danmu authentication rejected");authenticated=true;last_reply=Instant::now();status(tx,"弹幕已连接 · 点歌 <曲名> [难度]"); }
-                            Packet::Heartbeat=>last_reply=Instant::now(),
+                            Packet::Auth(code)=>{ diagnostic(tx, format!("websocket_auth_result code={code}")); ensure!(code==0,"Danmu authentication rejected");authenticated=true;last_reply=Instant::now();status(tx,"弹幕已连接 · 点歌 <曲名> [难度]"); }
+                            Packet::Heartbeat=>{last_reply=Instant::now(); diagnostic(tx,"websocket_heartbeat_received");},
                             Packet::Command(v)=>{
                                 if v["cmd"]=="LIVE_OPEN_PLATFORM_INTERACTION_END" { bail!("Open Live session ended"); }
-                                if authenticated
-                                    && let Some((chat,key))=chat_from_command(&v)
-                                    && dedup.accept(key)
-                                    && tx.try_send(Event::Chat(chat)).is_err() {
-                                    status(tx,"弹幕请求过多，部分消息未处理，请稍后重试");
+                                let cmd = v["cmd"].as_str().unwrap_or("").split(':').next().unwrap_or("");
+                                if !matches!(cmd, "LIVE_OPEN_PLATFORM_DM" | "DANMU_MSG") { continue; }
+                                received_danmu += 1;
+                                if !authenticated {
+                                    diagnostic(tx, "danmu_ignored reason=not_authenticated");
+                                } else if let Some((chat,key))=chat_from_command(&v) {
+                                    if !dedup.accept(key) {
+                                        diagnostic(tx, "danmu_ignored reason=duplicate");
+                                    } else if tx.try_send(Event::Chat(chat)).is_err() {
+                                        dropped_danmu += 1;
+                                        status(tx,"弹幕请求过多，部分消息未处理，请稍后重试");
+                                    } else {
+                                        forwarded_danmu += 1;
+                                    }
+                                } else {
+                                    diagnostic(tx, "danmu_ignored reason=invalid_sender_mirrored_or_malformed_message");
                                 }
                             }
                         }

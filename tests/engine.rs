@@ -330,3 +330,29 @@ fn invalid_configuration_does_not_expose_secret_values() {
     assert!(error.contains("byte"));
     std::fs::remove_file(path).unwrap();
 }
+
+#[test]
+fn diagnostics_distinguish_ignored_pending_rejected_and_enqueued_messages() {
+    let mut e = engine();
+    let send = |e: &mut Engine, user: &str, text: &str| {
+        e.chat(
+            Chat {
+                user: user.into(),
+                name: "viewer".into(),
+                text: text.into(),
+            },
+            0,
+        )
+    };
+    assert_eq!(send(&mut e, "1", "hello"), "ignored_not_a_request");
+    assert_eq!(send(&mut e, "1", "点歌 AA"), "awaiting_selection");
+    assert_eq!(send(&mut e, "2", "1"), "ignored_no_pending_selection");
+    assert_eq!(send(&mut e, "1", "99"), "rejected_invalid_selection");
+    assert_eq!(send(&mut e, "1", "1"), "enqueued");
+    assert_eq!(e.activity(), "ready_to_jump");
+    assert!(e.take_diagnostics().any(|s| s.contains("已加入队列")));
+    let j = e.next_jump(0).unwrap();
+    assert_eq!(e.activity(), "waiting_for_game_ack");
+    e.jump_result(j.request.token, Some(Ok(())), 1);
+    assert_eq!(e.activity(), "waiting_for_play_or_timeout");
+}

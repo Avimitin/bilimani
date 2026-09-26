@@ -3,6 +3,7 @@ use crate::{
     catalog::{Catalog, parse_database},
     config::Config,
     engine::{Engine, Phase, Snapshot},
+    logging::Logger,
     native,
     output::{TextFile, resolved_output},
 };
@@ -29,13 +30,7 @@ static STOP: AtomicBool = AtomicBool::new(false);
 static WORKER: AtomicUsize = AtomicUsize::new(0);
 
 fn log(root: &Path, message: &str) {
-    if let Ok(mut f) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(root.join("chart-requester.log"))
-    {
-        let _ = writeln!(f, "{message}");
-    }
+    Logger::new(root, &Config::default()).info("startup", message);
 }
 fn start(module: HMODULE) -> Result<()> {
     let path = native::module_path(module)?;
@@ -62,6 +57,17 @@ fn start(module: HMODULE) -> Result<()> {
         file.write_all(include_bytes!("../chart-requester.example.toml"))?;
     }
     let config = Config::load(&config_path)?;
+    let logger = Logger::new(root, &config);
+    logger.info(
+        "startup",
+        &format!(
+            "chart-requester {} started; logging={:?} danmu={} status_interval={}s",
+            env!("CARGO_PKG_VERSION"),
+            config.logging.level,
+            config.logging.danmu,
+            config.logging.status_interval_seconds
+        ),
+    );
     let queue_path = resolved_output(&config.output.queue_path)?;
     let interaction_path = resolved_output(&config.output.interaction_path)?;
     ensure!(
@@ -87,8 +93,8 @@ fn start(module: HMODULE) -> Result<()> {
         interaction.write(&format!("点歌功能未启用：{e}\n"))?;
         return Err(e);
     }
-    log(
-        root,
+    logger.info(
+        "game",
         "Native hooks installed for the verified IIDX 33 build; waiting for song select.",
     );
     let rt = tokio::runtime::Builder::new_current_thread()
@@ -104,7 +110,12 @@ fn start(module: HMODULE) -> Result<()> {
         let start = Instant::now();
         let mut plays = 0;
         let mut status = String::from("等待弹幕连接");
+        let mut catalog_notice = String::new();
         let mut last_error = String::new();
+        let mut last_game_state = String::new();
+        let mut next_status = 0;
+        let mut received = 0u64;
+        let mut handled = 0u64;
         loop {
             interval.tick().await;
             if STOP.load(Ordering::Acquire) {
@@ -124,8 +135,8 @@ fn start(module: HMODULE) -> Result<()> {
                 if let Some(data) = data {
                     let created = (|| -> Result<Engine> {
                         let catalog = Catalog::new(parse_database(&data?)?, &config.aliases)?;
-                        log(
-                            root,
+                        logger.info(
+                            "catalog",
                             &format!("Loaded {} canonical songs", catalog.songs.len()),
                         );
                         Ok(Engine::new(config.clone(), catalog))
@@ -137,20 +148,26 @@ fn start(module: HMODULE) -> Result<()> {
                         }
                         Err(e) => {
                             let _ = interaction.write(&format!("无法读取曲库或别名配置：{e}\n"));
-                            log(root, &format!("Catalog initialization failed: {e}"));
+                            logger.info("catalog", &format!("Catalog initialization failed: {e}"));
                             break;
                         }
                     }
                 }
             }
+            // Report game state even before the catalog becomes available.
+            let (snapshot, new_plays, ack) = {
+                let mut m = native::MAILBOX.lock().unwrap();
+                (m.snapshot, m.plays, m.ack.take())
+            };
+            let game_state = format!("phase={:?} mode={:?} select_entries={} plays={new_plays}", snapshot.phase, snapshot.mode, snapshot.epoch);
+            if game_state != last_game_state {
+                logger.info("game", &game_state);
+                last_game_state = game_state;
+            }
             if let Some(e) = engine.as_mut() {
-                // Take acknowledgements before observing gameplay: a jump and a
-                // subsequent play can both happen between two worker polls.
-                let (snapshot, new_plays, ack) = {
-                    let mut m = native::MAILBOX.lock().unwrap();
-                    (m.snapshot, m.plays, m.ack.take())
-                };
+                // Acknowledge the jump before consuming the request on gameplay start.
                 if let Some(ack) = ack {
+                    logger.info("jump", &format!("ack token={} result={:?}", ack.token, ack.result));
                     e.jump_result(ack.token, ack.result, now);
                 }
                 if plays != new_plays {
@@ -171,36 +188,59 @@ fn start(module: HMODULE) -> Result<()> {
                 };
                 match event {
                     Event::Status(s) => {
+                        logger.info("connection", &s);
                         status = s;
                         if let Some(e) = engine.as_mut() {
                             e.status = status.clone();
                         }
                     }
                     Event::Chat(c) => {
+                        received += 1;
+                        logger.danmu(&format!("received seq={received} user={:?} name={:?} text={:?}", c.user, c.name, c.text));
                         if let Some(e) = engine.as_mut() {
-                            e.chat(c, now);
+                            let user = c.user.clone();
+                            let outcome = e.chat(c, now);
+                            if !outcome.starts_with("ignored_") { handled += 1; }
+                            logger.debug("request", &format!("seq={received} result={outcome} queued={} pending={}", e.queue.len(), e.pending.len()));
+                            if outcome == "awaiting_selection" && let Some(p) = e.pending.get(&user) {
+                                logger.info("request", &format!("seq={received} selection_deadline={}s candidates={:?}", p.until.saturating_sub(now),
+                                    p.songs.iter().map(|s| (s.id, &s.title)).collect::<Vec<_>>()));
+                            }
                         } else {
-                            status = "游戏曲库尚未就绪，请进入选曲后重新点歌".into();
+                            logger.info("request", &format!("seq={received} result=ignored_catalog_not_ready"));
+                            catalog_notice = "游戏曲库尚未就绪，请进入选曲后重新点歌".into();
                         }
                     }
+                    Event::Diagnostic(s) => logger.debug("transport", &s),
                 }
             }
             let (q, i) = if let Some(e) = engine.as_mut() {
                 if let Some(j) = e.next_jump(now) {
+                    logger.info("jump", &format!("submit token={} song_id={} song={:?} mode={:?} chart={:?} epoch={}",
+                        j.request.token, j.request.song.id, j.request.song.title, j.request.mode, j.request.chart, j.epoch));
                     native::MAILBOX.lock().unwrap().command = Some(j);
                 }
+                for message in e.take_diagnostics() { logger.info("request", &message); }
                 e.render(now)
             } else {
                 (
                     String::from("当前点歌\n暂无\n\n等待游戏进入选曲…\n"),
-                    format!("{status}\n等待游戏曲库…\n"),
+                    format!("{status}\n{catalog_notice}\n等待游戏曲库…\n"),
                 )
             };
+            if now >= next_status {
+                let activity = engine.as_ref().map_or("waiting_for_catalog", Engine::activity);
+                logger.info("status", &format!("connection={:?} received={received} handled={handled} activity={activity} queue={} pending={} current={:?}",
+                    status, engine.as_ref().map_or(0, |e| e.queue.len()), engine.as_ref().map_or(0, |e| e.pending.len()),
+                    engine.as_ref().and_then(|e| e.current.as_ref().map(|c| c.request.token))));
+                logger.info("game", &native::diagnostics());
+                next_status = now + config.logging.status_interval_seconds;
+            }
             let write_result = queue.write(&q).and_then(|_| interaction.write(&i));
             if let Err(err) = write_result {
                 let message = format!("{err:#}");
                 if message != last_error {
-                    log(root, &message);
+                    logger.info("output", &message);
                     last_error = message;
                 }
             } else {
@@ -208,9 +248,20 @@ fn start(module: HMODULE) -> Result<()> {
             }
         }
         native::DISABLED.store(true, Ordering::Release);
+        logger.info("shutdown", "Stopping chat worker and closing the Open Live session");
         let _ = shutdown.send(true);
         if !network.is_finished() {
-            let _ = tokio::time::timeout(Duration::from_secs(18), network).await;
+            match tokio::time::timeout(Duration::from_secs(18), network).await {
+                Ok(Ok(())) => logger.info("shutdown", "Network worker stopped"),
+                _ => logger.info("shutdown", "Network worker did not stop cleanly within timeout"),
+            }
+        }
+        while let Ok(event) = rx.try_recv() {
+            match event {
+                Event::Diagnostic(s) => logger.debug("transport", &s),
+                Event::Status(s) => logger.info("connection", &s),
+                Event::Chat(_) => {}
+            }
         }
         let _ = queue.write("点歌已停止\n");
         if STOP.load(Ordering::Acquire) {

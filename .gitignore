@@ -5,4 +5,5 @@
 /chart-requester.toml
 /obs/
 *.log
+*.log.*
 .github-token

@@ -12,8 +12,38 @@ pub struct Config {
     pub output: Output,
     pub bilibili: Bilibili,
     pub game: Game,
+    pub logging: Logging,
     /// Alias -> exact song title or numeric music ID.
     pub aliases: BTreeMap<String, String>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum LogLevel {
+    Off,
+    Info,
+    Debug,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Logging {
+    pub level: LogLevel,
+    pub danmu: bool,
+    pub max_file_mb: u64,
+    pub backups: usize,
+    pub status_interval_seconds: u64,
+}
+impl Default for Logging {
+    fn default() -> Self {
+        Self {
+            level: LogLevel::Debug,
+            danmu: true,
+            max_file_mb: 10,
+            backups: 3,
+            status_interval_seconds: 30,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -137,6 +167,18 @@ impl Config {
         Ok(result)
     }
     pub fn validate(&self) -> Result<()> {
+        ensure!(
+            (1..=100).contains(&self.logging.max_file_mb),
+            "logging.max_file_mb must be 1..100"
+        );
+        ensure!(
+            (1..=10).contains(&self.logging.backups),
+            "logging.backups must be 1..10"
+        );
+        ensure!(
+            (5..=3600).contains(&self.logging.status_interval_seconds),
+            "logging.status_interval_seconds must be 5..3600"
+        );
         ensure!(
             (1..=1000).contains(&self.requests.queue_capacity),
             "queue_capacity must be 1..1000"

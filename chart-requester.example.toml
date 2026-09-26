@@ -50,6 +50,19 @@ module = "bm2dx.dll"
 # 通常留空，使用游戏实际加载的歌曲数据库。
 database_path = ""
 
+[logging]
+# 日志位于 DLL 旁的 chart-requester.log，时间为本机时间。
+# debug：详细日志；info：连接、点歌结果和游戏状态；off：关闭常规日志。
+level = "debug"
+# 在 debug 级别记录收到的弹幕正文、用户名和用户标识。
+# false 仅关闭逐条弹幕内容；点歌结果仍会包含曲名和请求者。
+danmu = true
+# 单个日志的大小上限（MiB）及轮转备份数量，例如 chart-requester.log.1。
+max_file_mb = 10
+backups = 3
+# 定期输出当前连接、弹幕计数、队列与游戏 hook 状态，单位为秒。
+status_interval_seconds = 30
+
 [aliases]
 # "冥" = "冥"
 # "歌曲别名" = "12345" # 填写准确的歌曲 ID（需加引号），也可填写完整歌曲名。
