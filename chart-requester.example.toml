@@ -1,0 +1,54 @@
+# 将此文件复制到 chart_requester.dll 所在目录，并命名为 chart-requester.toml。
+# 修改配置后需重启游戏才能生效。
+[requests]
+# 等待队列的容量，不包含已经定位到的当前点歌。
+queue_capacity = 20
+# 模糊搜索最多显示的候选歌曲数量。
+candidates = 5
+# 等待点歌用户回复候选编号的超时时间，单位为秒；直播延迟较高时可适当增加。
+selection_timeout_seconds = 60
+# 成功定位歌曲后，若一直未开始游玩，超过此时间则跳过当前点歌，单位为秒。
+current_timeout_seconds = 600
+cooldown_seconds = 0 # 每位用户的点歌冷却时间（秒）；0 为关闭，300 为每五分钟一次。
+# 最多允许多少位用户同时等待选择候选歌曲。
+max_pending_users = 100
+
+[output]
+# 相对路径以 DLL 所在目录为基准，也支持绝对路径。
+# 在 OBS 中分别添加两个读取文件的文本来源，即可独立设置显示样式。
+# 当前点歌和等待队列的显示文件。
+queue_path = "obs/queue.txt"
+# 候选歌曲、选择提示和错误等交互信息的显示文件。
+interaction_path = "obs/interaction.txt"
+# 普通提示信息的保留时间，单位为秒。
+message_seconds = 30
+# 最多保留的最近提示信息条数。
+recent_messages = 8
+
+[bilibili]
+enabled = true
+mode = "open_live"
+# 主播身份码，与 blivechat 使用的身份码相同；不是直播间号或用户 UID。
+auth_code = ""
+# 使用 blivechat 的公共 HTTP 接口创建会话，然后直接连接哔哩哔哩弹幕服务器。
+# 无需安装或运行 blivechat、Python 或浏览器。
+relay_url = "https://blive.chat"
+# 如需直接使用直播开放平台接口，将 relay_url 设为 ""，并填写自己的应用凭据。
+app_id = 0
+access_key_id = ""
+access_key_secret = ""
+# 也可将 mode 设为 "web"，此时必须填写 room_id（直播间号）。
+# 网页模式可能需要填写 Cookie 中的 SESSDATA 和 buvid3。
+# 请妥善保管身份码和登录凭据，不要将其发送到聊天或弹幕中。
+room_id = 0
+sessdata = ""
+buvid3 = ""
+
+[game]
+module = "bm2dx.dll"
+# 通常留空，使用游戏实际加载的歌曲数据库。
+database_path = ""
+
+[aliases]
+# "冥" = "冥"
+# "歌曲别名" = "12345" # 填写准确的歌曲 ID（需加引号），也可填写完整歌曲名。

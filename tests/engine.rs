@@ -1,0 +1,332 @@
+use chart_requester::{
+    catalog::{Catalog, Chart, Mode, Song, parse_database},
+    config::Config,
+    engine::{Chat, Engine, Phase, Snapshot},
+};
+use std::collections::BTreeMap;
+fn song(id: u32, title: &str) -> Song {
+    Song {
+        id,
+        title: title.into(),
+        reading: String::new(),
+        levels: [0, 4, 7, 10, 12, 0, 4, 7, 10, 12],
+    }
+}
+fn engine() -> Engine {
+    let catalog = Catalog::new(
+        vec![
+            song(1, "AA"),
+            song(2, "AA -rebuild-"),
+            song(3, "冥"),
+            song(4, "雪月花"),
+        ],
+        &BTreeMap::new(),
+    )
+    .unwrap();
+    let mut e = Engine::new(Config::default(), catalog);
+    e.observe(
+        Snapshot {
+            phase: Phase::Select,
+            mode: Some(Mode::SP),
+            epoch: 1,
+        },
+        0,
+    );
+    e
+}
+fn chat(e: &mut Engine, user: &str, text: &str, now: u64) {
+    e.chat(
+        Chat {
+            user: user.into(),
+            name: format!("viewer {user}"),
+            text: text.into(),
+        },
+        now,
+    );
+}
+fn jump(e: &mut Engine, now: u64) -> u64 {
+    let j = e.next_jump(now).unwrap();
+    e.jump_result(j.request.token, Some(Ok(())), now);
+    j.request.token
+}
+
+#[test]
+fn all_ten_difficulty_tokens() {
+    for mode in ["SP", "DP"] {
+        for (i, d) in ["B", "N", "H", "A", "L"].iter().enumerate() {
+            let token = format!("{mode}{d}");
+            let c = Chart::parse(&token.to_lowercase()).unwrap();
+            assert_eq!(c.label(), token);
+            assert_eq!(c.difficulty, i as u8);
+        }
+    }
+    for bad in ["A", "SP", "DPAx", "SPX", "DPＡ"] {
+        assert!(Chart::parse(bad).is_none());
+    }
+}
+#[test]
+fn command_boundary_and_optional_difficulty() {
+    let mut e = engine();
+    chat(&mut e, "1", "普通聊天 AA", 0);
+    chat(&mut e, "1", "点歌AA", 0);
+    assert!(e.queue.is_empty());
+    chat(&mut e, "1", "点歌 冥", 1);
+    assert_eq!(e.queue[0].chart, None);
+    assert_eq!(e.queue[0].mode, Mode::SP);
+    chat(&mut e, "2", "点歌 雪月花 spa", 2);
+    assert_eq!(e.queue[1].chart.unwrap().label(), "SPA");
+}
+#[test]
+fn choices_are_per_sender_and_exact_title_still_has_candidates() {
+    let mut e = engine();
+    chat(&mut e, "123456", "点歌 AA SPA", 0);
+    chat(&mut e, "654321", "点歌 AA", 0);
+    assert_eq!(e.pending["123456"].songs[0].title, "AA");
+    chat(&mut e, "stranger", "1", 1);
+    assert!(e.queue.is_empty());
+    chat(&mut e, "123456", "2", 2);
+    assert_eq!(e.queue[0].song.title, "AA -rebuild-");
+    assert_eq!(e.queue[0].chart.unwrap().label(), "SPA");
+    assert!(e.pending.contains_key("654321"));
+    chat(&mut e, "654321", "1", 3);
+    assert_eq!(e.queue[1].song.title, "AA");
+}
+#[test]
+fn pending_replaced_timeout_and_invalid_selection() {
+    let mut e = engine();
+    chat(&mut e, "1", "点歌 AA", 0);
+    chat(&mut e, "1", "9", 1);
+    assert!(e.pending.contains_key("1"));
+    chat(&mut e, "1", "点歌 AA SPA", 5);
+    assert_eq!(e.pending["1"].until, 65);
+    chat(&mut e, "1", "1", 65);
+    assert!(e.pending.is_empty());
+    assert!(e.queue.is_empty());
+    chat(&mut e, "1", "点歌 AA", 70);
+    chat(&mut e, "1", "点歌 冥", 71);
+    assert!(e.pending.is_empty());
+    assert_eq!(e.queue.len(), 1);
+}
+#[test]
+fn mode_and_nonexistent_chart_rejected() {
+    let mut e = engine();
+    chat(&mut e, "1", "点歌 冥 DPA", 0);
+    chat(&mut e, "1", "点歌 冥 SPB", 0);
+    assert!(e.queue.is_empty());
+    chat(&mut e, "1", "点歌 AA", 0);
+    e.observe(
+        Snapshot {
+            mode: Some(Mode::DP),
+            ..e.snapshot
+        },
+        1,
+    );
+    chat(&mut e, "1", "1", 2);
+    assert!(e.queue.is_empty());
+    chat(&mut e, "1", "点歌 冥 DPL", 3);
+    assert_eq!(e.queue.len(), 1);
+}
+#[test]
+fn cooldown_only_on_acceptance() {
+    let mut e = engine();
+    e.config.requests.cooldown_seconds = 300;
+    chat(&mut e, "1", "点歌 no-such-song", 0);
+    chat(&mut e, "1", "点歌 冥", 1);
+    assert_eq!(e.queue.len(), 1);
+    chat(&mut e, "1", "点歌 雪月花", 300);
+    assert_eq!(e.queue.len(), 1);
+    chat(&mut e, "1", "点歌 雪月花", 301);
+    assert_eq!(e.queue.len(), 2);
+}
+#[test]
+fn capacity_rechecked_when_resolving_pending_choice() {
+    let mut e = engine();
+    e.config.requests.queue_capacity = 1;
+    chat(&mut e, "1", "点歌 AA", 0);
+    chat(&mut e, "2", "点歌 冥", 0);
+    chat(&mut e, "1", "1", 1);
+    assert_eq!(e.queue.len(), 1);
+    assert_eq!(e.queue[0].user, "2");
+}
+#[test]
+fn queue_is_popped_only_after_success_and_does_not_drain() {
+    let mut e = engine();
+    chat(&mut e, "1", "点歌 冥", 0);
+    chat(&mut e, "2", "点歌 雪月花", 0);
+    let j = e.next_jump(1).unwrap();
+    assert_eq!(e.queue.len(), 2);
+    assert!(e.next_jump(1).is_none());
+    e.jump_result(j.request.token, None, 2);
+    assert_eq!(e.queue.len(), 2);
+    let j = e.next_jump(3).unwrap();
+    e.jump_result(j.request.token + 99, Some(Ok(())), 3);
+    assert_eq!(e.queue.len(), 2);
+    e.jump_result(j.request.token, Some(Ok(())), 3);
+    assert_eq!(e.queue.len(), 1);
+    assert!(e.next_jump(4).is_none());
+    assert!(e.next_jump(602).is_none());
+    assert!(e.next_jump(603).is_some());
+}
+#[test]
+fn no_jumps_in_gameplay_or_menus_then_advance_on_return() {
+    let mut e = engine();
+    chat(&mut e, "1", "点歌 冥", 0);
+    chat(&mut e, "2", "点歌 雪月花", 0);
+    jump(&mut e, 1);
+    e.observe(
+        Snapshot {
+            phase: Phase::Playing,
+            ..e.snapshot
+        },
+        2,
+    );
+    assert!(e.current.is_none());
+    assert!(e.next_jump(1000).is_none());
+    e.observe(
+        Snapshot {
+            phase: Phase::Other,
+            ..e.snapshot
+        },
+        1001,
+    );
+    assert!(e.next_jump(1001).is_none());
+    e.observe(
+        Snapshot {
+            phase: Phase::Select,
+            epoch: 2,
+            ..e.snapshot
+        },
+        1002,
+    );
+    assert_eq!(e.next_jump(1002).unwrap().request.song.title, "雪月花");
+}
+#[test]
+fn timeout_while_outside_selection_never_jumps() {
+    let mut e = engine();
+    chat(&mut e, "1", "点歌 冥", 0);
+    chat(&mut e, "2", "点歌 雪月花", 0);
+    jump(&mut e, 0);
+    e.observe(
+        Snapshot {
+            phase: Phase::Other,
+            ..e.snapshot
+        },
+        600,
+    );
+    assert!(e.current.is_none());
+    assert!(e.next_jump(600).is_none());
+}
+#[test]
+fn unavailable_native_chart_skipped_without_becoming_current() {
+    let mut e = engine();
+    chat(&mut e, "1", "点歌 冥", 0);
+    let j = e.next_jump(0).unwrap();
+    e.jump_result(j.request.token, Some(Err("locked".into())), 1);
+    assert!(e.queue.is_empty());
+    assert!(e.current.is_none());
+}
+
+#[test]
+fn gameplay_clears_a_jump_acknowledged_after_the_phase_transition() {
+    let mut e = engine();
+    chat(&mut e, "1", "点歌 冥", 0);
+    let j = e.next_jump(0).unwrap();
+    let playing = Snapshot {
+        phase: Phase::Playing,
+        ..e.snapshot
+    };
+    e.observe(playing, 1);
+    e.jump_result(j.request.token, Some(Ok(())), 2);
+    assert!(e.current.is_some());
+    e.observe(playing, 2);
+    assert!(e.current.is_none());
+    assert!(e.queue.is_empty());
+}
+#[test]
+fn aliases_are_exact_and_fullwidth_search_normalizes() {
+    let aliases = BTreeMap::from([("黑白".into(), "1".into())]);
+    let mut c = Catalog::new(vec![song(1, "AA"), song(2, "AA -rebuild-")], &aliases).unwrap();
+    assert_eq!(c.search("黑白", 5).len(), 1);
+    assert_eq!(c.search("ＡＡ", 5)[0].id, 1);
+    assert!(
+        Catalog::new(
+            vec![song(1, "AA")],
+            &BTreeMap::from([("a".into(), "missing".into())])
+        )
+        .is_err()
+    );
+}
+#[test]
+fn separate_obs_contents() {
+    let mut e = engine();
+    chat(&mut e, "1", "点歌 AA", 0);
+    chat(&mut e, "2", "点歌 冥", 0);
+    jump(&mut e, 1);
+    let (q, i) = e.render(2);
+    assert!(q.contains("冥"));
+    assert!(!q.contains("rebuild"));
+    assert!(i.contains("1. AA\n2. AA -rebuild-"));
+    assert!(i.contains("viewer 1 [1]"));
+}
+#[test]
+fn malformed_database_is_rejected() {
+    for bytes in [vec![], b"IIDX".to_vec(), vec![0; 64]] {
+        assert!(parse_database(&bytes).is_err());
+    }
+}
+#[test]
+fn unknown_mode_does_not_guess_sp() {
+    let mut e = engine();
+    e.snapshot = Snapshot::default();
+    chat(&mut e, "1", "点歌 冥", 0);
+    assert!(e.queue.is_empty());
+}
+#[test]
+fn example_config_is_valid() {
+    let c: Config = toml::from_str(include_str!("../chart-requester.example.toml")).unwrap();
+    c.validate().unwrap();
+}
+#[test]
+fn fuzzy_search_does_not_span_title_and_reading_or_parse_title_operators() {
+    let mut a = song(10, "A");
+    a.reading = "A".into();
+    let mut c = Catalog::new(
+        vec![a, song(11, "AA"), song(12, "!Viva!")],
+        &BTreeMap::new(),
+    )
+    .unwrap();
+    assert_eq!(
+        c.search("AA", 5).iter().map(|s| s.id).collect::<Vec<_>>(),
+        vec![11]
+    );
+    assert_eq!(c.search("!Viva!", 5)[0].id, 12);
+}
+
+#[test]
+fn database_ignores_unused_lookup_entries_pointing_at_record_zero() {
+    let mut data = vec![0u8; 16 + 8 * 4 + 0x7f8];
+    data[..4].copy_from_slice(b"IIDX");
+    data[4..8].copy_from_slice(&33u32.to_le_bytes());
+    data[8..12].copy_from_slice(&1u32.to_le_bytes());
+    data[12..16].copy_from_slice(&8u32.to_le_bytes());
+    let record = &mut data[48..];
+    record[0..2].copy_from_slice(&('冥' as u16).to_le_bytes());
+    record[0x67c..0x680].copy_from_slice(&5u32.to_le_bytes());
+    record[0x3ef] = 12;
+    let songs = parse_database(&data).unwrap();
+    assert_eq!(songs.len(), 1);
+    assert_eq!(songs[0].id, 5);
+    assert_eq!(songs[0].title, "冥");
+    data[16 + 5 * 4..16 + 6 * 4].copy_from_slice(&2u32.to_le_bytes());
+    assert!(parse_database(&data).is_err());
+}
+
+#[test]
+fn invalid_configuration_does_not_expose_secret_values() {
+    let path = std::env::temp_dir().join(format!("chart-requester-{}.toml", uuid::Uuid::new_v4()));
+    std::fs::write(&path, "[bilibili]\nauth_code = 12345678901234\n").unwrap();
+    let error = format!("{:#}", Config::load(&path).unwrap_err());
+    assert!(!error.contains("12345678901234"));
+    assert!(error.contains("byte"));
+    std::fs::remove_file(path).unwrap();
+}
