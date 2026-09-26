@@ -1,4 +1,4 @@
-param([string[]]$CargoArgs = @('build', '--release'))
+param([string[]]$CargoArgs = @('build', '--release', '--locked'))
 $ErrorActionPreference = 'Stop'
 $env:PATH = "$env:USERPROFILE\.cargo\bin;$env:PATH"
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'

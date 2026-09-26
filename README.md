@@ -154,6 +154,28 @@ Developers can run `scripts/fetch-sdk.ps1` to populate that fallback.
 Game binaries, databases, IDA files, reference repositories, credentials and build
 artifacts are excluded from git. None are included in the release bundle.
 
+## Automated releases
+
+Pushing a tag runs [Build and release](.github/workflows/release.yml) on a Windows
+x64 runner: formatting, tests and Clippy must pass before building the release ZIP.
+The ZIP is kept as an Actions artifact and uploaded to the GitHub Release for that
+tag. An existing release receives the rebuilt asset when the workflow is rerun.
+
+The archive name follows the package version in `Cargo.toml`, for example
+`chart-requester-0.1.0.zip`. Update the package version and `Cargo.lock` before
+tagging a new version, then push the tag:
+
+```powershell
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+You can also run the workflow manually from the Actions tab to build and download
+the ZIP without publishing a release. Publication uses GitHub's built-in
+`GITHUB_TOKEN`; no personal token or extra repository secret is required.
+See GitHub's [tag push trigger documentation](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#push)
+and [release CLI documentation](https://cli.github.com/manual/gh_release_create).
+
 Startup and file-output errors are written to `chart-requester.log` beside the DLL.
 Modern Spice SDK shutdown callbacks close the chat session. On older loaders or
 forced process termination, Bilibili expires the session through its heartbeat TTL.

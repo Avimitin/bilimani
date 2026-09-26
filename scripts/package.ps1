@@ -9,12 +9,17 @@ foreach ($file in @('README.md','LICENSE','THIRD-PARTY-NOTICES.md','chart-reques
 Copy-Item -LiteralPath (Join-Path $root 'target\release\chart_requester.dll') -Destination $destination
 New-Item -ItemType Directory -Force -Path (Join-Path $destination 'docs') | Out-Null
 Copy-Item -Path (Join-Path $root 'docs\*.md') -Destination (Join-Path $destination 'docs')
-$cargo = Join-Path $env:USERPROFILE '.cargo\bin\cargo.exe'
+$cargo = (Get-Command cargo -ErrorAction Stop).Source
 Push-Location $root
 try {
+    # Include licenses for all locked dependencies, including other target platforms.
+    & $cargo fetch --locked
+    if ($LASTEXITCODE -ne 0) { throw 'Cannot fetch dependency license sources' }
     $metadata = (& $cargo metadata --locked --offline --format-version 1 | ConvertFrom-Json)
     if ($LASTEXITCODE -ne 0) { throw 'Cannot collect dependency license metadata' }
 } finally { Pop-Location }
+$project = $metadata.packages | Where-Object { $_.id -eq $metadata.resolve.root }
+if (-not $project) { throw 'Cannot find root package version' }
 $licenseRoot = Join-Path $destination 'licenses'
 New-Item -ItemType Directory -Force -Path $licenseRoot | Out-Null
 foreach ($package in $metadata.packages) {
@@ -32,10 +37,13 @@ foreach ($package in $metadata.packages) {
     }
 }
 $archiveFiles = @('chart_requester.dll','README.md','LICENSE','THIRD-PARTY-NOTICES.md','chart-requester.example.toml','docs','licenses') | ForEach-Object { Join-Path $destination $_ }
-$archive = Join-Path $destination 'chart-requester-0.1.0.zip'
+$archive = Join-Path $destination "chart-requester-$($project.version).zip"
 # Registry archives can carry Unix-epoch timestamps; ZIP starts at 1980.
 Get-ChildItem -LiteralPath $licenseRoot -Recurse -File | Where-Object { $_.LastWriteTime.Year -lt 1980 } | ForEach-Object {
     $_.LastWriteTime = [datetime]'1980-01-01T00:00:00'
 }
 Compress-Archive -LiteralPath $archiveFiles -DestinationPath $archive -Force
+if ($env:GITHUB_OUTPUT) {
+    "archive=$archive" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+}
 Write-Output "Packaged in $archive"
