@@ -80,7 +80,7 @@ impl Default for Bilibili {
             enabled: true,
             mode: "open_live".into(),
             auth_code: String::new(),
-            relay_url: "https://blive.chat".into(),
+            relay_url: "https://api1.blive.chat".into(),
             app_id: 0,
             access_key_id: String::new(),
             access_key_secret: String::new(),

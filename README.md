@@ -69,10 +69,14 @@ the separately displayed current request.
 ## Bilibili connection
 
 The default **Open Live** mode follows blivechat: it sends the broadcaster identity
-code to the configured `https://blive.chat` public API to start a session, then
+code to the configured `https://api1.blive.chat` public API to start a session, then
 receives messages directly from Bilibili's secure WebSocket servers. This uses
 blivechat's hosted service; it does not install or launch that application.
 Its availability and Bilibili's live-session limits still apply.
+The default service alternates between `api1.blive.chat` and `api2.blive.chat`
+on reconnect. The old `https://blive.chat` setting is automatically mapped to
+these API endpoints; the website itself does not serve this API. Custom relay
+URLs and direct Open Live access are kept as configured.
 
 For direct Open Live access, set `relay_url = ""` and supply your own `app_id`,
 `access_key_id`, `access_key_secret`, and `auth_code`. Requests are signed with

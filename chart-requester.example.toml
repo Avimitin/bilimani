@@ -32,7 +32,8 @@ mode = "open_live"
 auth_code = ""
 # 使用 blivechat 的公共 HTTP 接口创建会话，然后直接连接哔哩哔哩弹幕服务器。
 # 无需安装或运行 blivechat、Python 或浏览器。
-relay_url = "https://blive.chat"
+# 默认使用 api1，重连时可切换至 api2；旧配置中的 https://blive.chat 会自动兼容。
+relay_url = "https://api1.blive.chat"
 # 如需直接使用直播开放平台接口，将 relay_url 设为 ""，并填写自己的应用凭据。
 app_id = 0
 access_key_id = ""

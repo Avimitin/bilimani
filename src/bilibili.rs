@@ -179,8 +179,80 @@ struct Client {
     cfg: Bilibili,
     http: reqwest::Client,
 }
+
+// The public website is a frontend; its backend lives on these separate hosts.
+// Keep existing configurations working without sending credentials to arbitrary fallbacks.
+fn relay_endpoint(configured: &str, attempt: u64) -> String {
+    let base = configured.trim_end_matches('/');
+    let first = match base {
+        "https://blive.chat" | "https://api1.blive.chat" => 0,
+        "https://api2.blive.chat" => 1,
+        _ => return configured.to_owned(),
+    };
+    ["https://api1.blive.chat", "https://api2.blive.chat"][(first + attempt as usize % 2) % 2]
+        .to_owned()
+}
+
+#[derive(Debug)]
+struct ApiFailure(i64);
+impl std::fmt::Display for ApiFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Bilibili API returned code {}", self.0)
+    }
+}
+impl std::error::Error for ApiFailure {}
+
+/// Only expose known error types/codes, never arbitrary response bodies or URLs.
+fn failure_reason(error: &anyhow::Error) -> String {
+    for cause in error.chain() {
+        if let Some(e) = cause.downcast_ref::<ApiFailure>() {
+            let hint = match e.0 {
+                7007 => "身份码无效",
+                7010 => "同一直播间的应用会话数已达上限",
+                4009 => "接口请求过于频繁",
+                _ => "接口拒绝请求",
+            };
+            return format!("{hint}（API {}）", e.0);
+        }
+        if let Some(e) = cause.downcast_ref::<reqwest::Error>() {
+            return if let Some(code) = e.status() {
+                format!("服务返回 HTTP {}", code.as_u16())
+            } else if e.is_timeout() {
+                "HTTP 请求超时".into()
+            } else if e.is_connect() {
+                "无法连接 API 服务（网络、DNS 或 TLS 错误）".into()
+            } else {
+                "HTTP 连接中断或响应读取失败".into()
+            };
+        }
+        if let Some(e) = cause.downcast_ref::<tokio_tungstenite::tungstenite::Error>() {
+            use tokio_tungstenite::tungstenite::Error;
+            return match e {
+                Error::Http(response) => {
+                    format!("WebSocket 握手返回 HTTP {}", response.status().as_u16())
+                }
+                Error::Tls(_) => "WebSocket TLS 认证失败".into(),
+                Error::Io(_) => "WebSocket 网络连接失败".into(),
+                _ => "WebSocket 连接关闭或协议错误".into(),
+            };
+        }
+        if cause.is::<tokio::time::error::Elapsed>() {
+            return "弹幕连接超时".into();
+        }
+    }
+    match error.to_string().as_str() {
+        "Danmu authentication rejected" => "弹幕服务器拒绝认证",
+        "Danmu heartbeat timed out" => "弹幕心跳超时",
+        "Open Live session ended" => "B 站已结束弹幕会话",
+        "Websocket closed" => "弹幕服务器已关闭连接",
+        _ => "响应格式错误或连接异常",
+    }
+    .into()
+}
+
 impl Client {
-    fn new(cfg: Bilibili) -> Result<Self> {
+    fn new(mut cfg: Bilibili) -> Result<Self> {
+        cfg.relay_url = relay_endpoint(&cfg.relay_url, 0);
         let http = reqwest::Client::builder()
             .user_agent(USER_AGENT)
             .timeout(Duration::from_secs(15))
@@ -362,7 +434,9 @@ async fn read_api(response: reqwest::Response) -> Result<Value> {
     }
     let v: Value = serde_json::from_slice(&body)?;
     let code = v["code"].as_i64().context("Missing API result code")?;
-    ensure!(code == 0, "Bilibili API returned code {code}");
+    if code != 0 {
+        return Err(ApiFailure(code).into());
+    }
     Ok(v["data"].clone())
 }
 pub fn wbi_key(key: &str) -> Result<String> {
@@ -427,7 +501,7 @@ pub async fn run(cfg: Bilibili, tx: mpsc::Sender<Event>, mut stop: watch::Receiv
         status(&tx, "弹幕连接已禁用");
         return;
     }
-    let client = match Client::new(cfg) {
+    let mut client = match Client::new(cfg) {
         Ok(c) => c,
         Err(_) => {
             status(&tx, "无法初始化网络客户端");
@@ -457,43 +531,49 @@ pub async fn run(cfg: Bilibili, tx: mpsc::Sender<Event>, mut stop: watch::Receiv
         return;
     }
     let mut dedup = Dedup::default();
+    let configured_relay = client.cfg.relay_url.clone();
     loop {
         if *stop.borrow() {
             break;
         }
+        client.cfg.relay_url = relay_endpoint(&configured_relay, retries);
         status(&tx, "正在连接弹幕…");
         let started = tokio::select! { _=stop.changed()=>break, result=client.start()=>result };
         // Never put authentication bodies, cookies or credentials in OBS/logs.
-        if let Ok(session) = started {
-            let began = Instant::now();
-            let _ = socket_session(
-                &client,
-                &session,
-                retries as usize,
-                &tx,
-                &mut stop,
-                &mut dedup,
-            )
-            .await;
-            if let Some(id) = &session.game_id {
-                let _ = client
-                    .api("end", json!({"app_id":client.cfg.app_id,"game_id":id}))
-                    .await;
+        let failure = match started {
+            Ok(session) => {
+                let began = Instant::now();
+                let result = socket_session(
+                    &client,
+                    &session,
+                    retries as usize,
+                    &tx,
+                    &mut stop,
+                    &mut dedup,
+                )
+                .await;
+                if let Some(id) = &session.game_id {
+                    let _ = client
+                        .api("end", json!({"app_id":client.cfg.app_id,"game_id":id}))
+                        .await;
+                }
+                if began.elapsed() > Duration::from_secs(60) {
+                    retries = 0;
+                }
+                result
+                    .err()
+                    .map(|e| format!("弹幕连接失败：{}", failure_reason(&e)))
+                    .unwrap_or_else(|| "弹幕服务器已关闭连接".into())
             }
-            if began.elapsed() > Duration::from_secs(60) {
-                retries = 0;
-            }
-        }
+            Err(e) => format!("创建弹幕会话失败：{}", failure_reason(&e)),
+        };
         if *stop.borrow() {
             break;
         }
         retries = retries.saturating_add(1);
         let jitter = uuid::Uuid::new_v4().as_bytes()[0] as u64 % 1000;
         let delay = (1 + retries * 2).min(30);
-        status(
-            &tx,
-            format!("弹幕已断开或认证失败，{delay} 秒后重试；请检查身份码和网络"),
-        );
+        status(&tx, format!("{failure}；{delay} 秒后重试"));
         tokio::select! { _=stop.changed()=>break, _=tokio::time::sleep(Duration::from_millis(delay*1000+jitter))=>{} }
     }
 }
@@ -560,6 +640,122 @@ async fn socket_session(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn public_relay_uses_api_hosts_and_preserves_custom_or_direct_access() {
+        assert_eq!(
+            relay_endpoint("https://blive.chat/", 0),
+            "https://api1.blive.chat"
+        );
+        assert_eq!(
+            relay_endpoint("https://blive.chat", 1),
+            "https://api2.blive.chat"
+        );
+        assert_eq!(
+            relay_endpoint("https://api2.blive.chat", 0),
+            "https://api2.blive.chat"
+        );
+        assert_eq!(
+            relay_endpoint("https://api2.blive.chat", 1),
+            "https://api1.blive.chat"
+        );
+        assert_eq!(
+            relay_endpoint("https://example.com/relay/", 5),
+            "https://example.com/relay/"
+        );
+        assert_eq!(relay_endpoint("", 1), "");
+    }
+
+    #[tokio::test]
+    async fn api_error_feedback_is_specific_without_exposing_response_secrets() {
+        let response: reqwest::Response = tokio_tungstenite::tungstenite::http::Response::builder()
+            .status(200)
+            .body(r#"{"code":7007,"message":"sensitive-server-message","data":{"code":"private-auth-code"}}"#)
+            .unwrap()
+            .into();
+        let error = read_api(response).await.unwrap_err();
+        assert_eq!(failure_reason(&error), "身份码无效（API 7007）");
+        assert!(!format!("{error:#}").contains("sensitive"));
+        assert_eq!(
+            failure_reason(&anyhow::anyhow!("private-auth-code")),
+            "响应格式错误或连接异常"
+        );
+        let response: reqwest::Response = tokio_tungstenite::tungstenite::http::Response::builder()
+            .status(503)
+            .body("private-server-body")
+            .unwrap()
+            .into();
+        assert_eq!(
+            failure_reason(&read_api(response).await.unwrap_err()),
+            "服务返回 HTTP 503"
+        );
+    }
+
+    /// Opt-in live validation: secrets are supplied only through the process environment.
+    #[tokio::test]
+    #[ignore = "requires CHART_REQUESTER_AUTH_CODE and a live Open Live session"]
+    async fn live_open_live_authentication_and_heartbeats() {
+        let cfg = Bilibili {
+            auth_code: std::env::var("CHART_REQUESTER_AUTH_CODE")
+                .expect("Set identity code in environment"),
+            // Exercise compatibility with configurations written by the first release.
+            relay_url: "https://blive.chat".into(),
+            ..Bilibili::default()
+        };
+        let client = Client::new(cfg).unwrap();
+        let session = match client.start().await {
+            Ok(session) => session,
+            Err(e) => panic!("Create session: {}", failure_reason(&e)),
+        };
+        println!("Live API session created successfully");
+        let (tx, mut rx) = mpsc::channel(512);
+        let (stop_tx, mut stop_rx) = watch::channel(false);
+        let observer = tokio::spawn(async move {
+            let deadline = tokio::time::sleep(Duration::from_secs(35));
+            tokio::pin!(deadline);
+            let mut authenticated = false;
+            loop {
+                tokio::select! {
+                    _ = &mut deadline => break,
+                    event = rx.recv() => match event {
+                        Some(Event::Status(s)) if s.starts_with("弹幕已连接") => {
+                            authenticated = true;
+                            println!("Live WebSocket authentication succeeded");
+                        }
+                        None => break,
+                        _ => {}
+                    }
+                }
+            }
+            let _ = stop_tx.send(true);
+            authenticated
+        });
+        let result = socket_session(
+            &client,
+            &session,
+            0,
+            &tx,
+            &mut stop_rx,
+            &mut Dedup::default(),
+        )
+        .await;
+        // Always release the session, including after authentication/heartbeat failures.
+        let ended = client
+            .api(
+                "end",
+                json!({"app_id":client.cfg.app_id,"game_id":session.game_id}),
+            )
+            .await;
+        drop(tx);
+        let authenticated = observer.await.unwrap();
+        assert!(ended.is_ok(), "Session cleanup failed");
+        println!("Live session closed successfully");
+        if let Err(e) = result {
+            panic!("WebSocket: {}", failure_reason(&e));
+        }
+        assert!(authenticated, "WebSocket did not authenticate");
+    }
+
     #[tokio::test]
     async fn websocket_auth_compression_dedup_and_shutdown() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
