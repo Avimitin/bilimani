@@ -22,6 +22,12 @@ pub struct Catalog {
     matcher: Matcher,
 }
 impl Catalog {
+    /// Resolve first, then swap only aliases; preserve the captured search index.
+    pub fn update_aliases(&mut self, aliases: &BTreeMap<String, String>) -> Result<()> {
+        let validated = Self::new(self.songs.clone(), aliases)?;
+        self.aliases = validated.aliases;
+        Ok(())
+    }
     pub fn new(mut songs: Vec<Song>, aliases: &BTreeMap<String, String>) -> Result<Self> {
         songs.sort_by_key(|s| s.id);
         ensure!(!songs.is_empty(), "Song database is empty");

@@ -25,7 +25,8 @@ flowchart LR
 | `src/games/iidx/mod.rs` | IIDX 的 SP/DP、难度命令、显示颜色与难度编号转换 |
 | `src/games/iidx/controls.rs` | IIDX 的对侧 Start 编号与双击识别 |
 | `src/games/iidx/v33/` | 当前构建的 hook、结构偏移、曲库解析、原生搜索字典和线程邮箱 |
-| `src/host/` | Windows 模块读取与指纹、通用 Spice SDK 按键读取 |
+| `src/host/` | Windows 模块读取与指纹、通用 Spice SDK 按键读取、D3D9 绘制和窗口输入 |
+| `src/gui.rs` / `src/live_config.rs` | egui 页面、只读视图与操作命令、配置事务 |
 | `src/runtime.rs` | 启停、轮询适配器、分发消息、日志与输出协调 |
 | `src/engine.rs`、`src/catalog.rs` | 命令流程、模糊搜索、别名、候选、冷却、队列与超时 |
 | `src/overlay.rs`、`web/` | 平台与游戏无关的网页快照及显示 |
@@ -43,14 +44,18 @@ flowchart LR
 `GameAdapter` 提供以下操作：
 
 - `catalog` / `take_search_index`：返回独立拥有的曲库与补充搜索词。曲库未就绪返回 `None`。
-- `poll`：返回场景、模式、选曲 epoch、累计开曲次数、选曲结果与跳过事件。一次性事件在读取时取走。
+- `poll`：返回场景、模式、选曲 epoch、累计开曲次数、选曲结果与输入事件。IIDX 的对侧 Start 产生 `toggle_menu`，不再产生跳过事件。一次性事件在读取时取走。
 - `submit`：提交选曲意图，不能在工作线程直接调用游戏函数。当前 IIDX 适配器将请求放入邮箱，由选曲线程处理。
 - `set_skip_target`：告诉适配器当前可跳过的请求 token。是否能识别跳过动作由适配器通过 `can_skip` 表达。
 - `diagnostics` / `disabled` / `stop`：提供诊断与生命周期控制。`stop` 后停止自定义工作，hook 回调仍须保持有效并继续原游戏流程。
 
 一次只允许一个选曲请求在途。`SelectionResult` 携带原 token：成功才从等待队列移除；错误提示并移除该请求；`None` 表示场景变化等暂时无法执行，保留请求等待重试。`epoch` 用于拒绝上一次选曲场景遗留的操作。累计开曲次数避免工作线程漏掉短暂的游戏状态切换。
 
-跳过事件只包含 token、epoch 和供日志使用的描述。IIDX 内部处理单人 SP、1P/2P、对侧 Start 与双击窗口；核心只检查通用的场景、能力、请求身份和在途状态。
+IIDX 内部处理单人 SP、1P/2P、对侧 Start 与双击窗口，向上层发出 `toggle_menu` 与通用 `Navigation` 事件。`set_menu_open` 告知适配器是否启用输入隔离。图形界面不知道游戏按键编号或内存偏移。原有通用跳过事件接口保留，当前 IIDX 不再使用；GUI 的跳过和删除操作由工作线程按 token / epoch / 在途状态验证。
+
+渲染线程通过有界命令通道请求修改；工作线程独占配置、引擎、文件和网络任务，并发布独立拥有的视图快照。Spice SDK v0.4 的 D3D9 回调负责串行化渲染和恢复游戏状态。`INVALIDATE` 释放所有默认池纹理；CPU 图像保留用于重建；`DESTROY` 释放所有设备资源。WindowProc 只收集输入，不获取游戏或渲染器锁。
+
+`live_config::Store` 保留原始相对路径和 TOML 注释，保存前检测外部编辑。运行时使用另一份解析后的绝对路径配置。网络通过 `platforms::session::Session` 先结束旧会话再连接新会话，重连过程不阻塞引擎。OBS 的 HTTP 接口仍然只提供公开队列状态，不暴露配置、凭据或完整弹幕历史。
 
 网页根据 `chart_style` 渲染颜色，不从难度名称推测游戏规则。此字段是 `/api/state` 当前项、队列项和候选请求上的新增展示字段，原有字段保持不变；现有 IIDX 的文字、颜色和布局保持原样。
 

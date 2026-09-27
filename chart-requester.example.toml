@@ -1,5 +1,6 @@
-# 将此文件复制到 chart_requester.dll 所在目录，并命名为 chart-requester.toml。
-# 修改配置后需重启游戏才能生效。
+# 设置由 GUI 管理，首次启动会自动创建 chart-requester.toml，用于持久化保存。
+# 游戏内双击对侧 Start 打开控制台，修改后点击「应用并保存」即时生效。
+# 本示例仅供高级配置与恢复参考，日常使用无需手动编辑文件。
 [requests]
 # 等待队列的容量，不包含已经定位到的当前点歌。
 queue_capacity = 20
@@ -52,10 +53,14 @@ module = "bm2dx.dll"
 database_path = ""
 
 [controls]
-# 单人 SP 普通选曲时，双击另一侧 Start 跳过当前点歌。
+# 单人 SP 普通选曲时，双击另一侧 Start 打开或关闭游戏内控制台。
 # 1P 游玩按 2P Start；2P 游玩按 1P Start。只读取按键，不拦截游戏操作。
-# DP、双人游玩、非选曲界面不启用；需要 Spice2x SDK 的按键读取支持。
-skip_enabled = true
+# DP、双人游玩、非选曲界面不启用；需要 Spice2x SDK v0.4 的 D3D9 回调支持。
+# 队列为空也可打开；跳过当前点歌、删除等待点歌请在「弹幕与队列」页操作。
+# 窗口内用当前登录侧：B1 下一项、B2 上一项、B6 确认、B7 返回、转盘左右。
+# 窗口打开时当前侧琴键和转盘用于控制台；关闭后恢复，对侧 Start 始终只读。
+# 旧配置 skip_enabled 仍可读取，保存时会迁移为 menu_enabled。
+menu_enabled = true
 # 两次按下的最大间隔（毫秒，100–2000）；中间必须松开，长按不算双击。
 double_tap_ms = 400
 

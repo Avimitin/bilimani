@@ -12,6 +12,12 @@ The Bilibili transport is a Rust adaptation of the protocol/signing/session logi
 was used as a reference for game terminology, difficulty ordering and analysis
 starting points. It is not a runtime dependency.
 
+[aixxe/2dxtra](https://github.com/aixxe/2dxtra), commit
+`a6fc091a0914f578498ca297bf30dca0ffa1bfb5`, MIT, copyright 2025 aixxe,
+was used as a reference for controller menu navigation and the IIDX input layout.
+The input hook was independently checked against the supported game binary in IDA.
+It is not a runtime dependency.
+
 The MIT permission and warranty terms for these upstream projects follow:
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -40,3 +46,15 @@ The game ABI was independently checked against the locally supplied binary in ID
 Rust crate versions are pinned in `Cargo.lock`; see each crate's accompanying
 license. Release packaging collects dependency license files under `licenses/`.
 No proprietary game code, data or IDA database is distributed.
+
+The in-game panel uses [egui](https://github.com/emilk/egui), MIT OR Apache-2.0.
+Its components and design tokens use
+[ouroboros-ui](https://github.com/Type-zero-labs/ouroboros-ui), commit
+`c390d7deffa7955e28b2e3bcb9c22ac0899a261b`, MIT, copyright 2026 Type Zero Labs.
+Bundled Iosevka fonts are licensed under SIL Open Font License 1.1; Phosphor
+icons are provided by egui-phosphor under MIT. Release packages include the
+upstream code license, font license and credits under `licenses/`.
+Its D3D9 painter and Win32 input bridge are implemented in this project; no
+egui-d3d9 implementation is incorporated. Spice SDK v0.4 drawing ABI is declared
+by the upstream `sdk/include/spicesdk.h`. Chinese/Japanese fonts are read from
+the user's Windows installation and are not included in the DLL or ZIP.

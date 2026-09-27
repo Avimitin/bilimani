@@ -11,6 +11,15 @@ pub struct Logger {
     secrets: Vec<String>,
 }
 impl Logger {
+    pub fn reconfigure(&mut self, root: &Path, config: &Config) {
+        let mut replacement = Self::new(root, config);
+        replacement.secrets.extend(self.secrets.iter().cloned());
+        replacement
+            .secrets
+            .sort_by_key(|s| std::cmp::Reverse(s.len()));
+        replacement.secrets.dedup();
+        *self = replacement;
+    }
     pub fn new(root: &Path, config: &Config) -> Self {
         let mut secrets = config.source().redaction_secrets();
         secrets.sort_by_key(|s| std::cmp::Reverse(s.len()));

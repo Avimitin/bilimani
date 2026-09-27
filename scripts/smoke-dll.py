@@ -76,7 +76,8 @@ else:
             state = json.load(response)
             assert state["ready"] is False and state["queue"] == []
     for table, slot, rva in [(0xd84788, 13, 0x8eb820), (0xd84788, 14, 0x8ebeb0),
-                             (0xd84788, 15, 0x8ec1f0), (0xce9f40, 1, 0x7f2fd0)]:
+                             (0xd84788, 15, 0x8ec1f0), (0xce9f40, 1, 0x7f2fd0),
+                             (0xdd05c0, 3, 0xa7a2f0)]:
         hooked = ctypes.c_void_p.from_address(game + table + slot*8).value
         assert hooked != game+rva, f"Slot {slot} was not patched"
         assert abs(hooked-plugin._handle) < 0x4000000, "Hook is not inside plugin image"
@@ -85,6 +86,16 @@ else:
 destroy_callback = None
 INIT = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_uint32, ctypes.c_void_p, ctypes.c_void_p)
 GET_BUTTON = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_uint32, ctypes.POINTER(ctypes.c_bool), ctypes.c_void_p)
+DRAW = ctypes.CFUNCTYPE(None, ctypes.c_uint32, ctypes.c_void_p, ctypes.c_void_p)
+REGISTER = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p)
+draw_callback = None
+
+@REGISTER
+def sdk_register(callback, userdata):
+    global draw_callback
+    assert callback and not userdata
+    draw_callback = DRAW(callback)
+    return 0
 
 @GET_BUTTON
 def sdk_get_button(button, pressed, velocity):
@@ -96,7 +107,9 @@ def sdk_get_button(button, pressed, velocity):
 def sdk_init(version, destroy, api):
     global destroy_callback
     assert version == 0
-    assert ctypes.c_uint32.from_address(api).value == 112
+    assert ctypes.c_uint32.from_address(api).value == 152
+    if "--sdk-renderer" in sys.argv:
+        ctypes.c_void_p.from_address(api + 8 + 17 * 8).value = ctypes.cast(sdk_register, ctypes.c_void_p).value
     if "--no-sdk-input" not in sys.argv:
         # Eight-byte-aligned function table, get_button is slot 3.
         ctypes.c_void_p.from_address(api + 8 + 3 * 8).value = ctypes.cast(sdk_get_button, ctypes.c_void_p).value
@@ -107,6 +120,12 @@ plugin.spice_sdk_entry_point.argtypes = [INIT]
 plugin.spice_sdk_entry_point.restype = ctypes.c_int
 assert plugin.spice_sdk_entry_point(sdk_init) == 0
 assert destroy_callback
+if "--sdk-renderer" in sys.argv:
+    assert draw_callback
+    # Null/unusable frames must be ignored; lifecycle callbacks must be safe
+    # even before the host has ever supplied a device.
+    for event in (0, 1, 2, 3):
+        draw_callback(event, None, None)
 if not reject and "--no-sdk-input" not in sys.argv:
     deadline = time.monotonic() + 3
     while time.monotonic() < deadline:

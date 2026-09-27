@@ -105,6 +105,15 @@ pub struct SkipRequest {
     /// Human-readable adapter context for diagnostics, not interpreted by core.
     pub description: String,
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Navigation {
+    Down,
+    Up,
+    Left,
+    Right,
+    Confirm,
+    Back,
+}
 #[derive(Default)]
 pub struct GameUpdate {
     pub snapshot: Snapshot,
@@ -112,10 +121,15 @@ pub struct GameUpdate {
     pub plays: u64,
     pub selection_result: Option<SelectionResult>,
     pub skip: Option<SkipRequest>,
+    /// Controller gesture with adapter-validated scene/player context.
+    pub toggle_menu: bool,
+    pub navigation: Vec<Navigation>,
     pub input_status: String,
 }
 
 pub trait GameAdapter: Send + Sync {
+    fn set_menu_open(&self, _open: bool) {}
+    fn configure_controls(&self, _controls: &crate::config::Controls) {}
     fn rules(&self) -> &'static dyn GameRules;
     fn startup_messages(&self) -> Vec<(&'static str, String)>;
     fn catalog(&self, override_path: &Path) -> Result<Option<Vec<Song>>>;

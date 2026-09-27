@@ -37,6 +37,46 @@ fn engine() -> Engine {
     );
     e
 }
+
+#[test]
+fn menu_deletion_rejects_inflight_and_stale_ids_without_dropping_other_requests() {
+    let mut e = engine();
+    chat(&mut e, "a", "点歌 冥", 0);
+    chat(&mut e, "b", "点歌 雪月花", 0);
+    let second = e.queue[1].token;
+    let j = e.next_jump(0).unwrap();
+    assert!(!e.remove_queued(j.request.token, 1));
+    assert!(e.remove_queued(second, 1));
+    assert!(!e.remove_queued(second, 1));
+    e.jump_result(j.request.token, Some(Ok(())), 2);
+    assert!(!e.dismiss_current(j.request.token, 99, 2));
+    assert!(e.dismiss_current(j.request.token, 1, 2));
+    assert!(e.current.is_none());
+}
+
+#[test]
+fn live_alias_update_keeps_native_keywords_pending_and_queue() {
+    let mut e = engine();
+    e.catalog
+        .set_search_index(&[(3, "special native reading".into())]);
+    chat(&mut e, "a", "点歌 雪月花", 0);
+    chat(&mut e, "b", "点歌 AA", 0);
+    let token = e.queue[0].token;
+    let until = e.pending["b"].until;
+    e.catalog
+        .update_aliases(&BTreeMap::from([("new alias".into(), "3".into())]))
+        .unwrap();
+    assert_eq!(e.catalog.search("special native reading", 5)[0].id, 3);
+    assert_eq!(e.catalog.search("new alias", 5)[0].id, 3);
+    assert!(
+        e.catalog
+            .update_aliases(&BTreeMap::from([("bad".into(), "absent".into())]))
+            .is_err()
+    );
+    assert_eq!(e.catalog.search("new alias", 5)[0].id, 3);
+    assert_eq!(e.queue[0].token, token);
+    assert_eq!(e.pending["b"].until, until);
+}
 fn chat(e: &mut Engine, user: &str, text: &str, now: u64) {
     e.chat(
         Chat {

@@ -130,6 +130,27 @@ If the search dictionary has not initialized, canonical titles/readings remain
 usable. No extra install, manual XML copy, or search-window prerequisite is needed
 for basic requests. The touchscreen's own matching and result ownership are unchanged.
 
+## Controller navigation capture
+
+The supported image's `IO::InputManagerIIDX` vtable is at RVA `0xdd05c0`.
+Slot 3 points to the input poll at RVA `0xa7a2f0`; the guarded first 16 bytes are
+`48 89 4c 24 08 55 53 56 57 41 54 41 55 41 56 41`.
+IDA cross-references tie this table to the singleton accessor at RVA `0xa79b50`.
+The poll is called normally before reading or masking its output.
+
+Decompilation verifies four button words at object offsets `+8`, `+12`, `+16`,
+`+20`. Bits 0–6 are P1 keys and 7–13 are P2 keys. Turntable position and delta
+are at `+0x58 + side*8` and `+0x5c + side*8`, with zero-based side.
+The intervening `+0x18..+0x57` region contains C++ containers and must not be
+copied, cleared, or treated as an array of button state.
+
+While the panel is open in eligible single-player SP song select, the adapter
+emits navigation from the logged-in side, masks only that side's seven key bits
+in all four button words, restores its pre-poll turntable position and clears
+its delta. It does not mask Start, service keys or the other side. Closing keeps
+held menu keys masked until release. Layout masking and edge/repeat behavior
+have independent tests; native timing and scratch direction require live testing.
+
 ## Validation boundary
 
 `scripts/check-profile.py` checks the file hash, architecture, function guards and

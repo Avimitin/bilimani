@@ -35,6 +35,10 @@ foreach ($package in $metadata.packages) {
         $licenseFile = Join-Path $crate $package.license_file
         if (Test-Path -LiteralPath $licenseFile) { Copy-Item -LiteralPath $licenseFile -Destination $out }
     }
+    if ($package.name -eq 'ouroboros-ui') {
+        Copy-Item -LiteralPath (Join-Path $crate 'assets/fonts/OFL-Iosevka.txt') -Destination $out
+        Copy-Item -LiteralPath (Join-Path $crate 'CREDITS.md') -Destination $out
+    }
 }
 $archiveFiles = @('chart_requester.dll','README.md','LICENSE','THIRD-PARTY-NOTICES.md','chart-requester.example.toml','docs','licenses') | ForEach-Object { Join-Path $destination $_ }
 $archive = Join-Path $destination "chart-requester-$($project.version).zip"

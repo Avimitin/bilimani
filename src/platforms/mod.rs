@@ -2,6 +2,7 @@
 use std::{future::Future, pin::Pin};
 use tokio::sync::{mpsc, watch};
 pub mod bilibili;
+pub mod session;
 
 #[derive(Clone, Debug)]
 pub struct Chat {
@@ -40,6 +41,7 @@ pub trait ChatSource: Send {
         stop: watch::Receiver<bool>,
     ) -> Pin<Box<dyn Future<Output = ()> + Send>>;
 }
+#[derive(Clone, PartialEq, Eq)]
 pub enum SourceConfig {
     Bilibili(crate::config::Bilibili),
 }

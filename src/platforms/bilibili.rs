@@ -331,10 +331,7 @@ impl Client {
         if self.cfg.mode == "web" {
             return self.start_web().await;
         }
-        ensure!(
-            !self.cfg.auth_code.is_empty(),
-            "Set bilibili.auth_code in chart-requester.toml"
-        );
+        ensure!(!self.cfg.auth_code.is_empty(), "尚未设置主播身份码");
         if self.cfg.relay_url.is_empty() {
             ensure!(
                 self.cfg.app_id > 0
@@ -541,10 +538,7 @@ pub async fn run(cfg: Bilibili, tx: mpsc::Sender<Event>, mut stop: watch::Receiv
     if (client.cfg.mode == "open_live" && client.cfg.auth_code.is_empty())
         || (client.cfg.mode == "web" && client.cfg.room_id == 0)
     {
-        status(
-            &tx,
-            "请在 chart-requester.toml 中填写 bilibili 身份码或房间号后重启",
-        );
+        status(&tx, "等待设置直播连接");
         return;
     }
     let mut retries = 0u64;
@@ -554,10 +548,7 @@ pub async fn run(cfg: Bilibili, tx: mpsc::Sender<Event>, mut stop: watch::Receiv
             || client.cfg.access_key_id.is_empty()
             || client.cfg.access_key_secret.is_empty())
     {
-        status(
-            &tx,
-            "直连 Open Live 需要配置 app_id、access_key_id 和 access_key_secret 后重启",
-        );
+        status(&tx, "开放平台应用凭据尚未设置完整");
         return;
     }
     let mut dedup = Dedup::default();

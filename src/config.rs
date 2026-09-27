@@ -1,11 +1,11 @@
 use anyhow::{Context, Result, ensure};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
 };
 
-#[derive(Clone, Debug, Deserialize, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
     pub requests: Requests,
@@ -37,9 +37,10 @@ impl From<Config> for EngineConfig {
     }
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(default, deny_unknown_fields)]
 pub struct Controls {
+    #[serde(rename = "menu_enabled", alias = "skip_enabled")]
     pub skip_enabled: bool,
     pub double_tap_ms: u64,
 }
@@ -52,7 +53,7 @@ impl Default for Controls {
     }
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(default, deny_unknown_fields)]
 pub struct Overlay {
     pub enabled: bool,
@@ -67,7 +68,7 @@ impl Default for Overlay {
     }
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum LogLevel {
     Off,
@@ -75,7 +76,7 @@ pub enum LogLevel {
     Debug,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(default, deny_unknown_fields)]
 pub struct Logging {
     pub level: LogLevel,
@@ -96,7 +97,7 @@ impl Default for Logging {
     }
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(default, deny_unknown_fields)]
 pub struct Requests {
     pub queue_capacity: usize,
@@ -119,7 +120,7 @@ impl Default for Requests {
     }
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(default, deny_unknown_fields)]
 pub struct Output {
     pub queue_path: PathBuf,
@@ -138,7 +139,7 @@ impl Default for Output {
     }
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(default, deny_unknown_fields)]
 pub struct Bilibili {
     pub enabled: bool,
@@ -171,7 +172,7 @@ impl Default for Bilibili {
     }
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(default, deny_unknown_fields)]
 pub struct Game {
     pub module: String,
@@ -193,10 +194,17 @@ impl Config {
         crate::platforms::SourceConfig::Bilibili(self.bilibili.clone())
     }
     pub fn load(path: &Path) -> Result<Self> {
-        let mut result: Self = toml::from_str(
+        let result = Self::read(path)?;
+        result.resolve(path)
+    }
+    pub fn read(path: &Path) -> Result<Self> {
+        Self::parse(
             &std::fs::read_to_string(path)
                 .with_context(|| format!("Cannot read {}", path.display()))?,
         )
+    }
+    pub fn parse(source: &str) -> Result<Self> {
+        let result: Self = toml::from_str(source)
         // TOML errors normally include the source line, which could contain a
         // cookie or access key. Report only the location to startup logs.
         .map_err(|e: toml::de::Error| {
@@ -206,6 +214,11 @@ impl Config {
             )
         })?;
         result.validate()?;
+        Ok(result)
+    }
+    pub fn resolve(mut self, path: &Path) -> Result<Self> {
+        self.validate()?;
+        let result = &mut self;
         let root = path
             .parent()
             .context("Configuration has no parent directory")?;
@@ -218,7 +231,7 @@ impl Config {
             result.output.queue_path != path && result.output.interaction_path != path,
             "OBS output must not overwrite the configuration"
         );
-        Ok(result)
+        Ok(self)
     }
     pub fn validate(&self) -> Result<()> {
         ensure!(

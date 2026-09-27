@@ -4,7 +4,9 @@ use crate::{
     engine::{Engine, Phase, Snapshot},
     game::GameAdapter,
     games,
-    host::{spice as sdk, windows::module_path},
+    gui::{self, Action, Bridge, View},
+    host::{menu, spice as sdk, windows::module_path},
+    live_config::Store,
     logging::Logger,
     output::{TextFile, resolved_output},
     overlay,
@@ -64,8 +66,12 @@ fn start(module: HMODULE) -> Result<()> {
             .open(&config_path)?;
         file.write_all(include_bytes!("../chart-requester.example.toml"))?;
     }
-    let config = Config::load(&config_path)?;
-    let logger = Logger::new(root, &config);
+    let mut store = Store::open(&config_path)?;
+    let mut config = store.raw.clone().resolve(&config_path)?;
+    let mut logger = Logger::new(root, &config);
+    let mut view = View::new(store.raw.clone());
+    let (bridge, commands) = Bridge::new(view.clone(), menu::fonts());
+    let _ = menu::BRIDGE.set(bridge.clone());
     logger.info(
         "startup",
         &format!(
@@ -122,17 +128,13 @@ fn start(module: HMODULE) -> Result<()> {
                     Some(server)
                 }
                 Err(e) => {
-                    overlay_error = format!("网页界面启动失败（端口 {}）：{e}；可修改 overlay.port 后重启，文本点歌仍可使用", config.overlay.port);
+                    overlay_error = format!("网页界面启动失败（端口 {}）：{e}；请在「OBS 显示」页调整端口并应用，文本点歌仍可使用", config.overlay.port);
                     logger.info("overlay", &overlay_error);
                     None
                 }
             }
         } else { None };
-        let (tx, mut rx) = tokio::sync::mpsc::channel(512);
-        let (shutdown, stop) = tokio::sync::watch::channel(false);
-        let source = platforms::create(config.source());
-        let shutdown_message = source.shutdown_message();
-        let network = tokio::spawn(source.run(tx, stop));
+        let mut network = platforms::session::Session::new(config.source());
         let mut engine: Option<Engine> = None;
         let mut interval = tokio::time::interval(Duration::from_millis(100));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -147,6 +149,7 @@ fn start(module: HMODULE) -> Result<()> {
         let mut received = 0u64;
         let mut handled = 0u64;
         let mut last_input_state = String::new();
+        let mut menu_status = i32::MIN;
         loop {
             interval.tick().await;
             if STOP.load(Ordering::Acquire) {
@@ -157,6 +160,11 @@ fn start(module: HMODULE) -> Result<()> {
                 break;
             }
             let now = start.elapsed().as_secs();
+            network.poll();
+            if menu_status != menu::status() {
+                menu_status = menu::status();
+                logger.info("gui", &format!("D3D9 menu status={menu_status} (-1=SDK v0.4 renderer unavailable; 0=registered; 1=drawing; negative=error)"));
+            }
             if engine.is_none() {
                 let loaded = game.catalog(&config.game.database_path);
                 if !matches!(loaded, Ok(None)) {
@@ -181,6 +189,13 @@ fn start(module: HMODULE) -> Result<()> {
             // Report game state even before the catalog becomes available.
             let update = game.poll();
             let (snapshot, new_plays, ack, skip) = (update.snapshot, update.plays, update.selection_result, update.skip);
+            if update.toggle_menu {
+                if menu::available() { bridge.toggle(); }
+                else { logger.info("gui", "Cannot open menu: upgrade Spice2x to SDK v0.4 with D3D9 callbacks"); }
+            }
+            bridge.navigate(update.navigation);
+            // Never leave an interactive menu above gameplay or a different scene.
+            if snapshot.phase != Phase::Select { bridge.visible.store(false, Ordering::Release); }
             let input_state = update.input_status;
             if input_state != last_input_state {
                 logger.info("input", &input_state);
@@ -217,8 +232,69 @@ fn start(module: HMODULE) -> Result<()> {
                     logger.info("input", &format!("{} token={} epoch={} skipped={accepted}", event.description, event.token, event.epoch));
                 }
             }
+            // Commands are handled only on this worker, never from a graphics callback.
+            for _ in 0..8 {
+                let Ok(command) = commands.try_recv() else { break; };
+                let result: Result<String> = async {
+                    match command.action {
+                        Action::Remove(token) => {
+                            ensure!(engine.as_mut().is_some_and(|e| e.remove_queued(token, now)), "该条目已变化或正在定位，请刷新后重试");
+                            Ok("已删除等待点歌".into())
+                        }
+                        Action::Skip { token, epoch } => {
+                            ensure!(engine.as_mut().is_some_and(|e| e.dismiss_current(token, epoch, now)), "当前点歌或游戏界面已变化，请刷新后重试");
+                            Ok("已跳过当前点歌".into())
+                        }
+                        action => {
+                            let prepared = match action {
+                                Action::Apply { config, revision } => store.prepare(*config, revision, &path)?,
+                                Action::Reload => store.reload(&path)?,
+                                _ => unreachable!(),
+                            };
+                            // Validate aliases before touching disk, engine state, or services.
+                            if let Some(e) = &engine { Catalog::new(e.catalog.songs.clone(), &prepared.raw.aliases)?; }
+                            else { ensure!(prepared.raw.aliases == store.raw.aliases, "曲库尚未就绪，暂时不能验证新的别名"); }
+                            let next = &prepared.resolved;
+                            let replace_web = next.overlay != config.overlay || (next.overlay.enabled && web.is_none());
+                            let replacement = if replace_web && next.overlay.enabled {
+                                Some(overlay::Server::start(next.overlay.port, &overlay::snapshot(engine.as_ref(), &connection, now)).await?)
+                            } else { None };
+                            let source_changed = next.source() != config.source();
+                            // A failed atomic save drops the prepared web server, leaving old state intact.
+                            let next = store.commit(prepared)?;
+                            if let Some(e) = engine.as_mut() {
+                                e.catalog.update_aliases(&next.aliases)?;
+                                e.config = next.clone().into();
+                            }
+                            if replace_web {
+                                if let Some(server) = web.as_mut() { server.stop().await; }
+                                web = replacement;
+                                overlay_error.clear();
+                            }
+                            if next.output.queue_path != config.output.queue_path { queue = TextFile::new(next.output.queue_path.clone()); }
+                            if next.output.interaction_path != config.output.interaction_path { interaction = TextFile::new(next.output.interaction_path.clone()); }
+                            game.configure_controls(&next.controls);
+                            logger.reconfigure(root, &next);
+                            if source_changed {
+                                network.replace(next.source());
+                                connection = Connection { connected: false, text: "配置已更新，正在重新连接弹幕…".into() };
+                                status = connection.text.clone();
+                                if let Some(e) = engine.as_mut() { e.status = status.clone(); }
+                            }
+                            config = next;
+                            view.config = store.raw.clone();
+                            view.revision = store.revision;
+                            next_status = 0;
+                            logger.info("config", "Live configuration applied; queue preserved");
+                            Ok("配置已应用；现有队列保持不变".into())
+                        }
+                    }
+                }.await;
+                // Error text never contains serialized TOML or credential values.
+                view.reply = (command.id, result.unwrap_or_else(|e| format!("未应用：{e}")));
+            }
             for _ in 0..128 {
-                let Ok(event) = rx.try_recv() else {
+                let Some(event) = network.try_recv() else {
                     break;
                 };
                 match event {
@@ -231,11 +307,13 @@ fn start(module: HMODULE) -> Result<()> {
                         }
                     }
                     Event::Chat(c) => {
+                        gui::record_chat(&mut view.chats, &c, now);
                         received += 1;
                         logger.danmu(&format!("received seq={received} user={:?} name={:?} text={:?}", c.user, c.name, c.text));
                         if let Some(e) = engine.as_mut() {
                             let user = c.user.clone();
-                            let outcome = e.chat(c, now);
+                            let outcome = e.chat(c.clone(), now);
+                            gui::record_processing(&mut view.processing, &c, outcome, now);
                             if !outcome.starts_with("ignored_") { handled += 1; }
                             logger.debug("request", &format!("seq={received} result={outcome} queued={} pending={}", e.queue.len(), e.pending.len()));
                             if outcome == "awaiting_selection" && let Some(p) = e.pending.get(&user) {
@@ -243,6 +321,7 @@ fn start(module: HMODULE) -> Result<()> {
                                     p.songs.iter().map(|s| (s.id, &s.title)).collect::<Vec<_>>()));
                             }
                         } else {
+                            gui::record_processing(&mut view.processing, &c, "ignored_catalog_not_ready", now);
                             logger.info("request", &format!("seq={received} result=ignored_catalog_not_ready"));
                             catalog_notice = "游戏曲库尚未就绪，请进入选曲后重新点歌".into();
                         }
@@ -251,7 +330,7 @@ fn start(module: HMODULE) -> Result<()> {
                 }
             }
             let (q, mut i) = if let Some(e) = engine.as_mut() {
-                if let Some(j) = e.next_jump(now) {
+                if !bridge.visible.load(Ordering::Acquire) && let Some(j) = e.next_jump(now) {
                     logger.info("jump", &format!("submit token={} song_id={} song={:?} mode={:?} chart={:?} epoch={}",
                         j.request.token, j.request.song.id, j.request.song.title, j.request.mode, j.request.chart, j.epoch));
                     game.submit(j.selection());
@@ -264,9 +343,13 @@ fn start(module: HMODULE) -> Result<()> {
                     format!("{status}\n{catalog_notice}\n等待游戏曲库…\n"),
                 )
             };
+            view.connection = connection.clone();
+            view.update_engine(engine.as_ref());
+            bridge.publish(view.clone());
+            game.set_menu_open(bridge.visible.load(Ordering::Acquire));
             game.set_skip_target(engine.as_ref().and_then(|e| e.current.as_ref().map(|c| c.request.token)));
             if web.as_ref().is_some_and(overlay::Server::is_finished) {
-                overlay_error = "网页界面服务已停止，请重启游戏；文本点歌仍可使用".into();
+                overlay_error = "网页界面服务已停止，请在控制台点击「应用并保存」重试；文本点歌仍可使用".into();
                 logger.info("overlay", &overlay_error);
                 web = None;
             }
@@ -295,21 +378,9 @@ fn start(module: HMODULE) -> Result<()> {
         }
         if let Some(game) = GAME.get() { game.stop(); }
         if let Some(server) = web.as_mut() { server.stop().await; }
-        logger.info("shutdown", shutdown_message);
-        let _ = shutdown.send(true);
-        if !network.is_finished() {
-            match tokio::time::timeout(Duration::from_secs(18), network).await {
-                Ok(Ok(())) => logger.info("shutdown", "Network worker stopped"),
-                _ => logger.info("shutdown", "Network worker did not stop cleanly within timeout"),
-            }
-        }
-        while let Ok(event) = rx.try_recv() {
-            match event {
-                Event::Diagnostic(s) => logger.debug("transport", &s),
-                Event::Status(s) => logger.info("connection", &s.text),
-                Event::Chat(_) => {}
-            }
-        }
+        menu::stop();
+        network.stop().await;
+        logger.info("shutdown", "Network worker stopped");
         let _ = queue.write("点歌已停止\n");
         if STOP.load(Ordering::Acquire) {
             let _ = interaction.write("弹幕连接已关闭\n");
@@ -361,6 +432,7 @@ pub extern "C" fn chart_requester_shutdown() {
         game.stop();
     }
     sdk::set(None);
+    menu::stop();
 }
 extern "C" fn spice_destroy() {
     chart_requester_shutdown();
@@ -372,12 +444,12 @@ extern "C" fn spice_destroy() {
         }
     }
 }
-/// Spice SDK v0.1 ABI: orderly shutdown and read-only controller state.
-/// Older Spice versions still load, but controller skipping is unavailable.
+/// Spice SDK v0.4 table: shutdown, read-only buttons, and D3D9 registration.
+/// Older hosts populate only their supported prefix; absent render callbacks are optional.
 #[repr(C)]
 struct SdkV0 {
     size: u32,
-    functions: [usize; 13],
+    functions: [usize; 18],
 }
 type SdkInit = unsafe extern "C" fn(u32, extern "C" fn(), *mut c_void) -> i32;
 #[unsafe(no_mangle)]
@@ -387,13 +459,16 @@ pub unsafe extern "C" fn spice_sdk_entry_point(init: Option<SdkInit>) -> i32 {
     };
     let mut api = SdkV0 {
         size: std::mem::size_of::<SdkV0>() as u32,
-        functions: [0; 13],
+        functions: [0; 18],
     };
     let status = unsafe { init(0, spice_destroy, (&mut api as *mut SdkV0).cast()) };
     if status == 0 && api.functions[3] != 0 && !STOP.load(Ordering::Acquire) {
         sdk::set(Some(unsafe {
             std::mem::transmute::<usize, sdk::GetButton>(api.functions[3])
         }));
+    }
+    if status == 0 && api.functions[17] != 0 && !STOP.load(Ordering::Acquire) {
+        menu::register(unsafe { std::mem::transmute::<usize, menu::Register>(api.functions[17]) });
     }
     status
 }

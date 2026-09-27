@@ -75,6 +75,40 @@ pub struct Engine {
     skipped_before_jump: Option<String>,
 }
 impl Engine {
+    pub fn remove_queued(&mut self, token: u64, now: u64) -> bool {
+        if self
+            .in_flight
+            .as_ref()
+            .is_some_and(|j| j.request.token == token)
+        {
+            return false;
+        }
+        let Some(index) = self.queue.iter().position(|r| r.token == token) else {
+            return false;
+        };
+        let request = self.queue.remove(index).unwrap();
+        self.notice(now, format!("已删除等待点歌：{}", request.label()));
+        true
+    }
+    pub fn can_remove(&self, token: u64) -> bool {
+        !self
+            .in_flight
+            .as_ref()
+            .is_some_and(|j| j.request.token == token)
+    }
+    /// Explicit UI action, valid in any adapter's ordinary song selection.
+    pub fn dismiss_current(&mut self, token: u64, epoch: u64, now: u64) -> bool {
+        if self.snapshot.phase != Phase::Select
+            || self.snapshot.epoch != epoch
+            || self.in_flight.is_some()
+            || self.current.as_ref().map(|c| c.request.token) != Some(token)
+        {
+            return false;
+        }
+        let request = self.current.take().unwrap().request;
+        self.notice(now, format!("已跳过：{}", request.label()));
+        true
+    }
     pub fn chart_style(&self, chart: Option<Chart>) -> ChartStyle {
         chart.map_or(ChartStyle::Neutral, |c| self.rules.chart_style(c))
     }

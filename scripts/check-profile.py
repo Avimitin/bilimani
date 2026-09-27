@@ -36,6 +36,7 @@ guards = {
     0x606e60: "4883ec284881c128030000e880cdffff",
     0x949230: "4883ec28e84702000083f801751533c9",
     0x806f60: "4883ec28e8f7feffff85c07517e84eff",
+    0xa7a2f0: "48894c24085553565741544155415641",
 }
 for rva, expected in guards.items():
     assert read(rva, 16).hex() == expected, f"Function guard mismatch at {rva:x}"
@@ -43,4 +44,5 @@ for slot, expected in [(13, 0x8eb820), (14, 0x8ebeb0), (15, 0x8ec1f0)]:
     assert struct.unpack("<Q", read(0xd84788+slot*8, 8))[0] == image_base+expected
 assert read(0x951fd0, 8).hex() == "488d052969380ac3", "Database accessor mismatch"
 assert struct.unpack("<Q", read(0xce9f40+8, 8))[0] == image_base+0x7f2fd0, "Title dictionary loader mismatch"
+assert struct.unpack("<Q", read(0xdd05c0+3*8, 8))[0] == image_base+0xa7a2f0, "Input poll mismatch"
 print(f"Verified x64 image, SHA-256, {len(guards)} entry-point guards, database accessor, selection and search vtable slots.")

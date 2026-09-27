@@ -40,7 +40,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "& ./scripts/build.ps1 -C
 不提供 `--browser` 时使用 Playwright 安装的 Chromium；截图保存在忽略的 `analysis/overlay-compact/`。
 `scripts/smoke-dll.py` 也会检查真实 DLL 启动 HTTP 服务、提供页面/状态，以及关闭后释放端口。
 
-## Controller skip
+## Controller menu and live configuration
 
 `src/games/iidx/controls.rs` samples the opposite Start through the host bridge
 in `src/host/spice.rs`, using SDK v0.1 `get_button` (table
@@ -51,17 +51,88 @@ SDK support or nonzero status disables gesture recognition without stopping chat
 Native selection updates sample input every frame, only when the normal selection
 gate is open, SP is active and exactly one side is participating. `DoubleTap`
 requires two rising edges within the configured window and keys its state to the
-request token, selection epoch and active side. Holding on entry, switching songs
-or sides, leaving selection, opening a modal or a failed read resets the gesture.
-The original game update always runs; no button state is overridden.
+selection epoch and active side. Holding on entry, switching sides, leaving
+selection, opening a modal or a failed read resets the gesture. A release and two
+new presses can toggle again; it works without any current request.
+The original game update always runs; Start is not overridden.
 
-The mailbox carries a token/epoch/side event to the worker, where the engine checks
-it again against the current request. Skipping clears only that current request;
-the existing native jump/ack path advances the waiting queue. The skip notice is
-included with the next jump result so a fast acknowledgement cannot hide it.
-`[input]` records configuration, eligibility/read status changes and accepted or
-discarded double taps. Tests cover input edges, context resets, unavailable SDK,
-single-player gating and stale/current/in-flight queue behavior.
+Panel navigation uses the logged-in side's native input snapshot, captured after
+the IIDX input manager's original poll. B1/B2 have edge/repeat navigation;
+B6/B7 are edge-only; scratch generates rate-limited left/right events. While
+visible, only that side's seven button bits and turntable state are suppressed
+for the game. The version module owns all offsets and emits generic `Navigation`
+events; egui never reads game memory. See [input evidence](game-analysis.md).
+
+The adapter validates epoch/side and emits `toggle_menu`. The worker toggles an
+egui panel; skipping and deleting requests are explicit panel commands. Game
+hooks/offsets do not cross into the UI or renderer.
+
+`src/host/menu.rs` uses SDK v0.4 `register_d3d9` (slot 17, 152-byte x64 table).
+Old SDKs leave that pointer null and retain chat functionality. The renderer uses
+egui 0.34 with Ouroboros UI components and a small fixed-function D3D9 painter; no shader compiler DLL or
+separate process is required. Fonts load once from Windows (Microsoft YaHei and
+Japanese fallbacks), without redistributing them. Rendering/input failures are
+reported under `[gui]` and do not execute game commands.
+
+`src/gui/design.rs` holds the shared theme. Ouroboros provides buttons, switches,
+search/input fields, cards, badges and key hints. Its git revision is pinned;
+Iosevka/Phosphor families also receive Windows CJK font fallbacks. Password fields
+retain egui masking and integer controls retain their original integer types.
+
+Run `menu_check` with the build script's `-CargoArgs @('run','--example','menu_check')`
+to render all eight real pages in a hidden D3D9 window. It writes BMP screenshots
+under ignored `analysis/menu-preview/` and exercises device Reset between pages.
+This does not replace an in-game check of SDK callback ordering, keyboard/IME,
+mouse input, Start gestures and compatibility with other overlays.
+
+### 不启动游戏，交互调试面板
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/preview-menu.ps1
+```
+
+这会编译并打开独立窗口，复用 DLL 的真实 egui 页面、D3D9 回调和 Win32 输入桥，
+连接真实直播间，使用真实曲库进行模糊匹配、候选选择和入队。无需启动游戏、复制 DLL
+或刷卡登录。鼠标、键盘、中文输入、别名过滤、队列删除、设置保存均可操作。
+
+首次运行会创建 `analysis/menu-preview/preview.toml`，在「直播连接」页填写身份码并
+点击「应用并保存」即可连接。后续运行沿用该配置。也可以直接指定已有配置和曲库：
+
+```powershell
+./scripts/preview-menu.ps1 -ConfigPath 'D:/IIDX/chart-requester.toml' -DatabasePath 'D:/IIDX/data/info/music_data.bin' -Mode SP
+```
+
+保存会写入实际使用的配置文件，启动终端会打印其路径。相对路径以配置文件目录为准。
+曲库优先使用 `-DatabasePath`，其次 `[game].database_path`；本工作区未指定时使用
+`analysis/music_data_1.bin`，不存在则使用 `analysis/music_data.bin`。仅支持 IIDX 33
+的曲库格式。`-Mode DP` 可检查 DP 匹配，默认 SP。
+
+| 按键 | 预览操作 |
+|---|---|
+| F1 | 打开 / 关闭面板 |
+| F2 / F3 | 模拟 B1 / B2：下一项 / 上一项 |
+| F4 / F5 | 模拟转盘左 / 右 |
+| F6 / F7 | 模拟 B6 / B7：确认 / 返回 |
+
+在直播间发送 `点歌 <曲名> [难度]`，可在「弹幕与队列」页查看原文和处理日志：
+入队、等待观众选择、拒绝原因或忽略原因。主播控制台不显示观众侧的候选列表。
+独立模式不会执行跳歌，歌曲保留在等待队列，可
+手动删除；不启动 OBS 服务或写入 OBS 文本。连接、匹配、别名校验、冷却和候选超时
+使用正式逻辑。日志位于 `analysis/menu-preview/chart-requester.log`，凭据会脱敏。
+
+修改 Rust 页面后关闭窗口，重新运行同一命令即可增量编译，无需重启游戏。退出时会
+关闭直播会话。游戏内的原生搜索词典、解锁状态、按键 Hook 和跳歌只能在游戏中验证；
+独立模式搜索曲库中的曲名、读音和配置别名。预览程序不随 DLL 打包。
+
+仅生成八页截图并检查 D3D9 Reset：`scripts/preview-menu.ps1 -Check`。
+自动检查完整绘制回调可运行 `menu_preview --hidden --frames 60`（通过 Cargo 的 `--`
+传递参数）；这个模式不显示窗口，达到指定帧数后退出，仍按配置决定是否连接直播。
+自动检查应传入单独的 `enabled = false` 配置，避免占用真实直播会话。
+
+Live saves validate before replacing the file and preserve existing queue state.
+`tests/live_config.rs` checks migration, file conflicts, path validation, fuzzy
+alias filtering, chat bounds and rendering every page. Engine tests cover stale
+deletes, in-flight protection and preserving native search terms during alias updates.
 
 ## Bilibili connection
 
@@ -218,7 +289,7 @@ omit detailed transport/chat traces, or `"off"` to disable routine logging.
 Startup failures are still logged. Authentication packets and raw API responses
 are never logged; configured identity codes, access keys and cookies are redacted,
 even if they appear in chat. Control characters are escaped to keep each event
-on one line. Restart the game after changing logging settings.
+on one line. Apply logging changes in the panel, or reload the edited TOML there.
 
 Modern Spice SDK shutdown callbacks close the chat session. On older loaders or
 forced process termination, Bilibili expires the session through its heartbeat TTL.

@@ -3,7 +3,6 @@ use std::time::Duration;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Target {
-    pub token: u64,
     pub epoch: u64,
     /// Active player, 0 = P1, 1 = P2.
     pub side: u8,
@@ -22,7 +21,6 @@ pub struct DoubleTap {
     target: Option<Target>,
     pressed: bool,
     first: Option<Duration>,
-    fired: bool,
 }
 impl DoubleTap {
     pub const fn new() -> Self {
@@ -30,7 +28,6 @@ impl DoubleTap {
             target: None,
             pressed: false,
             first: None,
-            fired: false,
         }
     }
     pub fn reset(&mut self) {
@@ -38,7 +35,7 @@ impl DoubleTap {
     }
 
     /// Sample every selection frame. A changed target requires a fresh release;
-    /// holding Start while entering the screen or switching songs cannot count.
+    /// holding Start while entering the screen or changing scene cannot count.
     pub fn sample(
         &mut self,
         target: Option<Target>,
@@ -54,12 +51,11 @@ impl DoubleTap {
             self.target = Some(target);
             self.pressed = pressed;
             self.first = None;
-            self.fired = false;
             return None;
         }
         let down = pressed && !self.pressed;
         self.pressed = pressed;
-        if self.fired || !down {
+        if !down {
             return None;
         }
         if self
@@ -67,7 +63,6 @@ impl DoubleTap {
             .is_some_and(|at| now.saturating_sub(at) <= window)
         {
             self.first = None;
-            self.fired = true;
             Some(target)
         } else {
             self.first = Some(now);
@@ -87,11 +82,7 @@ pub fn opposite_start(side: u8) -> Option<bool> {
 mod tests {
     use super::*;
     fn target() -> Target {
-        Target {
-            token: 5,
-            epoch: 2,
-            side: 0,
-        }
+        Target { epoch: 2, side: 0 }
     }
     fn sample(d: &mut DoubleTap, t: Target, pressed: bool, ms: u64) -> Option<Target> {
         d.sample(
@@ -102,7 +93,7 @@ mod tests {
         )
     }
     #[test]
-    fn double_tap_requires_release_and_fires_once_per_request() {
+    fn double_tap_requires_release_and_can_repeat_for_menu_toggle() {
         let mut d = DoubleTap::new();
         let t = target();
         assert_eq!(sample(&mut d, t, true, 0), None); // Held on entry.
@@ -114,6 +105,8 @@ mod tests {
         assert_eq!(sample(&mut d, t, true, 440), Some(t));
         sample(&mut d, t, false, 460);
         assert_eq!(sample(&mut d, t, true, 480), None);
+        sample(&mut d, t, false, 500);
+        assert_eq!(sample(&mut d, t, true, 520), Some(t));
     }
     #[test]
     fn timeout_and_context_changes_do_not_complete_old_tap() {
@@ -125,11 +118,7 @@ mod tests {
         assert_eq!(sample(&mut d, t, true, 411), None);
         sample(&mut d, t, false, 420);
         assert_eq!(sample(&mut d, t, true, 430), Some(t));
-        for next in [
-            Target { token: 6, ..t },
-            Target { epoch: 3, ..t },
-            Target { side: 1, ..t },
-        ] {
+        for next in [Target { epoch: 3, ..t }, Target { side: 1, ..t }] {
             d.reset();
             sample(&mut d, t, false, 0);
             sample(&mut d, t, true, 10);

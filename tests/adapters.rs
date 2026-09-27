@@ -98,6 +98,8 @@ impl GameAdapter for FakeGame {
             plays: s.plays,
             selection_result: s.result.take(),
             skip: s.skip.take(),
+            toggle_menu: false,
+            navigation: vec![],
             input_status: "test input ready".into(),
         }
     }

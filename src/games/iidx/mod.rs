@@ -1,6 +1,7 @@
 //! IIDX command vocabulary, shared by its version-specific adapters.
 use crate::game::{AvailableChart, Chart, ChartStyle, GameRules, Mode};
 pub mod controls;
+pub mod navigation;
 pub mod v33;
 pub const SP: Mode = Mode("SP");
 pub const DP: Mode = Mode("DP");

@@ -24,6 +24,12 @@ struct Adapter {
 
 #[cfg(windows)]
 impl crate::game::GameAdapter for Adapter {
+    fn set_menu_open(&self, open: bool) {
+        native::MENU_OPEN.store(open, std::sync::atomic::Ordering::Release);
+    }
+    fn configure_controls(&self, controls: &crate::config::Controls) {
+        native::configure_controls(controls.clone());
+    }
     fn rules(&self) -> &'static dyn crate::game::GameRules {
         &super::RULES
     }
@@ -32,7 +38,7 @@ impl crate::game::GameAdapter for Adapter {
             (
                 "input",
                 format!(
-                    "Opposite Start skip: enabled={} double_tap_ms={}; single-player SP song select only, read-only input",
+                    "Opposite Start menu: enabled={} double_tap_ms={}; single-player SP song select only, Start is read-only; panel captures active-side navigation",
                     self.controls.skip_enabled, self.controls.double_tap_ms
                 ),
             ),
@@ -59,28 +65,22 @@ impl crate::game::GameAdapter for Adapter {
         native::SEARCH_INDEX.lock().unwrap().take()
     }
     fn poll(&self) -> crate::game::GameUpdate {
-        use crate::{
-            game::{GameUpdate, SkipRequest},
-            host::spice,
-        };
+        use crate::{game::GameUpdate, host::spice};
         let mut m = native::MAILBOX.lock().unwrap();
-        let skip = m
-            .skip_event
+        let toggle_menu = m
+            .menu_event
             .take()
-            .filter(|e| m.skip_side == Some(e.side))
-            .map(|e| SkipRequest {
-                token: e.token,
-                epoch: e.epoch,
-                description: format!("Opposite Start double tap: active_side={}", e.side + 1),
-            });
+            .is_some_and(|e| m.menu_side == Some(e.side) && m.snapshot.epoch == e.epoch);
         GameUpdate {
             snapshot: m.snapshot,
             plays: m.plays,
             selection_result: m.ack.take(),
-            skip,
+            skip: None,
+            toggle_menu,
+            navigation: m.navigation.drain(..).collect(),
             input_status: format!(
                 "active_side={:?} sdk_status={} (-1=unavailable, -2=not_sampled, 0=ok)",
-                m.skip_side.map(|s| s + 1),
+                m.menu_side.map(|s| s + 1),
                 spice::status()
             ),
         }
@@ -100,9 +100,7 @@ impl crate::game::GameAdapter for Adapter {
             m.command = Some(selection);
         }
     }
-    fn set_skip_target(&self, token: Option<u64>) {
-        native::MAILBOX.lock().unwrap().skip_target = token;
-    }
+    fn set_skip_target(&self, _token: Option<u64>) {}
     fn diagnostics(&self) -> String {
         native::diagnostics()
     }

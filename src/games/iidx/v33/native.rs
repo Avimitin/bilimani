@@ -3,7 +3,7 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 use crate::{
     config::Controls,
-    game::{Mode, Phase, Selection, SelectionResult as Ack, Snapshot},
+    game::{Mode, Navigation, Phase, Selection, SelectionResult as Ack, Snapshot},
     games::iidx::{
         self,
         controls::{DoubleTap, Target, opposite_start, single_side},
@@ -29,6 +29,7 @@ use super::{SUPPORTED_SHA256, search_index};
 
 const SELECT_VTABLE: usize = 0xd84788;
 const TITLE_DICTIONARY_VTABLE: usize = 0xce9f40;
+const INPUT_VTABLE: usize = 0xdd05c0;
 const DATABASE_GETTER: usize = 0x951fd0;
 const STAGES: &[usize] = &[
     0xda50a8, 0xda5188, 0xda5268, 0xda5348, 0xda5428, 0xda5508, 0xda55e8, 0xda56c8, 0xdae1e8,
@@ -56,11 +57,14 @@ pub static SEARCH_INDEX: Mutex<Option<Vec<(u32, String)>>> = Mutex::new(None);
 static INDEX_LOADS: AtomicUsize = AtomicUsize::new(0);
 static INDEX_ENTRIES: AtomicUsize = AtomicUsize::new(0);
 static INDEX_ERROR: Mutex<Option<String>> = Mutex::new(None);
-static CONTROLS: OnceLock<Controls> = OnceLock::new();
+static CONTROLS: Mutex<Option<Controls>> = Mutex::new(None);
 static INPUT_CLOCK: OnceLock<Instant> = OnceLock::new();
+pub static MENU_OPEN: AtomicBool = AtomicBool::new(false);
+static NAVIGATOR: OnceLock<Mutex<super::super::navigation::Navigator>> = OnceLock::new();
 
 pub fn configure_controls(config: Controls) {
-    let _ = CONTROLS.set(config);
+    *CONTROLS.lock().unwrap() = Some(config);
+    MAILBOX.lock().unwrap().taps.reset();
 }
 
 /// Read-only diagnostics. Native callbacks update counters; disk IO stays on the worker.
@@ -102,9 +106,9 @@ pub struct Mailbox {
     pub plays: u64,
     pub command: Option<Selection>,
     pub ack: Option<Ack>,
-    pub skip_target: Option<u64>,
-    pub skip_event: Option<Target>,
-    pub skip_side: Option<u8>,
+    pub menu_event: Option<Target>,
+    pub menu_side: Option<u8>,
+    pub navigation: std::collections::VecDeque<Navigation>,
     taps: DoubleTap,
 }
 pub static MAILBOX: Mutex<Mailbox> = Mutex::new(Mailbox {
@@ -117,9 +121,9 @@ pub static MAILBOX: Mutex<Mailbox> = Mutex::new(Mailbox {
     plays: 0,
     command: None,
     ack: None,
-    skip_target: None,
-    skip_event: None,
-    skip_side: None,
+    menu_event: None,
+    menu_side: None,
+    navigation: std::collections::VecDeque::new(),
     taps: DoubleTap::new(),
 });
 
@@ -139,6 +143,7 @@ pub fn install(image: ModuleImage) -> Result<()> {
         (0x949230, "4883ec28e84702000083f801751533c9"),
         (0x9493e0, "85c9781783f90273124863c1488d0dbd"),
         (0x806f60, "4883ec28e8f7feffff85c07517e84eff"),
+        (0xa7a2f0, "48894c24085553565741544155415641"),
     ] {
         ensure!(
             read_memory(base + rva, 16)? == hex::decode(expected)?,
@@ -148,6 +153,7 @@ pub fn install(image: ModuleImage) -> Result<()> {
     let mut hooks = Vec::new();
     for (table, slots) in std::iter::once((SELECT_VTABLE, &[13usize, 14, 15][..]))
         .chain(std::iter::once((TITLE_DICTIONARY_VTABLE, &[1usize][..])))
+        .chain(std::iter::once((INPUT_VTABLE, &[3usize][..])))
         .chain(STAGES.iter().map(|&r| (r, &[13usize][..])))
     {
         for &slot in slots {
@@ -177,6 +183,8 @@ pub fn install(image: ModuleImage) -> Result<()> {
             }
         } else if hook.table == base + TITLE_DICTIONARY_VTABLE {
             title_dictionary_load as *const () as usize
+        } else if hook.table == base + INPUT_VTABLE {
+            input_poll as *const () as usize
         } else {
             stage_init as *const () as usize
         };
@@ -248,7 +256,7 @@ unsafe fn reserve() -> usize {
         std::mem::transmute(ADAPTER.get().unwrap().base + 0x7d60e0);
     f()
 }
-unsafe fn skip_side(mode: Option<Mode>) -> Option<u8> {
+unsafe fn menu_side(mode: Option<Mode>) -> Option<u8> {
     if mode != Some(iidx::SP) {
         return None;
     }
@@ -259,26 +267,81 @@ unsafe fn skip_side(mode: Option<Mode>) -> Option<u8> {
 
 fn reset_input(m: &mut Mailbox) {
     m.taps.reset();
-    m.skip_event = None;
-    m.skip_side = None;
+    m.menu_event = None;
+    m.menu_side = None;
     m.snapshot.can_skip = false;
+    m.navigation.clear();
+}
+
+unsafe extern "system" fn input_poll(this: usize, a2: usize, a3: usize, a4: usize) -> usize {
+    // Verified native layout: only button words +08..+17 and turntables +58..+67.
+    // Never copy the container headers between these regions.
+    let previous = [
+        *((this + 0x58) as *const i32),
+        *((this + 0x60) as *const i32),
+    ];
+    let result = original(this, 3)(this, a2, a3, a4);
+    guard(|| {
+        let mut mailbox = MAILBOX.lock().unwrap();
+        let context =
+            if MENU_OPEN.load(Ordering::Acquire) && mailbox.snapshot.phase == Phase::Select {
+                mailbox.menu_side.map(|side| (mailbox.snapshot.epoch, side))
+            } else {
+                None
+            };
+        let buttons = *((this + 8) as *const u32);
+        let scratch = context.map_or(0, |(_, side)| {
+            *((this + 0x5c + usize::from(side) * 8) as *const i32)
+        });
+        let (events, mask) = NAVIGATOR
+            .get_or_init(Default::default)
+            .lock()
+            .unwrap()
+            .sample(
+                context,
+                buttons,
+                scratch,
+                INPUT_CLOCK.get_or_init(Instant::now).elapsed().as_millis() as u64,
+            );
+        for event in events {
+            if mailbox.navigation.len() < 32 {
+                mailbox.navigation.push_back(event);
+            }
+        }
+        mask_navigation_input(
+            this,
+            mask,
+            context.map(|(_, side)| (side, previous[usize::from(side)])),
+        );
+    });
+    result
+}
+unsafe fn mask_navigation_input(this: usize, mask: u32, turntable: Option<(u8, i32)>) {
+    for offset in [8, 12, 16, 20] {
+        let field = (this + offset) as *mut u32;
+        field.write_unaligned(field.read_unaligned() & !mask);
+    }
+    if let Some((side, previous)) = turntable {
+        ((this + 0x58 + usize::from(side) * 8) as *mut i32).write_unaligned(previous);
+        ((this + 0x5c + usize::from(side) * 8) as *mut i32).write_unaligned(0);
+    }
 }
 
 unsafe fn sample_input(m: &mut Mailbox, mode: Option<Mode>, ready: bool) -> Option<Target> {
-    let Some(config) = CONTROLS.get().filter(|c| c.skip_enabled) else {
+    let config = CONTROLS.lock().unwrap().clone();
+    let Some(config) = config.filter(|c| c.skip_enabled) else {
         reset_input(m);
         return None;
     };
-    m.skip_side = if ready { skip_side(mode) } else { None };
-    m.snapshot.can_skip = m.skip_side.is_some();
-    let target = m.skip_side.zip(m.skip_target).map(|(side, token)| Target {
+    m.menu_side = if ready { menu_side(mode) } else { None };
+    m.snapshot.can_skip = m.menu_side.is_some();
+    let target = m.menu_side.map(|side| Target {
         side,
-        token,
         epoch: m.snapshot.epoch,
     });
     let pressed = target.and_then(|t| opposite_start(t.side));
-    if target.is_none() || pressed.is_none() || m.skip_event.is_some_and(|e| Some(e) != target) {
-        m.skip_event = None;
+    if target.is_none() || pressed.is_none() || m.menu_event.is_some_and(|e| Some(e) != target) {
+        m.menu_event = None;
     }
     m.taps.sample(
         target,
@@ -436,7 +499,7 @@ unsafe extern "system" fn stage_init(this: usize, a2: usize, a3: usize, a4: usiz
 unsafe extern "system" fn select_update(this: usize, a2: usize, a3: usize, a4: usize) -> usize {
     SELECT_UPDATES.fetch_add(1, Ordering::Relaxed);
     let mut executing: Option<Selection> = None;
-    let mut detected_skip = None;
+    let mut detected_menu = None;
     guard(|| {
         let mode = get_mode();
         let is_ready = ready(this);
@@ -455,7 +518,7 @@ unsafe extern "system" fn select_update(this: usize, a2: usize, a3: usize, a4: u
         } else {
             Phase::Other
         };
-        detected_skip = sample_input(&mut m, mode, is_ready);
+        detected_menu = sample_input(&mut m, mode, is_ready);
         if let Some(j) = m.command.as_ref() {
             if j.epoch != m.snapshot.epoch || Some(j.mode) != mode {
                 cancel_command(&mut m);
@@ -503,13 +566,12 @@ unsafe extern "system" fn select_update(this: usize, a2: usize, a3: usize, a4: u
         let is_ready = ready(this);
         let mode = get_mode();
         let mut mailbox = MAILBOX.lock().unwrap();
-        if !is_ready || skip_side(mode) != mailbox.skip_side {
+        if !is_ready || menu_side(mode) != mailbox.menu_side {
             reset_input(&mut mailbox);
-        } else if let Some(event) = detected_skip
-            && mailbox.skip_target == Some(event.token)
+        } else if let Some(event) = detected_menu
             && mailbox.snapshot.epoch == event.epoch
         {
-            mailbox.skip_event = Some(event);
+            mailbox.menu_event = Some(event);
         }
         mailbox.snapshot.mode = mode;
         if is_ready {
@@ -580,6 +642,27 @@ unsafe extern "system" fn select_update(this: usize, a2: usize, a3: usize, a4: u
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn menu_capture_changes_only_button_words_and_selected_turntable() {
+        let mut object = [0xFFu8; 0xC0];
+        unsafe {
+            super::mask_navigation_input(object.as_mut_ptr() as usize, 0x7f << 7, Some((1, 123)));
+        }
+        assert!(object[..8].iter().all(|b| *b == 0xFF));
+        assert!(object[0x18..0x60].iter().all(|b| *b == 0xFF));
+        assert!(object[0x68..].iter().all(|b| *b == 0xFF));
+        for offset in [8, 12, 16, 20] {
+            assert_eq!(
+                u32::from_le_bytes(object[offset..offset + 4].try_into().unwrap()),
+                !(0x7f << 7)
+            );
+        }
+        assert_eq!(
+            i32::from_le_bytes(object[0x60..0x64].try_into().unwrap()),
+            123
+        );
+        assert_eq!(&object[0x64..0x68], &[0; 4]);
+    }
     use super::*;
     #[test]
     fn native_database_accessor_accepts_relocation_but_rejects_unknown_patches() {
