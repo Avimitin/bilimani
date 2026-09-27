@@ -62,11 +62,25 @@
   Expiration can advance while still in song select; never jump during gameplay.
 - Separate UTF-8 OBS files for current/waiting requests and interactions.
 - Optional loopback HTTP service with a queue and persistent chat/event history,
-  enabled by default on port 32133. The layout fills the fixed OBS source height.
+  enabled by default on port 32133. The canvas uses the fixed OBS source height;
+  unused space stays transparent.
   History retains the latest 10 arrivals by default (configurable 1–100), evicts
   oldest first and never expires by time. Refresh restores the running worker's
   history; disconnection preserves it, profile switches and restarts clear it.
-  Long messages show at most two lines; candidate pages remain in the song panel.
+  Long messages show at most two lines. Pending choices replace the current/queue
+  display with one viewer's complete list of 1–20 candidates, using two columns
+  above eight options. The song panel inverts to the accent background and dark
+  text while asking that viewer to send a number;
+  multiple viewers rotate every six seconds, without splitting their options.
+  The queue and normal palette return after pending choices finish. Empty queues
+  collapse to the banner, retaining a compact current-song card when applicable;
+  waiting songs or candidates expand the panel with a 320ms transition. Reduced
+  motion disables the animation. Empty chat/event history collapses to its header,
+  keeping connection warnings visible. Its background grows with the actual mix
+  of chat and event cards, capped at the remaining height, with a 320ms transition.
+  Chat uses 16px text in padded 46px cards; events keep 12px text in slim 24px cards.
+  Cards shrink when needed and truncate text to the available complete lines.
+  At capacity, new records replace the oldest; the source height stays fixed.
   HTML/CSS/JS ship next to the
   DLL in `chart_request_static/` inside the release ZIP. `overlay.static_dir` can
   select another public asset directory, relative to the DLL or absolute. Read

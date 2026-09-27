@@ -6,7 +6,7 @@
   let timer;
   let pageSince = performance.now();
   let pageIndex = 0;
-  let hadPending = false;
+  let activeChoice = null;
   const signatures = new Map();
   const $ = (id) => document.getElementById(id);
   const node = (tag, className, text) => {
@@ -51,6 +51,14 @@
     $("queue-empty").hidden = s.queue.length > 0;
     text($("queue-more"), s.queue.length > slots ? `另有 ${s.queue.length - slots} 首等待中` : "");
   }
+  function fitFeed() {
+    $("activity-list").querySelectorAll(".activity-row").forEach((row) => {
+      const style = getComputedStyle(row);
+      const lineHeight = parseFloat(getComputedStyle(row.querySelector(".activity-text")).lineHeight);
+      const available = row.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+      row.style.setProperty("--feed-lines", Math.max(1, Math.min(2, Math.floor(available / lineHeight))));
+    });
+  }
   function render(s, offline = false) {
     const warning = offline ? "等待游戏连接 · 游戏启动后会自动恢复" : !s.connected ? s.status : !s.ready ? "等待游戏曲库 · 请进入普通选曲界面" : "";
     document.querySelectorAll(".connection-banner").forEach((el) => { el.hidden = !warning; text(el, warning); });
@@ -78,24 +86,39 @@
     changed("count", [s.queue.length, s.capacity], () => {
       $("queue-count").replaceChildren(document.createTextNode(pad(s.queue.length) + " "), node("span", "", `/ ${s.capacity || "—"}`));
     });
-    // Candidate pages share the fixed song panel; chat rows keep their space.
-    const perPage = 3;
-    const choices = s.pending.flatMap((p) => Array.from({length: Math.ceil(p.candidates.length / perPage)}, (_, index) => ({
-      ...p, offset: index * perPage, candidates: p.candidates.slice(index * perPage, (index + 1) * perPage)
-    })));
+    // A viewer's entire list replaces the queue. Only different viewers rotate.
+    const choices = s.pending.filter((p) => p.candidates.length > 0);
+    const choiceKey = (p) => JSON.stringify([p.requester, p.mode, p.chart, p.candidates]);
     const pages = choices.length;
-    if (pages && !hadPending) { pageIndex = 0; pageSince = performance.now(); }
-    hadPending = pages > 0;
-    if (performance.now() - pageSince > 6000) { pageIndex += 1; pageSince = performance.now(); }
-    pageIndex = pages ? pageIndex % pages : 0;
+    const previousIndex = choices.findIndex((p) => choiceKey(p) === activeChoice);
+    pageIndex = previousIndex < 0 ? 0 : previousIndex;
+    if (previousIndex < 0) pageSince = performance.now();
+    if (performance.now() - pageSince > 6000) { pageIndex = (pageIndex + 1) % Math.max(1, pages); pageSince = performance.now(); }
+    activeChoice = pages ? choiceKey(choices[pageIndex]) : null;
     const pending = choices.slice(pageIndex, pageIndex + 1);
+    const queueState = pages || s.queue.length ? "expanded" : c ? "current" : "collapsed";
+    document.querySelector(".overlay").dataset.queueState = queueState;
     $("pending-area").hidden = !pages;
+    $("queue-area").hidden = pages > 0;
+    $("queue-area").setAttribute("aria-hidden", String(pages > 0 || queueState === "collapsed"));
+    $("waiting-area").setAttribute("aria-hidden", String(pages > 0 || !s.queue.length));
+    document.querySelector(".queue-panel").classList.toggle("choosing", pages > 0);
+    text($("request-hint"), pages ? "等待选歌确认" : "点歌 <曲名> [难度]");
     changed("pending", [pageIndex, pending.map(({remaining, ...p}) => p)], () => {
       $("pending-list").replaceChildren(...pending.map((p) => {
         const card = node("section", "choice-panel");
+        const count = p.candidates.length;
+        const columns = count > 8 ? 2 : 1;
+        card.classList.toggle("compact", count > 5);
+        card.classList.toggle("dense", count > 16);
+        card.style.setProperty("--choice-columns", columns);
+        card.style.setProperty("--choice-rows", Math.ceil(count / columns));
+        const prompt = node("p", "choice-prompt", "请在弹幕发送编号选歌");
         const heading = node("div", "choice-heading");
         const person = node("div", "");
-        person.append(node("h2", "", `${p.requester}，请回复编号`));
+        const name = node("h2", "", `${p.requester}，请选择`);
+        name.title = p.requester;
+        person.append(name);
         const countdown = node("div", "countdown");
         countdown.append(node("b", "", ""), node("span", "", "秒"));
         heading.append(person, chart(p), countdown);
@@ -105,12 +128,14 @@
           const name = node("div", "candidate-title", song.title);
           name.title = song.title;
           if (!song.available) name.append(node("span", "unavailable-note", "所请求谱面不存在"));
-          row.append(node("span", "candidate-number", p.offset + i + 1), name);
+          row.append(node("span", "candidate-number", i + 1), name);
           return row;
         }));
         const track = node("div", "time-track");
         track.append(node("span", ""));
-        card.append(heading, list, track);
+        const help = node("p", "choice-help");
+        help.append(document.createTextNode("只发送 "), node("strong", "", count === 1 ? "1" : `1–${count}`), document.createTextNode(" 中的编号 · 由点歌本人回复"));
+        card.append(prompt, heading, list, help, track);
         return card;
       }));
     });
@@ -120,14 +145,21 @@
       progress(card.querySelector(".time-track span"), pending[i].remaining, pending[i].duration);
     });
     $("pending-page").hidden = pages <= 1;
-    text($("pending-page"), `${pageIndex + 1} / ${pages} 页 · 每 6 秒轮换`);
+    text($("pending-page"), `待选观众 ${pageIndex + 1} / ${pages} · 每 6 秒轮换`);
     renderQueue(s);
 
     const limit = Math.max(1, Math.min(100, Number(s.feed_limit) || 10));
     const feed = s.feed.slice(-limit);
-    $("activity-list").style.setProperty("--feed-limit", limit);
+    const activity = $("activity-panel");
+    activity.style.setProperty("--feed-rows", Math.max(1, feed.length));
+    const chatRows = feed.filter((message) => message.kind === "chat").length;
+    activity.style.setProperty("--feed-chat-rows", chatRows);
+    activity.style.setProperty("--feed-event-rows", feed.length - chatRows);
+    activity.dataset.feedState = feed.length ? "active" : "collapsed";
+    const banner = activity.querySelector(".connection-banner");
+    activity.style.setProperty("--feed-warning-height", `${banner.getBoundingClientRect().height}px`);
+    activity.querySelector(".feed-body").setAttribute("aria-hidden", String(!feed.length));
     text($("feed-count"), `${feed.length} / ${limit}`);
-    $("feed-empty").hidden = feed.length > 0;
     changed("feed", feed, () => {
       $("activity-list").replaceChildren(...feed.map((message) => {
         const item = node("li", "activity-row");
@@ -147,6 +179,7 @@
         return item;
       }));
     });
+    fitFeed();
   }
   const empty = () => ({connected: false, ready: false, status: "等待游戏连接", current: null, capacity: 0, queue: [], pending: [], feed: state?.feed || [], feed_limit: state?.feed_limit || 10});
   async function tick() {
@@ -169,5 +202,6 @@
   window.addEventListener("pagehide", () => { stopped = true; clearTimeout(timer); });
   window.addEventListener("pageshow", (event) => { if (event.persisted) { stopped = false; tick(); } });
   new ResizeObserver(() => renderQueue(state && performance.now() - lastSuccess <= 3000 ? state : empty())).observe($("queue-body"));
+  new ResizeObserver(fitFeed).observe($("activity-list"));
   tick();
 })();

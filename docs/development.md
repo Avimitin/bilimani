@@ -13,7 +13,7 @@ HTML、CSS 和 JavaScript 源文件位于 `web/`，由 `scripts/package.ps1` 复
 可在「OBS 显示」页修改并保存。只切换目录时复用已有监听端口，验证目录及 `index.html`
 可读取后再提交配置；验证或保存失败保留原服务。旧数据库和 JSON/TOML 配置自动补入默认值。
 `/queue` 和 `/index.html` 读取该目录的 `index.html`；`/` 重定向到 `/queue`。
-默认页面背景透明，包含点歌区与常驻的弹幕／事件区域，高度固定为 OBS 浏览器来源高度。其他 URL 读取目录内对应资源，
+默认页面背景透明，包含点歌区与弹幕／事件区域，画布高度固定为 OBS 浏览器来源高度，未使用的空间透明。其他 URL 读取目录内对应资源，
 支持子目录及常见网页、图片、字体 MIME 类型；不提供目录列表。文件修改在下一次请求时生效，
 缺失文件返回 404，不回退到内嵌页面。启动时缺少目录或入口会记录错误，点歌和文本输出继续工作。
 页面始终读取 `/api/state` 的实时数据，不包含示例模式或预览控件。
@@ -23,9 +23,17 @@ HTML、CSS 和 JavaScript 源文件位于 `web/`，由 `scripts/package.ps1` 复
 Cookie、应用凭据或观众平台 ID。网页每 500 毫秒读取一次，曲名、昵称和内容通过 `textContent`
 写入 DOM，倒计时更新不重建整张卡片。连接持续失败时清空旧队列、显示连接提示，并保留已有弹幕记录；成功后采用服务端最新快照。
 
-点歌区按可用高度显示最多 6 首等待歌曲，多余数量另行提示。候选在同一区域每页显示
-3 首、每 6 秒轮换，编号保留完整列表的位置。下方固定区域将弹幕和事件按到达顺序混排，
-长内容最多显示两行。组件随来源尺寸调整，但不会随消息数量、长文本或候选数量增高。
+点歌区按可用高度显示最多 6 首等待歌曲，多余数量另行提示。有候选时隐藏当前点歌及队列，
+在同一区域完整展示当前观众的 1–20 个候选；超过 8 个使用两列，按列从上到下编号。
+选歌期间上方整块区域反转为主题色背景、原背景色文字，编号及倒计时强调在弹幕中回复编号；候选本身不分页。
+多人同时待选时每 6 秒轮换整份列表，快照顺序变化保持正在显示的观众，候选全部消失后恢复最新队列与原配色。
+空队列且无当前点歌／候选时，上方只保留 37px 标题；只有当前点歌时保留 132px 卡片。
+队列或候选存在时恢复完整区域，高度以 320ms 动画过渡，正文同时淡入淡出；减少动态效果时取消动画。
+下方将弹幕和事件按到达顺序混排，无记录时只保留 36px 标题；连接提示额外占用一行。
+背景按实际弹幕数 × 46px、事件数 × 24px 和 3px 间隔计算高度，以 320ms 动画增减，最多占用剩余空间。
+弹幕字号 16px、上下各 5px 内边距，事件保持 12px 字号与无上下内边距的窄卡片；空间不足时按比例压缩卡片。
+达到保留上限后，新记录替换最早记录，背景随两种记录的数量调整。每张卡片根据可用高度显示一到两行文字；
+ResizeObserver 在区域动画和来源尺寸变化时分别调整行数，避免半行裁切。画布总高度始终等于来源高度。
 
 `overlay.history_limit` 默认 10，可设 1–100，GUI、数据库与 JSON 备份均支持。worker 持有
 独立 `overlay::History`，收到弹幕立即写入，每次引擎动作产生的通知按发生顺序取出并记录；
@@ -54,6 +62,30 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "& ./scripts/build.ps1 -C
 `py scripts/check-overlay.py --browser "C:/Program Files/Google/Chrome/Application/chrome.exe"`。
 不提供 `--browser` 时使用 Playwright 安装的 Chromium；截图保存在忽略的 `analysis/overlay-history/`。
 `scripts/smoke-dll.py` 也会检查真实 DLL 启动 HTTP 服务、提供页面/状态，以及关闭后释放端口。
+
+### 按时间表录制网页演示
+
+`scripts/record-overlay.py` 直接读取 `web/`，在独立浏览器中拦截所有请求，用 JSON 时间表提供模拟快照，
+无需运行游戏或预览服务。安装开发依赖后运行：
+
+```powershell
+py -m pip install "playwright>=1.63" imageio-ffmpeg
+py -m playwright install ffmpeg
+py scripts/record-overlay.py --browser "C:/Program Files/Google/Chrome/Application/chrome.exe"
+```
+
+默认生成 35 秒、480×800 的 `analysis/overlay-demo.mp4`，涵盖空列表、弹幕与事件逐条增加、队列展开、
+候选反色、超过十条后的替换，以及清空后重新展开。使用 H.264 编码；透明部分合成为深灰色，
+可用 `--background "#000000"` 更换。也可通过 `--ffmpeg` 指定支持 libx264 的编码器。
+
+复制并修改 `scripts/fixtures/overlay-demo.json`，再通过 `--scenario 路径 --output analysis/自定义.mp4` 录制：
+
+- `duration` 为录制秒数，`width` / `height` 为画面尺寸，需为正偶数。
+- `steps` 按 `at` 秒数排序；`feed` 追加弹幕或事件，`clear_feed: true` 清空历史。
+- `set` 替换快照中的指定字段，例如 `current`、`queue`、`pending`；字段结构与 `/api/state` 一致。
+- 当前歌曲和候选倒计时会随时间递减，实际展示仍由页面每 500ms 轮询触发；最后一步应预留至少 0.5 秒。
+
+同名 `.timeline.json` 记录每一步实际应用时间。模拟内容只在录制脚本中存在，不会发送到直播间或游戏。
 
 ## Controller menu and live configuration
 
@@ -302,6 +334,11 @@ Developers can run `scripts/fetch-sdk.ps1` to populate that fallback.
 `catalog_check` Cargo example validates and searches a local music database.
 Game binaries, databases, IDA files, reference repositories, credentials and build
 artifacts are excluded from git. None are included in the release bundle.
+
+The release ZIP contains only `README.md`, `chart_requester.dll`, and
+`chart_request_static/` at its root. Project and dependency licenses are included
+under `chart_request_static/licenses/`; developer docs, showcase images, and
+recording tools stay in the repository.
 
 ## Automated releases
 

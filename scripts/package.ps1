@@ -3,12 +3,8 @@ $root = Split-Path $PSScriptRoot
 & (Join-Path $PSScriptRoot 'build.ps1')
 $destination = Join-Path $root 'dist'
 New-Item -ItemType Directory -Force -Path $destination | Out-Null
-foreach ($file in @('README.md','LICENSE','THIRD-PARTY-NOTICES.md')) {
-    Copy-Item -LiteralPath (Join-Path $root $file) -Destination $destination
-}
+Copy-Item -LiteralPath (Join-Path $root 'README.md') -Destination $destination
 Copy-Item -LiteralPath (Join-Path $root 'target\release\chart_requester.dll') -Destination $destination
-New-Item -ItemType Directory -Force -Path (Join-Path $destination 'docs') | Out-Null
-Copy-Item -Path (Join-Path $root 'docs\*.md') -Destination (Join-Path $destination 'docs')
 # Stage current assets afresh so deleted source files cannot linger in the ZIP.
 $staticRoot = [IO.Path]::GetFullPath((Join-Path $destination 'chart_request_static'))
 $expectedStaticRoot = [IO.Path]::GetFullPath((Join-Path $root 'dist\chart_request_static'))
@@ -31,8 +27,11 @@ try {
 } finally { Pop-Location }
 $project = $metadata.packages | Where-Object { $_.id -eq $metadata.resolve.root }
 if (-not $project) { throw 'Cannot find root package version' }
-$licenseRoot = Join-Path $destination 'licenses'
+$licenseRoot = Join-Path $staticRoot 'licenses'
 New-Item -ItemType Directory -Force -Path $licenseRoot | Out-Null
+foreach ($file in @('LICENSE','THIRD-PARTY-NOTICES.md')) {
+    Copy-Item -LiteralPath (Join-Path $root $file) -Destination $licenseRoot
+}
 foreach ($package in $metadata.packages) {
     if (-not $package.source) { continue }
     $crate = Split-Path $package.manifest_path
@@ -51,7 +50,7 @@ foreach ($package in $metadata.packages) {
         Copy-Item -LiteralPath (Join-Path $crate 'CREDITS.md') -Destination $out
     }
 }
-$archiveFiles = @('chart_requester.dll','chart_request_static','README.md','LICENSE','THIRD-PARTY-NOTICES.md','docs','licenses') | ForEach-Object { Join-Path $destination $_ }
+$archiveFiles = @('chart_requester.dll','chart_request_static','README.md') | ForEach-Object { Join-Path $destination $_ }
 $archive = Join-Path $destination "chart-requester-$($project.version).zip"
 # Registry archives can carry Unix-epoch timestamps; ZIP starts at 1980.
 Get-ChildItem -LiteralPath $licenseRoot -Recurse -File | Where-Object { $_.LastWriteTime.Year -lt 1980 } | ForEach-Object {

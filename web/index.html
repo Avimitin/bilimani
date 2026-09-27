@@ -9,31 +9,34 @@
 </head>
 <body>
   <main>
-    <div class="overlay queue-overlay">
+    <div class="overlay queue-overlay" data-queue-state="collapsed">
       <section class="panel queue-panel">
-        <header class="queue-banner"><span class="eyebrow"><i class="live-dot"></i> 点歌台</span><code>点歌 &lt;曲名&gt; [难度]</code></header>
-        <section class="current-panel">
-          <span class="current-label">当前点歌</span>
-          <div id="current-content"></div>
-          <div class="time-track"><span id="current-progress"></span></div>
-        </section>
-        <div id="pending-area" hidden>
+        <header class="queue-banner"><span class="eyebrow"><i class="live-dot"></i> 点歌台</span><code id="request-hint">点歌 &lt;曲名&gt; [难度]</code></header>
+        <div id="queue-area" aria-hidden="true">
+          <section class="current-panel">
+            <span class="current-label">当前点歌</span>
+            <div id="current-content"></div>
+            <div class="time-track"><span id="current-progress"></span></div>
+          </section>
+          <div id="waiting-area" aria-hidden="true">
+            <header class="panel-heading"><h2>接下来</h2><span id="queue-count" class="count-label">00 <span>/ 20</span></span></header>
+            <div id="queue-body">
+              <ol id="queue-list" class="queue-list"></ol>
+              <div id="queue-empty" class="empty-state">队列为空</div>
+            </div>
+            <div id="queue-more" class="overflow-note"></div>
+          </div>
+        </div>
+        <div id="pending-area" aria-label="等待观众选择歌曲" hidden>
           <div id="pending-list"></div>
           <div id="pending-page" class="page-note" hidden></div>
         </div>
-        <header class="panel-heading"><h2>接下来</h2><span id="queue-count" class="count-label">00 <span>/ 20</span></span></header>
-        <div id="queue-body">
-          <ol id="queue-list" class="queue-list"></ol>
-          <div id="queue-empty" class="empty-state">队列为空</div>
-        </div>
-        <div id="queue-more" class="overflow-note"></div>
       </section>
-      <aside id="activity-panel" class="panel activity-panel" aria-label="弹幕与点歌事件">
+      <aside id="activity-panel" class="panel activity-panel" data-feed-state="collapsed" aria-label="弹幕与点歌事件">
         <header class="panel-heading"><h2>弹幕与事件</h2><span id="feed-count" class="count-label">0 / 10</span></header>
         <div class="connection-banner" role="status" hidden></div>
-        <div class="feed-body">
+        <div class="feed-body" aria-hidden="true">
           <ol id="activity-list" class="activity-list" aria-live="polite" aria-relevant="additions"></ol>
-          <div id="feed-empty" class="empty-state">等待弹幕与点歌事件</div>
         </div>
       </aside>
     </div>

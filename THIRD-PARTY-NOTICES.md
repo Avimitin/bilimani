@@ -44,7 +44,7 @@ Spice loading order and SDK ABI were inspected in
 The game ABI was independently checked against the locally supplied binary in IDA.
 
 Rust crate versions are pinned in `Cargo.lock`; see each crate's accompanying
-license. Release packaging collects dependency license files under `licenses/`.
+license. Release packaging collects dependency license files under `chart_request_static/licenses/`.
 No proprietary game code, data or IDA database is distributed.
 
 Configuration persistence uses [rusqlite](https://github.com/rusqlite/rusqlite),
@@ -57,7 +57,7 @@ Its components and design tokens use
 `c390d7deffa7955e28b2e3bcb9c22ac0899a261b`, MIT, copyright 2026 Type Zero Labs.
 Bundled Iosevka fonts are licensed under SIL Open Font License 1.1; Phosphor
 icons are provided by egui-phosphor under MIT. Release packages include the
-upstream code license, font license and credits under `licenses/`.
+upstream code license, font license and credits under `chart_request_static/licenses/`.
 Its D3D9 painter and Win32 input bridge are implemented in this project; no
 egui-d3d9 implementation is incorporated. Spice SDK v0.4 drawing ABI is declared
 by the upstream `sdk/include/spicesdk.h`. Chinese/Japanese fonts are read from
