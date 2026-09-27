@@ -4,7 +4,7 @@ use crate::{
     engine::{Engine, Request as SongRequest},
     platforms::Connection,
 };
-use anyhow::Result;
+use anyhow::{Context, Result, ensure};
 use http_body_util::Full;
 use hyper::{
     Method, Request, Response, StatusCode,
@@ -17,10 +17,12 @@ use serde_json::{Value, json};
 use std::{
     convert::Infallible,
     net::{Ipv4Addr, SocketAddr},
+    path::{Path, PathBuf},
     sync::{Arc, RwLock},
     time::Duration,
 };
 use tokio::{
+    io::AsyncReadExt,
     net::TcpListener,
     task::{JoinHandle, JoinSet},
 };
@@ -63,17 +65,123 @@ pub fn snapshot(engine: Option<&Engine>, status: &Connection, now: u64) -> Value
     state
 }
 
+const MAX_STATIC_BYTES: u64 = 32 * 1024 * 1024;
+
+/// A validated public asset directory, prepared before committing live settings.
+#[derive(Clone)]
+pub struct StaticFiles {
+    root: PathBuf,
+}
+impl StaticFiles {
+    pub async fn open(path: &Path) -> Result<Self> {
+        let root = tokio::fs::canonicalize(path)
+            .await
+            .with_context(|| format!("无法打开网页静态目录 {}", path.display()))?;
+        ensure!(
+            tokio::fs::metadata(&root).await?.is_dir(),
+            "网页静态目录必须是文件夹"
+        );
+        let files = Self { root };
+        files.read("index.html").await.map_err(|status| {
+            anyhow::anyhow!(
+                "网页静态目录 {} 中的 index.html 无法读取：{status}",
+                path.display()
+            )
+        })?;
+        Ok(files)
+    }
+
+    async fn read(&self, relative: &str) -> Result<(&'static str, Bytes), StatusCode> {
+        let path = tokio::fs::canonicalize(self.root.join(relative))
+            .await
+            .map_err(|_| StatusCode::NOT_FOUND)?;
+        // Resolve junctions/symlinks as well as textual path components.
+        if !path.starts_with(&self.root) {
+            return Err(StatusCode::NOT_FOUND);
+        }
+        let file = tokio::fs::File::open(&path)
+            .await
+            .map_err(|_| StatusCode::NOT_FOUND)?;
+        let metadata = file.metadata().await.map_err(|_| StatusCode::NOT_FOUND)?;
+        if !metadata.is_file() {
+            return Err(StatusCode::NOT_FOUND);
+        }
+        if metadata.len() > MAX_STATIC_BYTES {
+            return Err(StatusCode::PAYLOAD_TOO_LARGE);
+        }
+        let mut bytes = Vec::new();
+        file.take(MAX_STATIC_BYTES + 1)
+            .read_to_end(&mut bytes)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        if bytes.len() as u64 > MAX_STATIC_BYTES {
+            return Err(StatusCode::PAYLOAD_TOO_LARGE);
+        }
+        Ok((content_type(&path), bytes.into()))
+    }
+}
+
+fn content_type(path: &Path) -> &'static str {
+    match path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "html" | "htm" => "text/html; charset=utf-8",
+        "css" => "text/css; charset=utf-8",
+        "js" | "mjs" => "text/javascript; charset=utf-8",
+        "json" | "map" => "application/json; charset=utf-8",
+        "svg" => "image/svg+xml",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "avif" => "image/avif",
+        "ico" => "image/x-icon",
+        "woff" => "font/woff",
+        "woff2" => "font/woff2",
+        "ttf" => "font/ttf",
+        "otf" => "font/otf",
+        "wasm" => "application/wasm",
+        "txt" => "text/plain; charset=utf-8",
+        _ => "application/octet-stream",
+    }
+}
+
+fn asset_path(url: &str) -> Option<String> {
+    let path = percent_encoding::percent_decode_str(url)
+        .decode_utf8()
+        .ok()?;
+    let path = path.strip_prefix('/')?;
+    if path.is_empty()
+        || path
+            .chars()
+            .any(|c| c.is_control() || matches!(c, '\\' | ':'))
+        || path
+            .split('/')
+            .any(|part| part.is_empty() || part.starts_with('.') || part.ends_with(['.', ' ']))
+    {
+        return None;
+    }
+    Some(path.to_owned())
+}
+
 pub struct Server {
     pub address: SocketAddr,
     state: Arc<RwLock<Bytes>>,
+    files: Arc<RwLock<StaticFiles>>,
     task: JoinHandle<Result<()>>,
 }
 impl Server {
-    pub async fn start(port: u16, initial: &Value) -> Result<Self> {
+    pub async fn start(port: u16, static_dir: &Path, initial: &Value) -> Result<Self> {
+        let files = Arc::new(RwLock::new(StaticFiles::open(static_dir).await?));
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, port)).await?;
         let address = listener.local_addr()?;
         let state = Arc::new(RwLock::new(Bytes::from(serde_json::to_vec(initial)?)));
         let shared = state.clone();
+        let shared_files = files.clone();
         let task = tokio::spawn(async move {
             let mut connections = JoinSet::new();
             loop {
@@ -81,10 +189,14 @@ impl Server {
                     accepted = listener.accept(), if connections.len() < 32 => {
                         let (stream, _) = accepted?;
                         let state = shared.clone();
+                        let files = shared_files.clone();
                         connections.spawn(async move {
                             let service = service_fn(move |req| {
-                                let response = route(req, &state, address.port());
-                                async { Ok::<_, Infallible>(response) }
+                                let state = state.clone();
+                                let files = files.read().unwrap().clone();
+                                async move {
+                                    Ok::<_, Infallible>(route(req, &state, address.port(), &files).await)
+                                }
                             });
                             // One bounded request per connection; this also limits slow clients.
                             let mut builder = http1::Builder::new();
@@ -100,6 +212,7 @@ impl Server {
         Ok(Self {
             address,
             state,
+            files,
             task,
         })
     }
@@ -107,6 +220,9 @@ impl Server {
         if let Ok(bytes) = serde_json::to_vec(value) {
             *self.state.write().unwrap() = bytes.into();
         }
+    }
+    pub fn set_static_files(&self, files: StaticFiles) {
+        *self.files.write().unwrap() = files;
     }
     pub fn is_finished(&self) -> bool {
         self.task.is_finished()
@@ -122,7 +238,12 @@ impl Drop for Server {
     }
 }
 
-fn route(req: Request<Incoming>, state: &RwLock<Bytes>, port: u16) -> Response<Full<Bytes>> {
+async fn route(
+    req: Request<Incoming>,
+    state: &RwLock<Bytes>,
+    port: u16,
+    files: &StaticFiles,
+) -> Response<Full<Bytes>> {
     let mut hosts = vec![format!("127.0.0.1:{port}"), format!("localhost:{port}")];
     // Browsers omit the default HTTP port from Host and Origin.
     if port == 80 {
@@ -154,27 +275,30 @@ fn route(req: Request<Incoming>, state: &RwLock<Bytes>, port: u16) -> Response<F
     } else {
         match req.uri().path() {
             "/" => (StatusCode::TEMPORARY_REDIRECT, "text/plain", Bytes::new()),
-            "/queue" => (
-                StatusCode::OK,
-                "text/html; charset=utf-8",
-                Bytes::from_static(include_bytes!("../web/index.html")),
-            ),
-            "/overlay.css" => (
-                StatusCode::OK,
-                "text/css; charset=utf-8",
-                Bytes::from_static(include_bytes!("../web/overlay.css")),
-            ),
-            "/overlay.js" => (
-                StatusCode::OK,
-                "text/javascript; charset=utf-8",
-                Bytes::from_static(include_bytes!("../web/overlay.js")),
-            ),
             "/api/state" => (
                 StatusCode::OK,
                 "application/json; charset=utf-8",
                 state.read().unwrap().clone(),
             ),
-            _ => (StatusCode::NOT_FOUND, "text/plain", "Not found".into()),
+            path => {
+                let asset = match path {
+                    "/queue" | "/queue/" => Some("index.html".to_owned()),
+                    path if path.starts_with("/api/") => None,
+                    path => asset_path(path),
+                };
+                let result = match asset {
+                    Some(asset) => files.read(&asset).await,
+                    None => Err(StatusCode::NOT_FOUND),
+                };
+                match result {
+                    Ok((mime, body)) => (StatusCode::OK, mime, body),
+                    Err(status) => (
+                        status,
+                        "text/plain; charset=utf-8",
+                        Bytes::from(status.canonical_reason().unwrap_or("Error")),
+                    ),
+                }
+            }
         }
     };
     let mut response = Response::builder()

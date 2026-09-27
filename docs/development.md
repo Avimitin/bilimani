@@ -7,9 +7,15 @@
 ## 本地网页界面
 
 `src/overlay.rs` 使用 Hyper 提供只读 HTTP 服务，默认只监听 `127.0.0.1:32133`。
-HTML、CSS 和 JavaScript 位于 `web/`，编译时嵌入 DLL，无前端构建步骤、CDN 或外部字体依赖。
-`/queue` 是唯一的页面，背景透明，包含队列及底部按需弹出的交互区域。
-`/` 仅重定向到 `/queue`；旧 `/interaction` 路径返回 404。
+HTML、CSS 和 JavaScript 源文件位于 `web/`，由 `scripts/package.ps1` 复制到 Release ZIP
+中的 `chart_request_static/`，与 DLL 并列。页面不再嵌入 DLL，无前端构建步骤、CDN 或外部字体依赖。
+`overlay.static_dir` 默认为 `chart_request_static`；相对路径以 DLL 所在目录为准，也支持绝对路径。
+可在「OBS 显示」页修改并保存。只切换目录时复用已有监听端口，验证目录及 `index.html`
+可读取后再提交配置；验证或保存失败保留原服务。旧数据库和 JSON/TOML 配置自动补入默认值。
+`/queue` 和 `/index.html` 读取该目录的 `index.html`；`/` 重定向到 `/queue`。
+默认页面背景透明，包含队列及底部按需弹出的交互区域。其他 URL 读取目录内对应资源，
+支持子目录及常见网页、图片、字体 MIME 类型；不提供目录列表。文件修改在下一次请求时生效，
+缺失文件返回 404，不回退到内嵌页面。启动时缺少目录或入口会记录错误，点歌和文本输出继续工作。
 页面始终读取 `/api/state` 的实时数据，不包含示例模式或预览控件。
 
 工作线程从 Engine 发布独立 JSON 快照，`/api/state` 只读该快照，不访问游戏内存、
@@ -22,11 +28,13 @@ Cookie、应用凭据或观众平台 ID。网页每 500 毫秒读取一次，曲
 轮询不会重复弹出同一事件。无候选、通知或连接警告时，整个弹出区隐藏并释放占用高度。
 长文本或较多候选仍可能需要用户增加 OBS 来源高度。展示层不修改排队、选择期限或跳转行为。
 
-服务器仅允许明确的资源路径与 GET/HEAD，请求 Host/Origin 限制为本地地址，禁用缓存，
-每次连接只处理一个请求，上限 32 个并发连接、5 秒超时。启动失败会记录日志并保留文本
+服务器仅允许 GET/HEAD，请求 Host/Origin 限制为本地地址，禁用缓存。
+URL 解码后拒绝路径穿越、隐藏文件及 Windows 特殊路径；解析符号链接和目录联接后仍需位于
+静态目录内。单个静态文件最大 32 MiB；每次连接只处理一个请求，上限 32 个并发连接、5 秒超时。
+启动失败会记录日志并保留文本
 输出；关闭时中止监听及连接任务。`[overlay]` 设置兼容旧配置，默认开启。
 
-无需游戏即可预览实际嵌入的页面：
+无需游戏即可预览源码中的实际页面（默认读取 `web/`，也可在 Cargo 的 `--` 后传入其他静态目录）：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -Command "& ./scripts/build.ps1 -CargoArgs @('run','--example','overlay_preview')"

@@ -58,12 +58,14 @@ impl Default for Controls {
 pub struct Overlay {
     pub enabled: bool,
     pub port: u16,
+    pub static_dir: PathBuf,
 }
 impl Default for Overlay {
     fn default() -> Self {
         Self {
             enabled: true,
             port: 32133,
+            static_dir: "chart_request_static".into(),
         }
     }
 }
@@ -224,6 +226,7 @@ impl Config {
             .context("Configuration has no parent directory")?;
         result.output.queue_path = root.join(&result.output.queue_path);
         result.output.interaction_path = root.join(&result.output.interaction_path);
+        result.overlay.static_dir = root.join(&result.overlay.static_dir);
         if !result.game.database_path.as_os_str().is_empty() {
             result.game.database_path = root.join(&result.game.database_path);
         }
@@ -240,6 +243,10 @@ impl Config {
             "controls.double_tap_ms must be 100..2000"
         );
         ensure!(self.overlay.port != 0, "overlay.port must be 1..65535");
+        ensure!(
+            !self.overlay.static_dir.as_os_str().is_empty(),
+            "网页静态目录不能为空"
+        );
         ensure!(
             (1..=100).contains(&self.logging.max_file_mb),
             "logging.max_file_mb must be 1..100"

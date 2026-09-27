@@ -35,6 +35,64 @@ fn fresh_install_uses_defaults_without_creating_toml() {
 }
 
 #[test]
+fn static_directory_defaults_for_old_settings_and_round_trips_relative_to_dll() {
+    let f = Fixture::new();
+    let database = f.0.join("settings/chart-requester.db");
+    let dll = f.0.join("plugin.dll");
+    let store = Store::open(&database).unwrap();
+    drop(store);
+    let connection = rusqlite::Connection::open(&database).unwrap();
+    let settings: String = connection
+        .query_row("SELECT settings FROM settings", [], |r| r.get(0))
+        .unwrap();
+    let mut settings: serde_json::Value = serde_json::from_str(&settings).unwrap();
+    settings["overlay"]
+        .as_object_mut()
+        .unwrap()
+        .remove("static_dir");
+    connection
+        .execute("UPDATE settings SET settings = ?1", [settings.to_string()])
+        .unwrap();
+    drop(connection);
+    let mut store = Store::open(&database).unwrap();
+    assert_eq!(
+        store.raw.overlay.static_dir,
+        PathBuf::from("chart_request_static")
+    );
+    let resolved = store.commit(store.reload(&dll).unwrap()).unwrap();
+    assert_eq!(
+        resolved.overlay.static_dir,
+        f.0.join("chart_request_static")
+    );
+    let mut config = store.raw.clone();
+    config.overlay.static_dir = "themes/custom".into();
+    let resolved = store
+        .commit(store.prepare(config.clone(), store.revision, &dll).unwrap())
+        .unwrap();
+    assert_eq!(resolved.overlay.static_dir, f.0.join("themes/custom"));
+    assert_eq!(
+        Store::open(&database).unwrap().raw.overlay.static_dir,
+        PathBuf::from("themes/custom")
+    );
+    config.overlay.static_dir = f.0.join("absolute-theme");
+    let resolved = store
+        .commit(store.prepare(config.clone(), store.revision, &dll).unwrap())
+        .unwrap();
+    assert_eq!(resolved.overlay.static_dir, config.overlay.static_dir);
+    store
+        .export_json(std::path::Path::new("static-backup.json"))
+        .unwrap();
+    assert_eq!(
+        store
+            .import_json(std::path::Path::new("static-backup.json"))
+            .unwrap()
+            .overlay
+            .static_dir,
+        config.overlay.static_dir
+    );
+}
+
+#[test]
 fn legacy_config_migrates_once_with_credentials_aliases_and_relative_paths() {
     let f = Fixture::new();
     let path = f.0.join("chart-requester.db");

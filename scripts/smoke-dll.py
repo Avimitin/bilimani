@@ -24,6 +24,7 @@ work = root / "analysis" / ("smoke-" + uuid.uuid4().hex)
 work.mkdir(parents=True)
 dll_path = work / "chart_requester.dll"
 shutil.copy2(root / "target/release/chart_requester.dll", dll_path)
+shutil.copytree(root / "web", work / "chart_request_static")
 config = (root / "tests/fixtures/legacy-config.toml").read_text(encoding="utf-8")
 config = config.replace("enabled = true", "enabled = false", 1)
 port_blocker = socket.socket()

@@ -137,6 +137,10 @@ impl Store {
 
     fn validate(&self, raw: &Config, dll: &Path) -> Result<Config> {
         let mut config = raw.clone().resolve(&self.path)?;
+        config.overlay.static_dir = dll
+            .parent()
+            .context("DLL has no parent directory")?
+            .join(&raw.overlay.static_dir);
         let queue = resolved_output(&config.output.queue_path)?;
         let interaction = resolved_output(&config.output.interaction_path)?;
         ensure!(

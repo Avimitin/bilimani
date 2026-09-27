@@ -200,6 +200,7 @@ dependencies = [
  "md-5",
  "nucleo-matcher",
  "ouroboros-ui",
+ "percent-encoding",
  "reqwest",
  "rusqlite",
  "serde",

@@ -717,6 +717,8 @@ impl Menu {
                 Heading::new("OBS 显示").h2().show(ui);
                 toggle(ui, &mut self.draft.overlay.enabled, "启用浏览器来源");
                 number(ui, "本机端口", &mut self.draft.overlay.port, 1..=65535);
+                path_field(ui, "网页静态目录", &mut self.draft.overlay.static_dir);
+                ui.weak("目录中需有 index.html。相对路径以 DLL 目录为准，修改页面文件后刷新即可。");
                 ui.label(format!(
                     "http://127.0.0.1:{}/queue",
                     self.draft.overlay.port

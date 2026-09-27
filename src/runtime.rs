@@ -115,13 +115,13 @@ fn start(module: HMODULE) -> Result<()> {
     rt.block_on(async {
         let mut overlay_error = String::new();
         let mut web = if config.overlay.enabled {
-            match overlay::Server::start(config.overlay.port, &overlay::snapshot(None, &Connection::waiting(), 0)).await {
+            match overlay::Server::start(config.overlay.port, &config.overlay.static_dir, &overlay::snapshot(None, &Connection::waiting(), 0)).await {
                 Ok(server) => {
                     logger.info("overlay", &format!("Browser source: http://{}/queue", server.address));
                     Some(server)
                 }
                 Err(e) => {
-                    overlay_error = format!("网页界面启动失败（端口 {}）：{e}；请在「OBS 显示」页调整端口并应用，文本点歌仍可使用", config.overlay.port);
+                    overlay_error = format!("网页界面启动失败（端口 {}）：{e}；请在「OBS 显示」页检查端口和网页静态目录并应用，文本点歌仍可使用", config.overlay.port);
                     logger.info("overlay", &overlay_error);
                     None
                 }
@@ -281,9 +281,16 @@ fn start(module: HMODULE) -> Result<()> {
                             if let Some(e) = &engine { Catalog::new(e.catalog.songs.clone(), &prepared.raw.aliases)?; }
                             else { ensure!(prepared.raw.aliases == store.raw.aliases, "曲库尚未就绪，暂时不能验证新的别名"); }
                             let next = &prepared.resolved;
-                            let replace_web = next.overlay != config.overlay || (next.overlay.enabled && web.is_none());
+                            let replace_web = next.overlay.enabled != config.overlay.enabled
+                                || next.overlay.port != config.overlay.port
+                                || (next.overlay.enabled && web.is_none());
                             let replacement = if replace_web && next.overlay.enabled {
-                                Some(overlay::Server::start(next.overlay.port, &overlay::snapshot(engine.as_ref(), &connection, now)).await?)
+                                Some(overlay::Server::start(next.overlay.port, &next.overlay.static_dir, &overlay::snapshot(engine.as_ref(), &connection, now)).await?)
+                            } else { None };
+                            // Changing only the asset directory reuses the existing listener.
+                            let static_files = if !replace_web && next.overlay.enabled
+                                && next.overlay.static_dir != config.overlay.static_dir {
+                                Some(overlay::StaticFiles::open(&next.overlay.static_dir).await?)
                             } else { None };
                             let source_changed = next.source() != config.source();
                             // A failed atomic save drops the prepared web server, leaving old state intact.
@@ -296,6 +303,8 @@ fn start(module: HMODULE) -> Result<()> {
                                 if let Some(server) = web.as_mut() { server.stop().await; }
                                 web = replacement;
                                 overlay_error.clear();
+                            } else if let (Some(server), Some(files)) = (web.as_ref(), static_files) {
+                                server.set_static_files(files);
                             }
                             if next.output.queue_path != config.output.queue_path { queue = TextFile::new(next.output.queue_path.clone()); }
                             if next.output.interaction_path != config.output.interaction_path { interaction = TextFile::new(next.output.interaction_path.clone()); }
