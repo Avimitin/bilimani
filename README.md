@@ -25,7 +25,7 @@ https://github.com/user-attachments/assets/9fb34c0f-e38e-40ef-945a-ef7c055b9534
 ### 1. 下载并解压
 
 1. 打开 [下载页面](https://github.com/Avimitin/chart-requester/releases)。
-2. 展开对应版本的 **Assets**，下载 `chart-requester-版本号.zip`，例如 `chart-requester-0.1.1.zip`。`Source code` 是源代码，安装时不需要下载。
+2. 展开对应版本的 **Assets**，下载 `chart-requester-版本号.zip`，例如 `chart-requester-0.2.0.zip`。`Source code` 是源代码，安装时不需要下载。
 3. 将 ZIP 解压到本机一个可以保存文件的文件夹。
 
 解压后有三项：`chart_requester.dll`、`chart_request_static` 网页目录和 `README.md` 使用说明。DLL 由启动器加载，不需要双击打开，也无需准备配置文件。
