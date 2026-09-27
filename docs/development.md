@@ -64,8 +64,14 @@ for the game. The version module owns all offsets and emits generic `Navigation`
 events; egui never reads game memory. See [input evidence](game-analysis.md).
 
 The adapter validates epoch/side and emits `toggle_menu`. The worker toggles an
-egui panel; skipping and deleting requests are explicit panel commands. Game
+egui panel; picking and deleting queued requests are explicit panel commands. Game
 hooks/offsets do not cross into the UI or renderer.
+
+Manual picks retain the original queue order until the adapter acknowledges the
+selected token. Success replaces the current request and closes the panel;
+failure leaves the request in place and reports the result. The worker keeps the
+panel pending during selection. Song and delete buttons both accept controller
+focus, scroll into view and support B6 confirmation, including long queues.
 
 `src/host/menu.rs` uses SDK v0.4 `register_d3d9` (slot 17, 152-byte x64 table).
 Old SDKs leave that pointer null and retain chat functionality. The renderer uses

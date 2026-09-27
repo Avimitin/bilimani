@@ -14,7 +14,7 @@ use nucleo_matcher::{
 };
 use ouroboros_ui::{
     Theme,
-    atoms::{Badge, Button, Heading, Input, Kbd, Surface, Switch, Text},
+    atoms::{Badge, Button, Heading, Input, Kbd, Switch, Text},
     egui_phosphor::light as icons,
     molecules::{Card, SearchField},
 };
@@ -107,6 +107,7 @@ pub struct QueueRow {
     pub token: u64,
     pub text: String,
     pub removable: bool,
+    pub selectable: bool,
 }
 #[derive(Clone)]
 pub struct View {
@@ -145,6 +146,7 @@ impl View {
                 token: c.request.token,
                 text: c.request.label(),
                 removable: e.snapshot.phase == crate::game::Phase::Select,
+                selectable: false,
             })
         });
         self.queue = engine.map_or_else(Vec::new, |e| {
@@ -154,6 +156,7 @@ impl View {
                     token: r.token,
                     text: r.label(),
                     removable: e.can_remove(r.token),
+                    selectable: e.can_select_queued(r.token),
                 })
                 .collect()
         });
@@ -166,6 +169,7 @@ pub enum Action {
     ImportJson(std::path::PathBuf),
     ExportJson(std::path::PathBuf),
     Remove(u64),
+    Select { token: u64, epoch: u64 },
     Skip { token: u64, epoch: u64 },
 }
 pub struct Command {
@@ -388,6 +392,10 @@ impl Menu {
         }
         let opening = !self.was_open;
         self.was_open = true;
+        if opening {
+            self.page = Page::Live;
+        }
+        let mut focus_queue = opening;
         if std::mem::take(&mut self.back) {
             let focused = ctx.memory(|m| m.focused());
             if focused.is_some_and(|id| self.sidebar.contains(&id)) {
@@ -498,6 +506,7 @@ impl Menu {
                                 }
                                 if response.clicked() {
                                     self.page = page;
+                                    focus_queue = page == Page::Live;
                                 }
                             }
                         });
@@ -506,7 +515,7 @@ impl Menu {
                             let height = body_height;
                             ui.add_enabled_ui(self.pending.is_none(), |ui| {
                                 if self.page == Page::Live {
-                                    self.live(ui, bridge, &view, height);
+                                    self.live(ui, bridge, &view, height, focus_queue);
                                 } else {
                                     ScrollArea::vertical()
                                         .id_salt("settings-page")
@@ -572,7 +581,9 @@ impl Menu {
                     ui.label(&self.feedback);
                 }
             });
-        bridge.visible.store(open, Ordering::Release);
+        if !open {
+            bridge.visible.store(false, Ordering::Release);
+        }
     }
     fn settings(&mut self, ui: &mut Ui, connection: &Connection, bridge: &Bridge) {
         match self.page {
@@ -639,32 +650,38 @@ impl Menu {
             Page::Requests => {
                 Heading::new("点歌规则").h2().show(ui);
                 let c = &mut self.draft.requests;
-                number(ui, "队列容量", &mut c.queue_capacity, 1..=1000);
-                number(ui, "候选歌曲数", &mut c.candidates, 1..=20);
-                number(
-                    ui,
-                    "候选选择超时（秒）",
-                    &mut c.selection_timeout_seconds,
-                    1..=86400,
-                );
-                number(
-                    ui,
-                    "当前点歌超时（秒）",
-                    &mut c.current_timeout_seconds,
-                    1..=86400,
-                );
-                number(
-                    ui,
-                    "每人点歌冷却（秒，0 关闭）",
-                    &mut c.cooldown_seconds,
-                    0..=86400,
-                );
-                number(
-                    ui,
-                    "同时等待选择的观众数",
-                    &mut c.max_pending_users,
-                    1..=1000,
-                );
+                ui.horizontal_wrapped(|ui| {
+                    number(ui, "队列容量", &mut c.queue_capacity, 1..=1000);
+                    number(ui, "候选歌曲数", &mut c.candidates, 1..=20);
+                });
+                ui.horizontal_wrapped(|ui| {
+                    number(
+                        ui,
+                        "候选选择超时（秒）",
+                        &mut c.selection_timeout_seconds,
+                        1..=86400,
+                    );
+                    number(
+                        ui,
+                        "当前点歌超时（秒）",
+                        &mut c.current_timeout_seconds,
+                        1..=86400,
+                    );
+                });
+                ui.horizontal_wrapped(|ui| {
+                    number(
+                        ui,
+                        "每人点歌冷却（秒，0 关闭）",
+                        &mut c.cooldown_seconds,
+                        0..=86400,
+                    );
+                    number(
+                        ui,
+                        "同时等待选择的观众数",
+                        &mut c.max_pending_users,
+                        1..=1000,
+                    );
+                });
                 ui.weak("新规则用于后续请求；已有队列、候选和倒计时继续保留。");
             }
             Page::Bilibili => {
@@ -676,6 +693,7 @@ impl Menu {
                     .show(ui);
                 let c = &mut self.draft.bilibili;
                 toggle(ui, &mut c.enabled, "启用弹幕连接");
+                Text::new("连接方式").label().show(ui);
                 ui.horizontal(|ui| {
                     ui.selectable_value(&mut c.mode, "open_live".into(), "主播身份码");
                     ui.selectable_value(&mut c.mode, "web".into(), "直播间网页");
@@ -706,18 +724,20 @@ impl Menu {
                 ui.separator();
                 path_field(ui, "队列文本文件", &mut self.draft.output.queue_path);
                 path_field(ui, "交互文本文件", &mut self.draft.output.interaction_path);
-                number(
-                    ui,
-                    "提示保留（秒）",
-                    &mut self.draft.output.message_seconds,
-                    1..=86400,
-                );
-                number(
-                    ui,
-                    "最近提示条数",
-                    &mut self.draft.output.recent_messages,
-                    1..=100,
-                );
+                ui.horizontal_wrapped(|ui| {
+                    number(
+                        ui,
+                        "提示保留（秒）",
+                        &mut self.draft.output.message_seconds,
+                        1..=86400,
+                    );
+                    number(
+                        ui,
+                        "最近提示条数",
+                        &mut self.draft.output.recent_messages,
+                        1..=100,
+                    );
+                });
                 ui.weak("相对路径以 DLL 目录为准。修改端口或文件后，也请更新 OBS 来源。");
             }
             Page::Controls => {
@@ -742,14 +762,17 @@ impl Menu {
             Page::Logging => {
                 Heading::new("日志").h2().show(ui);
                 let c = &mut self.draft.logging;
+                Text::new("日志级别").label().show(ui);
                 ui.horizontal(|ui| {
                     ui.selectable_value(&mut c.level, LogLevel::Off, "关闭");
                     ui.selectable_value(&mut c.level, LogLevel::Info, "普通");
                     ui.selectable_value(&mut c.level, LogLevel::Debug, "详细");
                 });
                 toggle(ui, &mut c.danmu, "详细日志记录弹幕正文（不影响弹幕页）");
-                number(ui, "单个文件上限（MiB）", &mut c.max_file_mb, 1..=100);
-                number(ui, "备份个数", &mut c.backups, 1..=10);
+                ui.horizontal_wrapped(|ui| {
+                    number(ui, "单个文件上限（MiB）", &mut c.max_file_mb, 1..=100);
+                    number(ui, "备份个数", &mut c.backups, 1..=10);
+                });
                 number(
                     ui,
                     "状态记录间隔（秒）",
@@ -797,6 +820,7 @@ fn number<T: egui::emath::Numeric>(
     range: std::ops::RangeInclusive<T>,
 ) {
     ui.horizontal(|ui| {
+        let label_response = Text::new(label).label().show(ui);
         ui.spacing_mut().interact_size.x = 80.0;
         let id = ui.next_auto_id();
         if ui.memory(|m| m.has_focus(id)) {
@@ -815,15 +839,16 @@ fn number<T: egui::emath::Numeric>(
                 });
             }
         }
-        let response = ui.add(egui::DragValue::new(value).range(range));
+        let response = ui
+            .add(egui::DragValue::new(value).range(range))
+            .labelled_by(label_response.id);
         if response.has_focus() {
             response.scroll_to_me(None);
         }
-        ui.label(label);
     });
 }
 fn field(ui: &mut Ui, label: &str, value: &mut String, secret: bool) {
-    Text::new(label).label().show(ui);
+    let label_response = Text::new(label).label().show(ui);
     if secret {
         // Ouroboros Input has no password mode. Keep egui's masking rather than
         // passing credentials to a plain-text component.
@@ -832,15 +857,17 @@ fn field(ui: &mut Ui, label: &str, value: &mut String, secret: bool) {
             TextEdit::singleline(value)
                 .password(true)
                 .margin(egui::vec2(10.0, 8.0)),
-        );
+        )
+        .labelled_by(label_response.id);
     } else {
-        input(ui, value, ui.available_width().min(480.0));
+        input(ui, value, ui.available_width().min(480.0)).labelled_by(label_response.id);
     }
 }
-fn input(ui: &mut Ui, value: &mut String, width: f32) {
+fn input(ui: &mut Ui, value: &mut String, width: f32) -> egui::Response {
     ui.allocate_ui(egui::vec2(width, 32.0), |ui| {
-        Input::new(value).sm().show(ui);
-    });
+        Input::new(value).sm().show(ui)
+    })
+    .inner
 }
 fn toggle(ui: &mut Ui, value: &mut bool, label: &str) {
     ui.horizontal(|ui| {
@@ -947,6 +974,121 @@ mod controller_tests {
         assert_eq!(ctx.memory(|m| m.focused()), Some(menu.sidebar[3]));
         frame(&mut menu, &ctx, &bridge, Some(Navigation::Back));
         assert!(!bridge.visible.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn controller_can_scroll_to_and_pick_a_queue_entry_without_mouse() {
+        let mut view = View::new(Config::default());
+        view.epoch = 7;
+        view.queue = (1..=20)
+            .map(|token| QueueRow {
+                token,
+                text: if token == 20 {
+                    format!("{} [SPA] — 观众", "长曲名与版本信息".repeat(8))
+                } else {
+                    format!("歌曲 {token} [SPA] — 观众")
+                },
+                removable: true,
+                selectable: true,
+            })
+            .collect();
+        let (bridge, rx) = Bridge::new(view.clone(), design::fonts());
+        let ctx = egui::Context::default();
+        ctx.set_fonts(design::fonts());
+        ctx.set_global_style(design::style());
+        let mut menu = Menu::new(&view);
+        bridge.visible.store(true, Ordering::Release);
+        for _ in 0..3 {
+            frame(&mut menu, &ctx, &bridge, None);
+        }
+        // Opening starts directly on the first song.
+        for _ in 1..20 {
+            // Each row offers the song first, then its separate delete action.
+            frame(&mut menu, &ctx, &bridge, Some(Navigation::Down));
+            frame(&mut menu, &ctx, &bridge, Some(Navigation::Down));
+        }
+        for _ in 0..15 {
+            frame(&mut menu, &ctx, &bridge, None);
+        }
+        let focused = ctx.memory(|m| m.focused()).unwrap();
+        let response = ctx.read_response(focused).unwrap();
+        assert!(response.rect.width() > 200.0, "Song, not delete, has focus");
+        assert!(
+            response.rect.width() <= 362.0,
+            "Long title leaves room for delete"
+        );
+        assert!(response.interact_rect.contains(response.rect.center()));
+        assert!(
+            response.rect.bottom() < 600.0,
+            "Focused song scrolled into view"
+        );
+        // Removing an earlier entry must not change which song is selected.
+        view.queue.remove(0);
+        bridge.publish(view);
+        frame(&mut menu, &ctx, &bridge, None);
+        assert_eq!(ctx.memory(|m| m.focused()), Some(focused));
+        frame(&mut menu, &ctx, &bridge, Some(Navigation::Confirm));
+        assert!(matches!(
+            rx.try_recv().unwrap().action,
+            Action::Select {
+                token: 20,
+                epoch: 7
+            }
+        ));
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn opening_and_reopening_focus_the_first_selectable_song_for_one_press_confirmation() {
+        let mut view = View::new(Config::default());
+        view.epoch = 7;
+        view.queue = (1..=3)
+            .map(|token| QueueRow {
+                token,
+                text: format!("歌曲 {token}"),
+                removable: true,
+                selectable: token != 1,
+            })
+            .collect();
+        let (bridge, rx) = Bridge::new(view.clone(), design::fonts());
+        let ctx = egui::Context::default();
+        ctx.set_fonts(design::fonts());
+        ctx.set_global_style(design::style());
+        let mut menu = Menu::new(&view);
+        for token in [2, 3] {
+            // Reopening from settings should return to the queue, skipping disabled rows.
+            menu.page = Page::Logging;
+            bridge.visible.store(true, Ordering::Release);
+            for _ in 0..3 {
+                frame(&mut menu, &ctx, &bridge, None);
+            }
+            assert!(menu.page == Page::Live);
+            let focused = ctx.memory(|m| m.focused()).unwrap();
+            let response = ctx.read_response(focused).unwrap();
+            assert!(response.rect.width() > 200.0);
+            assert!(response.rect.right() < 710.0, "Queue is in the left column");
+            assert!(rx.try_recv().is_err(), "Focusing must not select a song");
+            if token == 2 {
+                frame(&mut menu, &ctx, &bridge, Some(Navigation::Back));
+                assert_eq!(ctx.memory(|m| m.focused()), Some(menu.sidebar[0]));
+                frame(&mut menu, &ctx, &bridge, Some(Navigation::Confirm));
+                frame(&mut menu, &ctx, &bridge, None);
+                assert_eq!(ctx.memory(|m| m.focused()), Some(focused));
+                assert!(rx.try_recv().is_err());
+            }
+            frame(&mut menu, &ctx, &bridge, Some(Navigation::Confirm));
+            let command = rx.try_recv().unwrap();
+            assert!(matches!(
+                command.action,
+                Action::Select { token: selected, epoch: 7 } if selected == token
+            ));
+            assert!(rx.try_recv().is_err());
+            view.queue.retain(|row| row.token != token);
+            view.reply = (command.id, "已定位".into());
+            bridge.publish(view.clone());
+            bridge.visible.store(false, Ordering::Release);
+            frame(&mut menu, &ctx, &bridge, None);
+        }
     }
 
     #[test]

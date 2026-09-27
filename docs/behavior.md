@@ -28,7 +28,14 @@
   keys stay suppressed until release when closing. Free text uses keyboard/paste.
 - The panel has live chat (last 500 text messages) and an editable queue, a fuzzy
   alias table, and categorized settings. Delete waiting entries by token; reject
-  deletion of an in-flight jump. Explicit skip validates current token and epoch.
+  deletion of an in-flight jump. Pick any waiting song by mouse or controller;
+  validate its token, selection epoch, mode and absence of an in-flight jump.
+  The queue and event log sit left of live chat. Opening the panel returns to the
+  live page and focuses the first selectable queued song for one B6 confirmation;
+  an empty/unavailable queue falls back to its sidebar entry. Queue buttons
+  receive controller focus and scroll into view. On successful
+  acknowledgement, close the panel and remove only that request, replacing the
+  current song. Failed/cancelled manual picks preserve the queue and current song.
   Automatic jumps wait while the panel is open; gameplay closes the panel.
 - Apply/save validates aliases, output paths and the new HTTP listener before an
   SQLite transaction. Existing requests/deadlines survive. Connection changes

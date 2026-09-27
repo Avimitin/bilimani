@@ -55,6 +55,80 @@ fn menu_deletion_rejects_inflight_and_stale_ids_without_dropping_other_requests(
 }
 
 #[test]
+fn picking_a_queued_song_preserves_order_until_ack_and_replaces_current_on_success() {
+    let mut e = engine();
+    chat(&mut e, "current", "点歌 冥", 0);
+    let current = jump(&mut e, 0);
+    chat(&mut e, "a", "点歌 雪月花", 1);
+    chat(&mut e, "b", "点歌 冥", 1);
+    chat(&mut e, "c", "点歌 雪月花", 1);
+    let tokens: Vec<_> = e.queue.iter().map(|r| r.token).collect();
+    let picked = e.select_queued(tokens[1], 1).unwrap();
+    assert_eq!(picked.selection().token, tokens[1]);
+    assert_eq!(e.current.as_ref().unwrap().request.token, current);
+    assert_eq!(e.queue.iter().map(|r| r.token).collect::<Vec<_>>(), tokens);
+    assert!(!e.remove_queued(tokens[1], 2));
+    assert!(e.next_jump(2).is_none());
+    assert!(e.select_queued(tokens[2], 1).is_none());
+    e.jump_result(tokens[0], Some(Ok(())), 2); // Unrelated/stale acknowledgement.
+    assert_eq!(e.queue.len(), 3);
+    e.jump_result(tokens[1], Some(Ok(())), 2);
+    assert_eq!(e.current.as_ref().unwrap().request.token, tokens[1]);
+    assert_eq!(
+        e.queue.iter().map(|r| r.token).collect::<Vec<_>>(),
+        [tokens[0], tokens[2]],
+    );
+    e.jump_result(tokens[1], Some(Ok(())), 3);
+    assert_eq!(e.queue.len(), 2);
+    assert!(e.select_queued(tokens[1], 1).is_none());
+}
+
+#[test]
+fn picking_a_queued_song_rejects_stale_scene_mode_and_inflight_requests() {
+    let mut e = engine();
+    chat(&mut e, "a", "点歌 冥", 0);
+    let token = e.queue[0].token;
+    assert!(e.select_queued(token + 1, 1).is_none());
+    assert!(e.select_queued(token, 2).is_none());
+    for phase in [Phase::Playing, Phase::Other] {
+        e.snapshot.phase = phase;
+        assert!(!e.can_select_queued(token));
+        assert!(e.select_queued(token, 1).is_none());
+    }
+    e.snapshot.phase = Phase::Select;
+    for mode in [None, Some(iidx::DP)] {
+        e.snapshot.mode = mode;
+        assert!(e.select_queued(token, 1).is_none());
+    }
+    e.snapshot.mode = Some(iidx::SP);
+    e.next_jump(0).unwrap();
+    assert!(e.select_queued(token, 1).is_none());
+    e.jump_result(token, None, 1);
+    // Manual picking does not depend on the opposite-Start shortcut being enabled.
+    e.snapshot.can_skip = false;
+    e.config.controls.skip_enabled = false;
+    assert!(e.select_queued(token, 1).is_some());
+    assert_eq!(e.queue.len(), 1);
+}
+
+#[test]
+fn cancelled_or_failed_manual_pick_keeps_current_and_all_waiting_requests() {
+    let mut e = engine();
+    chat(&mut e, "current", "点歌 冥", 0);
+    let current = jump(&mut e, 0);
+    chat(&mut e, "a", "点歌 雪月花", 1);
+    chat(&mut e, "b", "点歌 冥", 1);
+    let tokens: Vec<_> = e.queue.iter().map(|r| r.token).collect();
+    for result in [None, Some(Err("locked".into()))] {
+        e.select_queued(tokens[1], 1).unwrap();
+        e.jump_result(tokens[1], result, 2);
+        assert_eq!(e.current.as_ref().unwrap().request.token, current);
+        assert_eq!(e.queue.iter().map(|r| r.token).collect::<Vec<_>>(), tokens);
+        assert!(e.can_select_queued(tokens[1]));
+    }
+}
+
+#[test]
 fn live_alias_update_keeps_native_keywords_pending_and_queue() {
     let mut e = engine();
     e.catalog

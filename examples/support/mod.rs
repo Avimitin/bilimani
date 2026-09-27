@@ -56,17 +56,20 @@ pub fn fixture() -> View {
         token: 1,
         text: "AA [SPA] — 观众 2".into(),
         removable: true,
+        selectable: false,
     });
     view.queue = vec![
         QueueRow {
             token: 2,
             text: "ヒマワリ [SP] — 观众 4".into(),
             removable: true,
+            selectable: true,
         },
         QueueRow {
             token: 3,
             text: "冥 [SPA] — 观众 6".into(),
             removable: true,
+            selectable: true,
         },
     ];
     view

@@ -44,6 +44,7 @@ pub struct Current {
 pub struct Jump {
     pub request: Request,
     pub epoch: u64,
+    manual: bool,
 }
 
 impl Jump {
@@ -95,6 +96,29 @@ impl Engine {
             .in_flight
             .as_ref()
             .is_some_and(|j| j.request.token == token)
+    }
+    pub fn can_select_queued(&self, token: u64) -> bool {
+        self.snapshot.phase == Phase::Select
+            && self.in_flight.is_none()
+            && self
+                .queue
+                .iter()
+                .any(|r| r.token == token && Some(r.mode) == self.snapshot.mode)
+    }
+    /// Pick a waiting request without changing queue order or the current song
+    /// until the game acknowledges the selection.
+    pub fn select_queued(&mut self, token: u64, epoch: u64) -> Option<Jump> {
+        if self.snapshot.epoch != epoch || !self.can_select_queued(token) {
+            return None;
+        }
+        let jump = Jump {
+            request: self.queue.iter().find(|r| r.token == token)?.clone(),
+            epoch,
+            manual: true,
+        };
+        self.skipped_before_jump = None;
+        self.in_flight = Some(jump.clone());
+        Some(jump)
     }
     /// Explicit UI action, valid in any adapter's ordinary song selection.
     pub fn dismiss_current(&mut self, token: u64, epoch: u64, now: u64) -> bool {
@@ -370,6 +394,7 @@ impl Engine {
         let jump = Jump {
             request: self.queue.front()?.clone(),
             epoch: self.snapshot.epoch,
+            manual: false,
         };
         self.in_flight = Some(jump.clone());
         Some(jump)
@@ -379,14 +404,18 @@ impl Engine {
         if self.in_flight.as_ref().map(|j| j.request.token) != Some(token) {
             return;
         }
-        self.in_flight = None;
+        let manual = self.in_flight.take().unwrap().manual;
         let Some(result) = result else {
             return;
         };
-        if self.queue.front().map(|r| r.token) != Some(token) {
+        let Some(index) = self.queue.iter().position(|r| r.token == token) else {
             return;
-        }
-        let request = self.queue.pop_front().unwrap();
+        };
+        let request = if manual && result.is_err() {
+            self.queue[index].clone()
+        } else {
+            self.queue.remove(index).unwrap()
+        };
         // Keep the skip visible when the following jump acknowledges immediately.
         let skipped = self
             .skipped_before_jump

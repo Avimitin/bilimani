@@ -143,6 +143,7 @@ fn start(module: HMODULE) -> Result<()> {
         let mut handled = 0u64;
         let mut last_input_state = String::new();
         let mut menu_status = i32::MIN;
+        let mut manual_selection: Option<(u64, u64)> = None;
         loop {
             interval.tick().await;
             if STOP.load(Ordering::Acquire) {
@@ -207,6 +208,19 @@ fn start(module: HMODULE) -> Result<()> {
                 // Acknowledge the jump before consuming the request on gameplay start.
                 if let Some(ack) = ack {
                     logger.info("jump", &format!("ack token={} result={:?}", ack.token, ack.result));
+                    if manual_selection.is_some_and(|(token, _)| token == ack.token) {
+                        let (_, command_id) = manual_selection.take().unwrap();
+                        let message = match &ack.result {
+                            Some(Ok(())) => {
+                                bridge.visible.store(false, Ordering::Release);
+                                game.set_menu_open(false);
+                                "已定位到选中曲目".to_owned()
+                            }
+                            Some(Err(error)) => format!("无法定位：{error}；曲目仍保留在队列中"),
+                            None => "游戏界面已变化，曲目仍保留在队列中，请重新选择".to_owned(),
+                        };
+                        view.reply = (command_id, message);
+                    }
                     e.jump_result(ack.token, ack.result, now);
                 }
                 if plays != new_plays {
@@ -242,6 +256,16 @@ fn start(module: HMODULE) -> Result<()> {
                         Action::Remove(token) => {
                             ensure!(engine.as_mut().is_some_and(|e| e.remove_queued(token, now)), "该条目已变化或正在定位，请刷新后重试");
                             Ok("已删除等待点歌".into())
+                        }
+                        Action::Select { token, epoch } => {
+                            let jump = engine.as_mut()
+                                .and_then(|e| e.select_queued(token, epoch))
+                                .ok_or_else(|| anyhow::anyhow!("曲目、游戏模式或选曲界面已变化，或正在定位，请重试"))?;
+                            logger.info("jump", &format!("manual submit token={} song_id={} song={:?} mode={:?} chart={:?} epoch={}",
+                                jump.request.token, jump.request.song.id, jump.request.song.title, jump.request.mode, jump.request.chart, jump.epoch));
+                            manual_selection = Some((token, command.id));
+                            game.submit(jump.selection());
+                            Ok("正在定位选中曲目…".into())
                         }
                         Action::Skip { token, epoch } => {
                             ensure!(engine.as_mut().is_some_and(|e| e.dismiss_current(token, epoch, now)), "当前点歌或游戏界面已变化，请刷新后重试");
@@ -294,7 +318,10 @@ fn start(module: HMODULE) -> Result<()> {
                     }
                 }.await;
                 // Error text never contains serialized configuration or credential values.
-                view.reply = (command.id, result.unwrap_or_else(|e| format!("未应用：{e}")));
+                // Keep the panel pending until the game acknowledges an explicit pick.
+                if manual_selection.is_none_or(|(_, id)| id != command.id) {
+                    view.reply = (command.id, result.unwrap_or_else(|e| format!("未应用：{e}")));
+                }
             }
             for _ in 0..128 {
                 let Some(event) = network.try_recv() else {

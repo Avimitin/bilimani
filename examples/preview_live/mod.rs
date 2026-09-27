@@ -157,6 +157,9 @@ impl Backend {
                     Action::Skip { .. } => {
                         anyhow::bail!("独立模式不向游戏跳歌，没有正在游玩的曲目")
                     }
+                    Action::Select { .. } => {
+                        anyhow::bail!("独立模式无法向游戏跳歌，请在游戏内选择队列曲目")
+                    }
                     action => {
                         let prepared = match action {
                             Action::Apply { config, revision } => {
