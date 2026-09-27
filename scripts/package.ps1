@@ -3,7 +3,7 @@ $root = Split-Path $PSScriptRoot
 & (Join-Path $PSScriptRoot 'build.ps1')
 $destination = Join-Path $root 'dist'
 New-Item -ItemType Directory -Force -Path $destination | Out-Null
-foreach ($file in @('README.md','LICENSE','THIRD-PARTY-NOTICES.md','chart-requester.example.toml')) {
+foreach ($file in @('README.md','LICENSE','THIRD-PARTY-NOTICES.md')) {
     Copy-Item -LiteralPath (Join-Path $root $file) -Destination $destination
 }
 Copy-Item -LiteralPath (Join-Path $root 'target\release\chart_requester.dll') -Destination $destination
@@ -40,7 +40,7 @@ foreach ($package in $metadata.packages) {
         Copy-Item -LiteralPath (Join-Path $crate 'CREDITS.md') -Destination $out
     }
 }
-$archiveFiles = @('chart_requester.dll','README.md','LICENSE','THIRD-PARTY-NOTICES.md','chart-requester.example.toml','docs','licenses') | ForEach-Object { Join-Path $destination $_ }
+$archiveFiles = @('chart_requester.dll','README.md','LICENSE','THIRD-PARTY-NOTICES.md','docs','licenses') | ForEach-Object { Join-Path $destination $_ }
 $archive = Join-Path $destination "chart-requester-$($project.version).zip"
 # Registry archives can carry Unix-epoch timestamps; ZIP starts at 1980.
 Get-ChildItem -LiteralPath $licenseRoot -Recurse -File | Where-Object { $_.LastWriteTime.Year -lt 1980 } | ForEach-Object {

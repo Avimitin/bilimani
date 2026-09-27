@@ -145,15 +145,22 @@ async fn serves_embedded_assets_live_snapshots_and_releases_port_on_shutdown() {
             .unwrap(),
         updated
     );
-    assert_eq!(
-        client
-            .get(format!("{root}/chart-requester.toml"))
-            .send()
-            .await
-            .unwrap()
-            .status(),
-        404
-    );
+    for private in [
+        "chart-requester.toml",
+        "chart-requester.db",
+        "chart-requester.db-journal",
+        "chart-requester-backup.json",
+    ] {
+        assert_eq!(
+            client
+                .get(format!("{root}/{private}"))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            404
+        );
+    }
     assert_eq!(
         client
             .post(format!("{root}/api/state"))

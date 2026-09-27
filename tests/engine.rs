@@ -407,8 +407,8 @@ fn unknown_mode_does_not_guess_sp() {
     assert!(e.queue.is_empty());
 }
 #[test]
-fn example_config_is_valid() {
-    let c: Config = toml::from_str(include_str!("../chart-requester.example.toml")).unwrap();
+fn legacy_config_is_valid() {
+    let c: Config = toml::from_str(include_str!("fixtures/legacy-config.toml")).unwrap();
     c.validate().unwrap();
 }
 #[test]

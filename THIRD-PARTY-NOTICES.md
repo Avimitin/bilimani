@@ -47,6 +47,10 @@ Rust crate versions are pinned in `Cargo.lock`; see each crate's accompanying
 license. Release packaging collects dependency license files under `licenses/`.
 No proprietary game code, data or IDA database is distributed.
 
+Configuration persistence uses [rusqlite](https://github.com/rusqlite/rusqlite),
+MIT, with bundled [SQLite](https://sqlite.org/), public domain. The database engine
+is linked into the DLL; users do not need a separate SQLite installation.
+
 The in-game panel uses [egui](https://github.com/emilk/egui), MIT OR Apache-2.0.
 Its components and design tokens use
 [ouroboros-ui](https://github.com/Type-zero-labs/ouroboros-ui), commit

@@ -3,6 +3,9 @@
 /analysis/
 /reference/
 /chart-requester.toml
+/chart-requester.db*
+/chart-requester-backup*.json
+/backups/
 /obs/
 *.log
 *.log.*

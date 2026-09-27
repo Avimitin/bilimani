@@ -9,6 +9,7 @@ import json
 import pathlib
 import shutil
 import socket
+import sqlite3
 import struct
 import sys
 import time
@@ -23,7 +24,7 @@ work = root / "analysis" / ("smoke-" + uuid.uuid4().hex)
 work.mkdir(parents=True)
 dll_path = work / "chart_requester.dll"
 shutil.copy2(root / "target/release/chart_requester.dll", dll_path)
-config = (root / "chart-requester.example.toml").read_text(encoding="utf-8")
+config = (root / "tests/fixtures/legacy-config.toml").read_text(encoding="utf-8")
 config = config.replace("enabled = true", "enabled = false", 1)
 port_blocker = socket.socket()
 port_blocker.bind(("127.0.0.1", 0))
@@ -58,6 +59,13 @@ while time.monotonic() < deadline:
     time.sleep(0.05)
 else:
     raise AssertionError("DLL worker did not initialize within 20 seconds")
+with sqlite3.connect(work / "chart-requester.db") as database:
+    assert database.execute("PRAGMA user_version").fetchone()[0] == 1
+    settings = json.loads(database.execute("SELECT settings FROM settings").fetchone()[0])
+    profile = json.loads(database.execute("SELECT settings FROM stream_profiles").fetchone()[0])
+    assert settings["overlay"]["port"] == overlay_port
+    assert "bilibili" not in settings and profile["enabled"] is False
+assert (work / "chart-requester.toml").read_text(encoding="utf-8") == config
 if reject:
     assert "Unsupported bm2dx.dll build" in text, text
     assert "Native hooks installed" not in text

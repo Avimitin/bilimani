@@ -10,7 +10,7 @@ if ($Check) {
 } else {
     $previewArgs = @('run', '--locked', '--example', 'menu_preview', '--', '--mode', $Mode)
     # build.ps1 switches to the repository root; resolve user paths beforehand.
-    if ($ConfigPath) { $previewArgs += @('--config', (Resolve-Path -LiteralPath $ConfigPath).Path) }
+    if ($ConfigPath) { $previewArgs += @('--config', $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($ConfigPath)) }
     if ($DatabasePath) { $previewArgs += @('--database', (Resolve-Path -LiteralPath $DatabasePath).Path) }
     & "$PSScriptRoot/build.ps1" -CargoArgs $previewArgs
 }

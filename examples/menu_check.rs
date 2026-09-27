@@ -73,6 +73,7 @@ fn main() -> anyhow::Result<()> {
             Page::Controls,
             Page::Logging,
             Page::Game,
+            Page::Data,
         ]
         .into_iter()
         .enumerate()
@@ -157,10 +158,7 @@ fn main() -> anyhow::Result<()> {
         drop(d3d);
         DestroyWindow(HWND(window.0))?;
     }
-    println!(
-        "PASS: eight egui pages and D3D9 reset; {}",
-        output.display()
-    );
+    println!("PASS: nine egui pages and D3D9 reset; {}", output.display());
     Ok(())
 }
 #[cfg(not(windows))]

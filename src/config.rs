@@ -189,7 +189,7 @@ impl Default for Game {
 }
 
 impl Config {
-    /// Preserve the existing TOML shape; backend selection is centralized here.
+    /// Effective in-memory configuration; persistence stays behind Store.
     pub fn source(&self) -> crate::platforms::SourceConfig {
         crate::platforms::SourceConfig::Bilibili(self.bilibili.clone())
     }
@@ -205,14 +205,14 @@ impl Config {
     }
     pub fn parse(source: &str) -> Result<Self> {
         let result: Self = toml::from_str(source)
-        // TOML errors normally include the source line, which could contain a
-        // cookie or access key. Report only the location to startup logs.
-        .map_err(|e: toml::de::Error| {
-            anyhow::anyhow!(
-                "Invalid chart-requester.toml near byte {}; compare chart-requester.example.toml",
-                e.span().map(|s| s.start).unwrap_or(0)
-            )
-        })?;
+            // TOML errors normally include the source line, which could contain a
+            // cookie or access key. Report only the location to startup logs.
+            .map_err(|e: toml::de::Error| {
+                anyhow::anyhow!(
+                    "Invalid legacy TOML configuration near byte {}",
+                    e.span().map(|s| s.start).unwrap_or(0)
+                )
+            })?;
         result.validate()?;
         Ok(result)
     }
@@ -234,6 +234,7 @@ impl Config {
         Ok(self)
     }
     pub fn validate(&self) -> Result<()> {
+        ensure!(!self.game.module.trim().is_empty(), "游戏模块名称不能为空");
         ensure!(
             (100..=2000).contains(&self.controls.double_tap_ms),
             "controls.double_tap_ms must be 100..2000"

@@ -10,11 +10,6 @@ impl Fixture {
     fn new() -> Self {
         let root = std::env::temp_dir().join(format!("requester-live-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&root).unwrap();
-        std::fs::write(
-            root.join("chart-requester.toml"),
-            include_str!("../chart-requester.example.toml"),
-        )
-        .unwrap();
         std::fs::write(root.join("plugin.dll"), "fixture").unwrap();
         Self(root)
     }
@@ -25,11 +20,31 @@ impl Drop for Fixture {
     }
 }
 #[test]
-fn transactions_preserve_comments_relative_paths_and_detect_conflicts() {
+fn fresh_install_uses_defaults_without_creating_toml() {
     let f = Fixture::new();
-    let path = f.0.join("chart-requester.toml");
+    let path = f.0.join("chart-requester.db");
+    let store = Store::open(&path).unwrap();
+    assert_eq!(store.raw, Config::default());
+    assert_eq!(store.revision, 0);
+    assert!(!f.0.join("chart-requester.toml").exists());
+    assert!(
+        std::fs::read(&path)
+            .unwrap()
+            .starts_with(b"SQLite format 3\0")
+    );
+}
+
+#[test]
+fn legacy_config_migrates_once_with_credentials_aliases_and_relative_paths() {
+    let f = Fixture::new();
+    let path = f.0.join("chart-requester.db");
+    let legacy = path.with_extension("toml");
+    let text = include_str!("fixtures/legacy-config.toml").replace("menu_enabled", "skip_enabled");
+    std::fs::write(&legacy, &text).unwrap();
     let mut store = Store::open(&path).unwrap();
+    assert_eq!(store.raw, Config::parse(&text).unwrap());
     let mut next = store.raw.clone();
+    next.bilibili.auth_code = "test-secret-only".into();
     next.requests.queue_capacity = 30;
     next.aliases.insert("测试别名".into(), "123".into());
     let prepared = store
@@ -37,48 +52,186 @@ fn transactions_preserve_comments_relative_paths_and_detect_conflicts() {
         .unwrap();
     let resolved = store.commit(prepared).unwrap();
     assert!(resolved.output.queue_path.is_absolute());
-    assert_eq!(Config::read(&path).unwrap(), next);
-    let text = std::fs::read_to_string(&path).unwrap();
-    assert!(text.contains("# 等待队列"));
-    assert!(text.contains("obs/queue.txt"));
-    assert!(text.contains("menu_enabled"));
-    assert!(!text.contains("\nskip_enabled ="));
-    assert!(
-        store
-            .prepare(next.clone(), 0, &f.0.join("plugin.dll"))
-            .is_err()
-    );
-    let prepared = store
-        .prepare(next.clone(), 1, &f.0.join("plugin.dll"))
+    assert_eq!(std::fs::read_to_string(&legacy).unwrap(), text);
+    std::fs::write(&legacy, "invalid legacy file after migration").unwrap();
+    let reopened = Store::open(&path).unwrap();
+    assert_eq!(reopened.raw, next);
+    assert_eq!(reopened.revision, 1);
+    assert_eq!(next.output.queue_path, PathBuf::from("obs/queue.txt"));
+    let db = rusqlite::Connection::open(&path).unwrap();
+    let global: String = db
+        .query_row("SELECT settings FROM settings", [], |r| r.get(0))
         .unwrap();
-    std::fs::write(&path, format!("{text}\n# external edit\n")).unwrap();
-    assert!(store.commit(prepared).is_err());
-    assert_eq!(store.revision, 1);
-    assert!(store.prepare(next, 1, &f.0.join("plugin.dll")).is_err());
-    let reloaded = store.reload(&f.0.join("plugin.dll")).unwrap();
-    store.commit(reloaded).unwrap();
-    assert_eq!(store.revision, 2);
+    assert!(!global.contains("test-secret-only"));
+    let profile: String = db
+        .query_row("SELECT settings FROM stream_profiles", [], |r| r.get(0))
+        .unwrap();
+    assert!(profile.contains("test-secret-only"));
 }
+
 #[test]
-fn rejected_settings_leave_disk_unchanged_and_old_controls_migrate() {
+fn concurrent_windows_detect_stale_prepares_commits_and_reloads() {
     let f = Fixture::new();
-    let path = f.0.join("chart-requester.toml");
-    let original = std::fs::read_to_string(&path)
-        .unwrap()
-        .replace("menu_enabled", "skip_enabled");
-    std::fs::write(&path, &original).unwrap();
-    let store = Store::open(&path).unwrap();
+    let path = f.0.join("chart-requester.db");
+    let dll = f.0.join("plugin.dll");
+    let mut a = Store::open(&path).unwrap();
+    let mut b = Store::open(&path).unwrap();
+    let stale = b.prepare(b.raw.clone(), 0, &dll).unwrap();
+    let stale_reload = b.reload(&dll).unwrap();
+    let mut config = a.raw.clone();
+    config.requests.queue_capacity = 42;
+    a.commit(a.prepare(config.clone(), 0, &dll).unwrap())
+        .unwrap();
+    assert!(b.commit(stale).is_err());
+    assert!(b.commit(stale_reload).is_err());
+    assert!(b.prepare(b.raw.clone(), 0, &dll).is_err());
+    assert_eq!(b.revision, 0);
+    b.commit(b.reload(&dll).unwrap()).unwrap();
+    assert_eq!(b.revision, 1);
+    assert_eq!(b.raw, config);
+    assert!(b.prepare(b.raw.clone(), 0, &dll).is_err());
+    assert_eq!(Store::open(&path).unwrap().revision, 1);
+}
+
+#[test]
+fn transaction_failure_rolls_back_profile_and_global_settings() {
+    let f = Fixture::new();
+    let path = f.0.join("chart-requester.db");
+    let mut store = Store::open(&path).unwrap();
+    let db = rusqlite::Connection::open(&path).unwrap();
+    db.execute_batch("CREATE TRIGGER reject_save BEFORE UPDATE ON settings BEGIN SELECT RAISE(ABORT, 'test failure'); END;").unwrap();
+    let mut next = store.raw.clone();
+    next.bilibili.auth_code = "must-rollback".into();
+    next.requests.queue_capacity = 88;
+    let prepared = store.prepare(next, 0, &f.0.join("plugin.dll")).unwrap();
+    assert!(store.commit(prepared).is_err());
+    assert_eq!(store.raw, Config::default());
+    assert_eq!(store.revision, 0);
+    assert_eq!(Store::open(&path).unwrap().raw, Config::default());
+}
+
+#[test]
+fn invalid_settings_leave_database_unchanged_and_game_changes_wait_for_restart() {
+    let f = Fixture::new();
+    let path = f.0.join("chart-requester.db");
+    let dll = f.0.join("plugin.dll");
+    let mut store = Store::open(&path).unwrap();
     for kind in 0..4 {
         let mut config = store.raw.clone();
         match kind {
             0 => config.requests.queue_capacity = 0,
             1 => config.output.queue_path = config.output.interaction_path.clone(),
             2 => config.output.queue_path = "plugin.dll".into(),
-            _ => config.game.module = "different.dll".into(),
+            _ => config.game.module.clear(),
         }
-        assert!(store.prepare(config, 0, &f.0.join("plugin.dll")).is_err());
+        assert!(store.prepare(config, 0, &dll).is_err());
     }
-    assert_eq!(std::fs::read_to_string(path).unwrap(), original);
+    assert_eq!(Store::open(&path).unwrap().raw, Config::default());
+    let mut next = store.raw.clone();
+    next.game.database_path = "new-catalog.bin".into();
+    let effective = store
+        .commit(store.prepare(next.clone(), 0, &dll).unwrap())
+        .unwrap();
+    assert_eq!(effective.game, Config::default().game);
+    assert!(store.restart_required());
+    let reopened = Store::open(&path).unwrap();
+    assert_eq!(reopened.raw.game, next.game);
+    assert!(!reopened.restart_required());
+}
+
+#[test]
+fn json_round_trip_stages_a_draft_and_never_overwrites_backups() {
+    let f = Fixture::new();
+    let path = f.0.join("chart-requester.db");
+    let dll = f.0.join("plugin.dll");
+    let mut store = Store::open(&path).unwrap();
+    let mut config = store.raw.clone();
+    config.bilibili.auth_code = "backup-test-secret".into();
+    config.bilibili.room_id = u64::MAX;
+    config.aliases.insert("冥".into(), "123".into());
+    store
+        .commit(store.prepare(config.clone(), 0, &dll).unwrap())
+        .unwrap();
+    let exported = store
+        .export_json(std::path::Path::new("backup.json"))
+        .unwrap();
+    assert!(store.export_json(&exported).is_err());
+    let before = std::fs::read(&exported).unwrap();
+    assert!(store.export_json(&path).is_err());
+    let changed = Config::default();
+    store
+        .commit(store.prepare(changed.clone(), 1, &dll).unwrap())
+        .unwrap();
+    let draft = store.import_json(&exported).unwrap();
+    assert_eq!(draft, config);
+    assert_eq!(store.raw, changed);
+    assert_eq!(Store::open(&path).unwrap().raw, changed);
+    assert_eq!(std::fs::read(&exported).unwrap(), before);
+    store
+        .commit(store.prepare(draft, 2, &dll).unwrap())
+        .unwrap();
+    assert_eq!(store.raw, config);
+}
+
+#[test]
+fn bad_imports_do_not_leak_values_or_modify_settings() {
+    let f = Fixture::new();
+    let store = Store::open(&f.0.join("chart-requester.db")).unwrap();
+    let path = f.0.join("bad.json");
+    for json in [
+        r#"{"format":"chart-requester","version":99,"config":{}}"#,
+        r#"{"format":"other-app","version":1,"config":{}}"#,
+        r#"{"format":"chart-requester","version":1,"config":{"requests":{"queue_capacity":0}}}"#,
+        r#"{"format":"chart-requester","version":1,"config":{"bilibili":{"auth_code":12345678901234}}}"#,
+        r#"{"format":"chart-requester","version":1,"config":{"secret-value-here":true}}"#,
+    ] {
+        std::fs::write(&path, json).unwrap();
+        let error = format!("{:#}", store.import_json(&path).unwrap_err());
+        assert!(!error.contains("12345678901234"));
+        assert!(!error.contains("secret-value-here"));
+    }
+    std::fs::write(&path, vec![b' '; 4 * 1024 * 1024 + 1]).unwrap();
+    assert!(store.import_json(&path).is_err());
+    assert_eq!(store.raw, Config::default());
+    assert_eq!(store.revision, 0);
+}
+
+#[test]
+fn future_foreign_and_corrupt_databases_are_not_reset() {
+    let f = Fixture::new();
+    for (name, sql) in [
+        ("future.db", "PRAGMA user_version = 99;"),
+        ("foreign.db", "CREATE TABLE other (id INTEGER);"),
+    ] {
+        let path = f.0.join(name);
+        let db = rusqlite::Connection::open(&path).unwrap();
+        db.execute_batch(sql).unwrap();
+        drop(db);
+        let before = std::fs::read(&path).unwrap();
+        assert!(Store::open(&path).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+    }
+    let path = f.0.join("corrupt.db");
+    std::fs::write(&path, b"not a sqlite database").unwrap();
+    assert!(Store::open(&path).is_err());
+    assert_eq!(std::fs::read(path).unwrap(), b"not a sqlite database");
+}
+
+#[test]
+fn failed_legacy_migration_can_be_retried_without_losing_original() {
+    let f = Fixture::new();
+    let path = f.0.join("chart-requester.db");
+    let legacy = path.with_extension("toml");
+    let invalid = "[bilibili]\nauth_code = 12345678901234\n";
+    std::fs::write(&legacy, invalid).unwrap();
+    let error = match Store::open(&path) {
+        Ok(_) => panic!("invalid migration accepted"),
+        Err(e) => format!("{e:#}"),
+    };
+    assert!(!error.contains("12345678901234"));
+    assert_eq!(std::fs::read_to_string(&legacy).unwrap(), invalid);
+    std::fs::write(&legacy, "").unwrap();
+    assert_eq!(Store::open(&path).unwrap().raw, Config::default());
 }
 #[test]
 fn alias_filter_is_fuzzy_and_editor_rejects_ambiguous_rows() {
@@ -144,6 +297,7 @@ fn every_page_renders_and_chat_is_bounded_independent_of_request_syntax() {
         Page::Controls,
         Page::Logging,
         Page::Game,
+        Page::Data,
     ] {
         menu.page = page;
         let output = context.run_ui(

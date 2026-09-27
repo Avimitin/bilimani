@@ -80,7 +80,7 @@ Iosevka/Phosphor families also receive Windows CJK font fallbacks. Password fiel
 retain egui masking and integer controls retain their original integer types.
 
 Run `menu_check` with the build script's `-CargoArgs @('run','--example','menu_check')`
-to render all eight real pages in a hidden D3D9 window. It writes BMP screenshots
+to render all nine real pages in a hidden D3D9 window. It writes BMP screenshots
 under ignored `analysis/menu-preview/` and exercises device Reset between pages.
 This does not replace an in-game check of SDK callback ordering, keyboard/IME,
 mouse input, Start gestures and compatibility with other overlays.
@@ -95,15 +95,18 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/preview-menu.ps1
 连接真实直播间，使用真实曲库进行模糊匹配、候选选择和入队。无需启动游戏、复制 DLL
 或刷卡登录。鼠标、键盘、中文输入、别名过滤、队列删除、设置保存均可操作。
 
-首次运行会创建 `analysis/menu-preview/preview.toml`，在「直播连接」页填写身份码并
+首次运行会创建 `analysis/menu-preview/preview.db`，在「直播连接」页填写身份码并
 点击「应用并保存」即可连接。后续运行沿用该配置。也可以直接指定已有配置和曲库：
 
 ```powershell
-./scripts/preview-menu.ps1 -ConfigPath 'D:/IIDX/chart-requester.toml' -DatabasePath 'D:/IIDX/data/info/music_data.bin' -Mode SP
+./scripts/preview-menu.ps1 -ConfigPath 'D:/IIDX/chart-requester.db' -DatabasePath 'D:/IIDX/data/info/music_data.bin' -Mode SP
 ```
 
-保存会写入实际使用的配置文件，启动终端会打印其路径。相对路径以配置文件目录为准。
-曲库优先使用 `-DatabasePath`，其次 `[game].database_path`；本工作区未指定时使用
+保存会写入实际使用的 SQLite 数据库，启动终端会打印其路径。相对路径以数据库目录为准。
+首次创建时会导入旁边同名的旧 `.toml`；旧文件保留不动，之后不再读取。
+可以用「备份与恢复」页导入、导出 JSON，不必编辑文件。与游戏共享数据库时，保存
+采用版本检查；另一窗口保存后先「刷新已保存设置」，不会自动覆盖该窗口的运行状态。
+曲库优先使用 `-DatabasePath`，其次 GUI 的曲库路径；本工作区未指定时使用
 `analysis/music_data_1.bin`，不存在则使用 `analysis/music_data.bin`。仅支持 IIDX 33
 的曲库格式。`-Mode DP` 可检查 DP 匹配，默认 SP。
 
@@ -124,13 +127,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/preview-menu.ps1
 关闭直播会话。游戏内的原生搜索词典、解锁状态、按键 Hook 和跳歌只能在游戏中验证；
 独立模式搜索曲库中的曲名、读音和配置别名。预览程序不随 DLL 打包。
 
-仅生成八页截图并检查 D3D9 Reset：`scripts/preview-menu.ps1 -Check`。
+仅生成九页截图并检查 D3D9 Reset：`scripts/preview-menu.ps1 -Check`。
 自动检查完整绘制回调可运行 `menu_preview --hidden --frames 60`（通过 Cargo 的 `--`
 传递参数）；这个模式不显示窗口，达到指定帧数后退出，仍按配置决定是否连接直播。
-自动检查应传入单独的 `enabled = false` 配置，避免占用真实直播会话。
+自动检查应使用单独的数据库：在 GUI 中关闭直播连接，或指定一个尚不存在、旁边也没有旧 TOML 的 `.db` 路径，使用未填写身份码的默认设置，避免占用真实直播会话。
 
-Live saves validate before replacing the file and preserve existing queue state.
-`tests/live_config.rs` checks migration, file conflicts, path validation, fuzzy
+Live saves validate before committing a database transaction and preserve existing queue state.
+`tests/live_config.rs` checks migration, transactional rollback, concurrent revisions,
+JSON round trips, rejected backups, deferred game settings, path validation, fuzzy
 alias filtering, chat bounds and rendering every page. Engine tests cover stale
 deletes, in-flight protection and preserving native search terms during alias updates.
 
@@ -155,7 +159,10 @@ Alternative **web** mode uses `mode = "web"` and `room_id`. Set `sessdata` and
 `buvid3` if required by your account/room's authentication. This mode ports
 blivedm's room lookup, WBI signing and socket authentication. Anonymous access is
 not guaranteed, and messages without a usable sender ID cannot enter the queue.
-Credentials stay in the local TOML and are never included in OBS output or logs.
+Credentials stay in the local SQLite database and explicit JSON backups; they are
+never included in OBS output or logs. SQLite is bundled into the DLL via rusqlite;
+users do not install a database runtime. `user_version` controls schema upgrades,
+and unknown/newer databases are rejected without resetting their contents.
 
 ## Game compatibility
 
@@ -253,7 +260,7 @@ and [release CLI documentation](https://cli.github.com/manual/gh_release_create)
 `chart-requester.log` beside the DLL now records timestamps in local time. Existing
 configs automatically get the new defaults: `level = "debug"`, `danmu = true`,
 10 MiB per file, three rotated backups (`.log.1` through `.log.3`), and a status
-summary every 30 seconds. See `[logging]` in the Chinese example config.
+summary every 30 seconds. Adjust them on the GUI logging page.
 
 - `[connection]` and `[transport]`: API attempts, session creation, socket
   authentication, heartbeats, reconnect reasons and session cleanup.
@@ -289,7 +296,7 @@ omit detailed transport/chat traces, or `"off"` to disable routine logging.
 Startup failures are still logged. Authentication packets and raw API responses
 are never logged; configured identity codes, access keys and cookies are redacted,
 even if they appear in chat. Control characters are escaped to keep each event
-on one line. Apply logging changes in the panel, or reload the edited TOML there.
+on one line. Apply logging changes in the panel.
 
 Modern Spice SDK shutdown callbacks close the chat session. On older loaders or
 forced process termination, Bilibili expires the session through its heartbeat TTL.

@@ -35,16 +35,9 @@ impl Backend {
         };
         let root = Path::new(env!("CARGO_MANIFEST_DIR"));
         let config_path = if let Some(path) = option("--config") {
-            PathBuf::from(path)
-                .canonicalize()
-                .context("无法打开 --config 指定的配置文件")?
+            std::path::absolute(path)?
         } else {
-            let path = root.join("analysis/menu-preview/preview.toml");
-            std::fs::create_dir_all(path.parent().unwrap())?;
-            if !path.exists() {
-                std::fs::write(&path, include_str!("../../chart-requester.example.toml"))?;
-            }
-            path
+            root.join("analysis/menu-preview/preview.db")
         };
         let store = Store::open(&config_path)?;
         let config = store.raw.clone().resolve(&config_path)?;
@@ -98,6 +91,7 @@ impl Backend {
     }
     pub fn view(&self) -> View {
         let mut view = View::new(self.store.raw.clone());
+        view.revision = self.store.revision;
         view.update_engine(Some(&self.engine));
         view
     }
@@ -143,7 +137,16 @@ impl Backend {
                 let Ok(command) = commands.try_recv() else {
                     break;
                 };
+                view.loaded_draft = None;
                 let result: Result<&str> = (|| match command.action {
+                    Action::ImportJson(path) => {
+                        view.loaded_draft = Some(self.store.import_json(&path)?);
+                        Ok("备份已载入编辑区；检查后点击「应用并保存」")
+                    }
+                    Action::ExportJson(path) => {
+                        self.store.export_json(&path)?;
+                        Ok("已导出保存的设置；备份包含直播凭据，请妥善保管")
+                    }
                     Action::Remove(token) => {
                         ensure!(
                             self.engine.remove_queued(token, now),
@@ -178,8 +181,13 @@ impl Backend {
                         }
                         self.config = next;
                         view.config = self.store.raw.clone();
+                        view.loaded_draft = Some(self.store.raw.clone());
                         view.revision = self.store.revision;
-                        Ok("配置已应用并保存；独立模式仅运行弹幕、匹配和队列")
+                        Ok(if self.store.restart_required() {
+                            "配置已保存；游戏模块或曲库路径将在下次启动生效"
+                        } else {
+                            "配置已应用并保存；独立模式仅运行弹幕、匹配和队列"
+                        })
                     }
                 })();
                 view.reply = (

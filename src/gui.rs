@@ -111,6 +111,7 @@ pub struct QueueRow {
 #[derive(Clone)]
 pub struct View {
     pub config: Config,
+    pub loaded_draft: Option<Config>,
     pub revision: u64,
     pub connection: Connection,
     pub chats: VecDeque<ChatLine>,
@@ -125,6 +126,7 @@ impl View {
     pub fn new(config: Config) -> Self {
         Self {
             config,
+            loaded_draft: None,
             revision: 0,
             connection: Connection::waiting(),
             chats: VecDeque::new(),
@@ -161,6 +163,8 @@ impl View {
 pub enum Action {
     Apply { config: Box<Config>, revision: u64 },
     Reload,
+    ImportJson(std::path::PathBuf),
+    ExportJson(std::path::PathBuf),
     Remove(u64),
     Skip { token: u64, epoch: u64 },
 }
@@ -230,8 +234,9 @@ pub enum Page {
     Controls,
     Logging,
     Game,
+    Data,
 }
-const PAGES: [(Page, &str); 8] = [
+const PAGES: [(Page, &str); 9] = [
     (Page::Live, "弹幕与队列"),
     (Page::Aliases, "歌曲别名"),
     (Page::Requests, "点歌规则"),
@@ -240,6 +245,7 @@ const PAGES: [(Page, &str); 8] = [
     (Page::Controls, "按键操作"),
     (Page::Logging, "日志"),
     (Page::Game, "游戏适配"),
+    (Page::Data, "备份与恢复"),
 ];
 pub struct Menu {
     pub page: Page,
@@ -257,6 +263,7 @@ pub struct Menu {
     chat_offset: f32,
     processing_offset: f32,
     follow_processing: bool,
+    backup_path: std::path::PathBuf,
 }
 impl Menu {
     /// Translate adapter-owned controller events; no IIDX button IDs enter egui.
@@ -333,6 +340,7 @@ impl Menu {
             chat_offset: 0.0,
             processing_offset: 0.0,
             follow_processing: true,
+            backup_path: "chart-requester-backup.json".into(),
         };
         menu.reset(view);
         menu
@@ -354,19 +362,24 @@ impl Menu {
         self.next_id += 1;
         if bridge.commands.try_send(Command { id, action }).is_ok() {
             self.pending = Some(id);
-            self.feedback = "正在应用…".into();
+            self.feedback = "正在处理…".into();
         } else {
             self.feedback = "操作队列忙，请稍后再试".into();
         }
     }
     pub fn show(&mut self, ctx: &egui::Context, bridge: &Bridge) {
         let view = bridge.snapshot();
+        if self.revision != view.revision {
+            self.reset(&view);
+        }
         if self.pending == Some(view.reply.0) {
             self.pending = None;
             self.feedback = view.reply.1.clone();
-        }
-        if self.revision != view.revision {
-            self.reset(&view);
+            if let Some(config) = &view.loaded_draft {
+                let mut loaded = (*view).clone();
+                loaded.config = config.clone();
+                self.reset(&loaded);
+            }
         }
         let mut open = bridge.visible.load(Ordering::Acquire);
         if !open {
@@ -470,6 +483,7 @@ impl Menu {
                                     icons::GAME_CONTROLLER,
                                     icons::FILE_TEXT,
                                     icons::CUBE,
+                                    icons::DATABASE,
                                 ][index];
                                 let button = Button::new(label).icon_left(icon).sm();
                                 let response = if self.page == page {
@@ -500,7 +514,7 @@ impl Menu {
                                         .show(ui, |ui| {
                                             Card::new().sm().show(ui, |ui| {
                                                 ui.set_min_width((ui.available_width()).max(360.0));
-                                                self.settings(ui, &view.connection);
+                                                self.settings(ui, &view.connection, bridge);
                                             });
                                         });
                                 }
@@ -535,11 +549,11 @@ impl Menu {
                             self.reset(&view);
                             self.feedback = "已恢复当前配置".into();
                         }
-                        if Button::new("重新载入文件")
+                        if Button::new("刷新已保存设置")
                             .ghost()
                             .sm()
                             .show(ui)
-                            .on_hover_text("放弃未保存修改，读取并应用磁盘上的配置")
+                            .on_hover_text("放弃未保存修改，从数据库读取并应用设置")
                             .clicked()
                         {
                             self.send(bridge, Action::Reload);
@@ -560,7 +574,7 @@ impl Menu {
             });
         bridge.visible.store(open, Ordering::Release);
     }
-    fn settings(&mut self, ui: &mut Ui, connection: &Connection) {
+    fn settings(&mut self, ui: &mut Ui, connection: &Connection, bridge: &Bridge) {
         match self.page {
             Page::Live => {}
             Page::Aliases => {
@@ -745,16 +759,33 @@ impl Menu {
             }
             Page::Game => {
                 Heading::new("游戏适配").h2().show(ui);
-                ui.label(format!("模块：{}", self.draft.game.module));
-                ui.label(format!(
-                    "曲库：{}",
-                    if self.draft.game.database_path.as_os_str().is_empty() {
-                        "由游戏适配器自动读取".into()
-                    } else {
-                        self.draft.game.database_path.display().to_string()
+                field(ui, "游戏模块", &mut self.draft.game.module, false);
+                path_field(ui, "曲库路径", &mut self.draft.game.database_path);
+                ui.weak("通常保持默认即可。曲库路径留空时自动读取；本页修改保存后在下次启动生效。");
+            }
+            Page::Data => {
+                Heading::new("备份与恢复").h2().show(ui);
+                Text::new("设置自动保存在本机数据库中，无需编辑配置文件。")
+                    .muted()
+                    .wrap()
+                    .show(ui);
+                ui.add_space(12.0);
+                path_field(ui, "JSON 文件", &mut self.backup_path);
+                ui.weak("相对路径以配置数据库所在目录为准。文件名需以 .json 结尾。");
+                ui.horizontal(|ui| {
+                    if Button::new("导出已保存设置").outline().show(ui).clicked() {
+                        self.send(bridge, Action::ExportJson(self.backup_path.clone()));
                     }
-                ));
-                ui.weak("游戏适配信息在启动时确定。");
+                    if Button::new("导入到编辑区").outline().show(ui).clicked() {
+                        self.send(bridge, Action::ImportJson(self.backup_path.clone()));
+                    }
+                });
+                ui.add_space(12.0);
+                ui.label("导入会替换尚未保存的编辑内容；确认设置后点击「应用并保存」。");
+                ui.label(
+                    "导出仅包含已保存设置，已有同名文件不会被覆盖。队列和弹幕不包含在备份中。",
+                );
+                ui.weak("备份包含直播身份码等登录信息，请自行保管，不要公开分享。");
             }
         }
     }
@@ -905,7 +936,7 @@ mod controller_tests {
         menu.page = Page::Bilibili;
         frame(&mut menu, &ctx, &bridge, None);
         ctx.memory_mut(|m| m.request_focus(menu.sidebar[3]));
-        for _ in 0..5 {
+        for _ in 3..PAGES.len() {
             frame(&mut menu, &ctx, &bridge, Some(Navigation::Down));
         }
         let enabled = menu.draft.bilibili.enabled;
@@ -916,5 +947,36 @@ mod controller_tests {
         assert_eq!(ctx.memory(|m| m.focused()), Some(menu.sidebar[3]));
         frame(&mut menu, &ctx, &bridge, Some(Navigation::Back));
         assert!(!bridge.visible.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn import_reply_updates_draft_without_applying_and_refresh_can_discard_it() {
+        let mut view = View::new(Config::default());
+        view.revision = 7;
+        let (bridge, rx) = Bridge::new(view.clone(), design::fonts());
+        let ctx = egui::Context::default();
+        ctx.set_fonts(design::fonts());
+        let mut menu = Menu::new(&view);
+        menu.send(&bridge, Action::ImportJson("backup.json".into()));
+        let command = rx.try_recv().unwrap();
+        let mut draft = view.config.clone();
+        draft.requests.queue_capacity = 42;
+        draft.aliases.insert("imported alias".into(), "123".into());
+        view.loaded_draft = Some(draft.clone());
+        view.reply = (command.id, "imported".into());
+        bridge.publish(view.clone());
+        frame(&mut menu, &ctx, &bridge, None);
+        assert_eq!(menu.draft, draft);
+        assert_eq!(alias_map(&menu.aliases).unwrap(), draft.aliases);
+        assert_eq!(bridge.snapshot().config, Config::default());
+        assert_eq!(menu.revision, 7);
+        assert!(rx.try_recv().is_err());
+        menu.send(&bridge, Action::Reload);
+        let command = rx.try_recv().unwrap();
+        view.reply = (command.id, "refreshed".into());
+        view.loaded_draft = Some(view.config.clone());
+        bridge.publish(view);
+        frame(&mut menu, &ctx, &bridge, None);
+        assert_eq!(menu.draft, Config::default());
     }
 }

@@ -15,7 +15,6 @@ use crate::{
 use anyhow::{Result, ensure};
 use std::{
     ffi::c_void,
-    io::Write,
     path::Path,
     sync::{
         OnceLock,
@@ -58,18 +57,12 @@ fn start(module: HMODULE) -> Result<()> {
         } != 0,
         "Cannot pin hook DLL"
     );
-    let config_path = root.join("chart-requester.toml");
-    if !config_path.exists() {
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&config_path)?;
-        file.write_all(include_bytes!("../chart-requester.example.toml"))?;
-    }
+    let config_path = root.join("chart-requester.db");
     let mut store = Store::open(&config_path)?;
     let mut config = store.raw.clone().resolve(&config_path)?;
     let mut logger = Logger::new(root, &config);
     let mut view = View::new(store.raw.clone());
+    view.revision = store.revision;
     let (bridge, commands) = Bridge::new(view.clone(), menu::fonts());
     let _ = menu::BRIDGE.set(bridge.clone());
     logger.info(
@@ -235,8 +228,17 @@ fn start(module: HMODULE) -> Result<()> {
             // Commands are handled only on this worker, never from a graphics callback.
             for _ in 0..8 {
                 let Ok(command) = commands.try_recv() else { break; };
+                view.loaded_draft = None;
                 let result: Result<String> = async {
                     match command.action {
+                        Action::ImportJson(path) => {
+                            view.loaded_draft = Some(store.import_json(&path)?);
+                            Ok("备份已载入编辑区；检查后点击「应用并保存」".into())
+                        }
+                        Action::ExportJson(path) => {
+                            store.export_json(&path)?;
+                            Ok("已导出保存的设置；备份包含直播凭据，请妥善保管".into())
+                        }
                         Action::Remove(token) => {
                             ensure!(engine.as_mut().is_some_and(|e| e.remove_queued(token, now)), "该条目已变化或正在定位，请刷新后重试");
                             Ok("已删除等待点歌".into())
@@ -283,14 +285,15 @@ fn start(module: HMODULE) -> Result<()> {
                             }
                             config = next;
                             view.config = store.raw.clone();
+                            view.loaded_draft = Some(store.raw.clone());
                             view.revision = store.revision;
                             next_status = 0;
                             logger.info("config", "Live configuration applied; queue preserved");
-                            Ok("配置已应用；现有队列保持不变".into())
+                            Ok(if store.restart_required() { "配置已保存；游戏模块或曲库路径将在下次启动生效" } else { "配置已应用；现有队列保持不变" }.into())
                         }
                     }
                 }.await;
-                // Error text never contains serialized TOML or credential values.
+                // Error text never contains serialized configuration or credential values.
                 view.reply = (command.id, result.unwrap_or_else(|e| format!("未应用：{e}")));
             }
             for _ in 0..128 {

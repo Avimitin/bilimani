@@ -1,11 +1,13 @@
 # Agreed behavior
 
 - One Rust DLL loaded by Spice `-k`; no installed companion or playlister dependency.
-- TOML beside the DLL; paths relative to that directory unless absolute.
+- SQLite beside the DLL, with built-in defaults and GUI-only configuration;
+  paths relative to that directory unless absolute. Import legacy TOML only when
+  initializing a database. JSON backups are explicit GUI import/export operations.
 - `点歌 <song name> [SPB|SPN|SPH|SPA|SPL|DPB|DPN|DPH|DPA|DPL]`.
 - Without difficulty, retain current SP/DP mode and use the game's song-only jump.
 - Reject requests for the opposite mode or a nonexistent chart.
-- Fuzzy subsequence search, configurable candidate count (5), TOML aliases.
+- Fuzzy subsequence search, configurable candidate count (5), GUI alias editor.
 - Multiple matches require a numbered reply from the same sender, with a configurable
   60-second deadline. One pending selection per sender; a new request replaces it.
 - Everyone may request. Optional per-user cooldown starts on successful enqueue;
@@ -16,7 +18,7 @@
 - Playing any song consumes/skips the current request; advance on return.
 - In single-player SP song select, double-tap the opposite Start to toggle the egui
   control panel, including with an empty queue. Read-only Spice SDK input. Default 400 ms
-  between presses, configurable via `[controls]`, enabled by default. Requires a
+  between presses, configurable in the controls page, enabled by default. Requires a
   release between presses; unavailable SDK, DP, two joined players and noninteractive
   screens disable this shortcut. Each gesture is tied to the active side and scene.
 - Navigate on the logged-in side: B1 next item, B2 previous item, B6 confirm,
@@ -29,9 +31,12 @@
   deletion of an in-flight jump. Explicit skip validates current token and epoch.
   Automatic jumps wait while the panel is open; gameplay closes the panel.
 - Apply/save validates aliases, output paths and the new HTTP listener before an
-  atomic TOML replacement. Existing requests/deadlines survive. Connection changes
+  SQLite transaction. Existing requests/deadlines survive. Connection changes
   stop the old transport before starting the new one. Native module/catalog settings
-  require restart. External file edits require an explicit reload.
+  can be edited in the GUI but take effect after restart. Concurrent database
+  updates require an explicit refresh before saving. JSON import only stages a
+  draft; apply uses the same validation. Export includes credentials, excludes
+  unsaved edits/chat/queue, and refuses to overwrite an existing file.
 - Current request expires 600 seconds after a successful jump, configurable.
   Expiration can advance while still in song select; never jump during gameplay.
 - Separate UTF-8 OBS files for current/waiting requests and interactions.
