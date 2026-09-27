@@ -1,7 +1,7 @@
 //! Developer preview of the real static files/server, without loading the game.
 //! Run `cargo run --example overlay_preview`, then open the printed URL.
 use chart_requester::{
-    overlay::{Server, snapshot},
+    overlay::{History, Server, snapshot},
     platforms::Connection,
 };
 
@@ -21,6 +21,7 @@ async fn main() -> anyhow::Result<()> {
                 text: "预览服务：未连接游戏".into(),
             },
             0,
+            &History::default(),
         ),
     )
     .await?;

@@ -44,6 +44,7 @@ struct Hook {
 struct Adapter {
     base: usize,
     hooks: Vec<Hook>,
+    input_chain: String,
 }
 static ADAPTER: OnceLock<Adapter> = OnceLock::new();
 pub static DISABLED: AtomicBool = AtomicBool::new(false);
@@ -71,6 +72,12 @@ pub fn player_card() -> Option<crate::profiles::CardId> {
     super::player::snapshot(ADAPTER.get()?.base, read_memory)
         .ok()
         .flatten()
+}
+
+pub fn input_chain() -> &'static str {
+    ADAPTER
+        .get()
+        .map_or("not installed", |adapter| adapter.input_chain.as_str())
 }
 
 /// Read-only diagnostics. Native callbacks update counters; disk IO stays on the worker.
@@ -149,16 +156,31 @@ pub fn install(image: ModuleImage) -> Result<()> {
         (0x949230, "4883ec28e84702000083f801751533c9"),
         (0x9493e0, "85c9781783f90273124863c1488d0dbd"),
         (0x806f60, "4883ec28e8f7feffff85c07517e84eff"),
-        (0xa7a2f0, "48894c24085553565741544155415641"),
         (0x5c4480, "833d614caf00007411833d5c4caf0000"),
         (0x5ad900, "48895c240848896c2410488974241857"),
         (0x5ad8a0, "4883ec28e8d76b010085c075484863c9"),
     ] {
+        let observed = read_memory(base + rva, 16)?;
         ensure!(
-            read_memory(base + rva, 16)? == hex::decode(expected)?,
-            "Native function at RVA {rva:x} was changed; hook disabled"
+            observed == hex::decode(expected)?,
+            "Native function at RVA {rva:x} was changed; observed={}; hook disabled",
+            hex::encode(&observed)
         );
     }
+    let input_chain = super::input_hook::inspect(
+        base + super::input_hook::RVA,
+        read_memory,
+        crate::host::windows::executable_address,
+        |target| {
+            crate::host::windows::code_module(target)
+                .filter(|(module, _)| *module != base)
+                .map(|(_, name)| name)
+        },
+    )
+    .map_err(|error| {
+        anyhow::anyhow!("Input poll at RVA a7a2f0 is incompatible; hook disabled: {error:#}")
+    })?
+    .map_or_else(|| "native".into(), |module| format!("MinHook -> {module}"));
     let mut hooks = Vec::new();
     for (table, slots) in std::iter::once((SELECT_VTABLE, &[13usize, 14, 15][..]))
         .chain(std::iter::once((TITLE_DICTIONARY_VTABLE, &[1usize][..])))
@@ -168,6 +190,12 @@ pub fn install(image: ModuleImage) -> Result<()> {
         for &slot in slots {
             let bytes = read_memory(base + table + slot * 8, 8)?;
             let original = usize::from_le_bytes(bytes.try_into().unwrap());
+            if table == INPUT_VTABLE {
+                ensure!(
+                    original == base + super::input_hook::RVA,
+                    "Unexpected input poll vtable entry"
+                );
+            }
             ensure!(
                 (base + 0x1000..base + 0xc90000).contains(&original),
                 "Unexpected scene vtable entry"
@@ -180,7 +208,11 @@ pub fn install(image: ModuleImage) -> Result<()> {
         }
     }
     ADAPTER
-        .set(Adapter { base, hooks })
+        .set(Adapter {
+            base,
+            hooks,
+            input_chain,
+        })
         .map_err(|_| anyhow::anyhow!("Hooks already installed"))?;
     let adapter = ADAPTER.get().unwrap();
     for (installed, hook) in adapter.hooks.iter().enumerate() {

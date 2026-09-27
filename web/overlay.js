@@ -7,8 +7,6 @@
   let pageSince = performance.now();
   let pageIndex = 0;
   let hadPending = false;
-  let noticeKey = "";
-  let noticeUntil = 0;
   const signatures = new Map();
   const $ = (id) => document.getElementById(id);
   const node = (tag, className, text) => {
@@ -36,6 +34,23 @@
   function progress(el, remaining, duration) {
     el.style.width = `${Math.min(100, Math.max(0, remaining / Math.max(1, duration) * 100))}%`;
   }
+  function renderQueue(s) {
+    const rowHeight = parseFloat(getComputedStyle($("queue-list")).getPropertyValue("--queue-row-height"));
+    const slots = Math.max(0, Math.min(6, Math.floor($("queue-body").clientHeight / rowHeight)));
+    changed("queue", [s.queue, slots], () => {
+      $("queue-list").replaceChildren(...s.queue.slice(0, slots).map((r, i) => {
+        const row = node("li", "queue-row");
+        const info = node("div", "queue-song");
+        const title = node("div", "queue-title", r.title);
+        title.title = r.title;
+        info.append(title, node("div", "requester", r.requester));
+        row.append(node("span", "row-number", pad(i + 1)), info, chart(r));
+        return row;
+      }));
+    });
+    $("queue-empty").hidden = s.queue.length > 0;
+    text($("queue-more"), s.queue.length > slots ? `另有 ${s.queue.length - slots} 首等待中` : "");
+  }
   function render(s, offline = false) {
     const warning = offline ? "等待游戏连接 · 游戏启动后会自动恢复" : !s.connected ? s.status : !s.ready ? "等待游戏曲库 · 请进入普通选曲界面" : "";
     document.querySelectorAll(".connection-banner").forEach((el) => { el.hidden = !warning; text(el, warning); });
@@ -44,7 +59,9 @@
       const box = $("current-content");
       box.replaceChildren();
       if (c) {
-        box.append(node("h1", "current-title", c.title));
+        const title = node("h1", "current-title", c.title);
+        title.title = c.title;
+        box.append(title);
         const meta = node("div", "current-meta");
         const time = node("span", "remaining");
         time.append(node("b", "", ""), document.createTextNode(" 后跳过"));
@@ -61,28 +78,18 @@
     changed("count", [s.queue.length, s.capacity], () => {
       $("queue-count").replaceChildren(document.createTextNode(pad(s.queue.length) + " "), node("span", "", `/ ${s.capacity || "—"}`));
     });
-    changed("queue", s.queue, () => {
-      $("queue-list").replaceChildren(...s.queue.slice(0, 6).map((r, i) => {
-        const row = node("li", "queue-row");
-        const info = node("div", "queue-song");
-        const title = node("div", "queue-title", r.title);
-        title.title = r.title;
-        info.append(title, node("div", "requester", r.requester));
-        row.append(node("span", "row-number", pad(i + 1)), info, chart(r));
-        return row;
-      }));
-    });
-    $("queue-empty").hidden = s.queue.length > 0;
-    $("queue-more").hidden = s.queue.length <= 6;
-    text($("queue-more"), `另有 ${Math.max(0, s.queue.length - 6)} 首等待中`);
-
-    const perPage = 1;
-    const pages = Math.ceil(s.pending.length / perPage);
+    // Candidate pages share the fixed song panel; chat rows keep their space.
+    const perPage = 3;
+    const choices = s.pending.flatMap((p) => Array.from({length: Math.ceil(p.candidates.length / perPage)}, (_, index) => ({
+      ...p, offset: index * perPage, candidates: p.candidates.slice(index * perPage, (index + 1) * perPage)
+    })));
+    const pages = choices.length;
     if (pages && !hadPending) { pageIndex = 0; pageSince = performance.now(); }
     hadPending = pages > 0;
     if (performance.now() - pageSince > 6000) { pageIndex += 1; pageSince = performance.now(); }
     pageIndex = pages ? pageIndex % pages : 0;
-    const pending = s.pending.slice(pageIndex * perPage, (pageIndex + 1) * perPage);
+    const pending = choices.slice(pageIndex, pageIndex + 1);
+    $("pending-area").hidden = !pages;
     changed("pending", [pageIndex, pending.map(({remaining, ...p}) => p)], () => {
       $("pending-list").replaceChildren(...pending.map((p) => {
         const card = node("section", "choice-panel");
@@ -96,8 +103,9 @@
         list.append(...p.candidates.map((song, i) => {
           const row = node("li", `candidate${song.available ? "" : " unavailable"}`);
           const name = node("div", "candidate-title", song.title);
+          name.title = song.title;
           if (!song.available) name.append(node("span", "unavailable-note", "所请求谱面不存在"));
-          row.append(node("span", "candidate-number", i + 1), name);
+          row.append(node("span", "candidate-number", p.offset + i + 1), name);
           return row;
         }));
         const track = node("div", "time-track");
@@ -113,23 +121,34 @@
     });
     $("pending-page").hidden = pages <= 1;
     text($("pending-page"), `${pageIndex + 1} / ${pages} 页 · 每 6 秒轮换`);
-    const latest = s.notices.slice(-1);
-    const latestKey = JSON.stringify(latest);
-    if (latestKey !== noticeKey) { noticeKey = latestKey; noticeUntil = performance.now() + 6000; }
-    const notices = performance.now() < noticeUntil ? latest : [];
-    $("queue-popup").hidden = !warning && !s.pending.length && !notices.length;
-    $("queue-popup").classList.toggle("has-choices", s.pending.length > 0);
-    changed("notices", notices, () => {
-      $("notices").replaceChildren(...notices.map((message) => {
-        const warning = /无法|失败|不存在|超时|已满|冷却|不能|未就绪/.test(message.text);
-        const item = node("div", "notice");
-        item.dataset.tone = warning ? "warning" : "success";
-        item.append(node("span", "notice-icon", warning ? "!" : "✓"), node("p", "", message.text));
+    renderQueue(s);
+
+    const limit = Math.max(1, Math.min(100, Number(s.feed_limit) || 10));
+    const feed = s.feed.slice(-limit);
+    $("activity-list").style.setProperty("--feed-limit", limit);
+    text($("feed-count"), `${feed.length} / ${limit}`);
+    $("feed-empty").hidden = feed.length > 0;
+    changed("feed", feed, () => {
+      $("activity-list").replaceChildren(...feed.map((message) => {
+        const item = node("li", "activity-row");
+        item.dataset.id = message.id;
+        item.dataset.kind = message.kind;
+        const content = node("p", "activity-text");
+        if (message.kind === "chat") {
+          content.append(node("strong", "chat-name", `${message.name}：`), document.createTextNode(message.text));
+        } else {
+          const warning = /无法|失败|不存在|超时|已满|冷却|不能|未就绪/.test(message.text);
+          item.dataset.tone = warning ? "warning" : "success";
+          item.append(node("span", "notice-icon", warning ? "!" : "✓"));
+          content.textContent = message.text;
+        }
+        item.title = content.textContent;
+        item.append(content);
         return item;
       }));
     });
   }
-  const empty = () => ({connected: false, ready: false, status: "等待游戏连接", current: null, capacity: 0, queue: [], pending: [], notices: []});
+  const empty = () => ({connected: false, ready: false, status: "等待游戏连接", current: null, capacity: 0, queue: [], pending: [], feed: state?.feed || [], feed_limit: state?.feed_limit || 10});
   async function tick() {
     if (stopped) return;
     const controller = new AbortController();
@@ -138,7 +157,7 @@
       const response = await fetch("/api/state", {cache: "no-store", signal: controller.signal});
       if (!response.ok) throw new Error("Unavailable");
       const next = await response.json();
-      if (!Array.isArray(next.queue) || !Array.isArray(next.pending) || !Array.isArray(next.notices)) throw new Error("Invalid state");
+      if (!Array.isArray(next.queue) || !Array.isArray(next.pending) || !Array.isArray(next.feed)) throw new Error("Invalid state");
       state = next;
       lastSuccess = performance.now();
       render(state);
@@ -149,5 +168,6 @@
   }
   window.addEventListener("pagehide", () => { stopped = true; clearTimeout(timer); });
   window.addEventListener("pageshow", (event) => { if (event.persisted) { stopped = false; tick(); } });
+  new ResizeObserver(() => renderQueue(state && performance.now() - lastSuccess <= 3000 ? state : empty())).observe($("queue-body"));
   tick();
 })();

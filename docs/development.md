@@ -13,20 +13,27 @@ HTML、CSS 和 JavaScript 源文件位于 `web/`，由 `scripts/package.ps1` 复
 可在「OBS 显示」页修改并保存。只切换目录时复用已有监听端口，验证目录及 `index.html`
 可读取后再提交配置；验证或保存失败保留原服务。旧数据库和 JSON/TOML 配置自动补入默认值。
 `/queue` 和 `/index.html` 读取该目录的 `index.html`；`/` 重定向到 `/queue`。
-默认页面背景透明，包含队列及底部按需弹出的交互区域。其他 URL 读取目录内对应资源，
+默认页面背景透明，包含点歌区与常驻的弹幕／事件区域，高度固定为 OBS 浏览器来源高度。其他 URL 读取目录内对应资源，
 支持子目录及常见网页、图片、字体 MIME 类型；不提供目录列表。文件修改在下一次请求时生效，
 缺失文件返回 404，不回退到内嵌页面。启动时缺少目录或入口会记录错误，点歌和文本输出继续工作。
 页面始终读取 `/api/state` 的实时数据，不包含示例模式或预览控件。
 
 工作线程从 Engine 发布独立 JSON 快照，`/api/state` 只读该快照，不访问游戏内存、
-配置文件或游戏线程。快照包含当前点歌、队列、候选、剩余秒数和最近提示，不含身份码、
-Cookie、应用凭据或观众平台 ID。网页每 500 毫秒读取一次，曲名和昵称通过 `textContent`
-写入 DOM，倒计时更新不重建整张卡片。连接持续失败时清空旧数据，成功后自动恢复。
+配置文件或游戏线程。快照包含当前点歌、队列、候选、剩余秒数、最近提示与公开弹幕记录，不含身份码、
+Cookie、应用凭据或观众平台 ID。网页每 500 毫秒读取一次，曲名、昵称和内容通过 `textContent`
+写入 DOM，倒计时更新不重建整张卡片。连接持续失败时清空旧队列、显示连接提示，并保留已有弹幕记录；成功后采用服务端最新快照。
 
-队列最多显示前 6 首；底部候选按每页 1 位观众、6 秒一页轮换。普通通知只显示最新
-1 条，以通知的时间与内容识别新事件，出现 6 秒后隐藏（Engine 提前移除时同步隐藏），
-轮询不会重复弹出同一事件。无候选、通知或连接警告时，整个弹出区隐藏并释放占用高度。
-长文本或较多候选仍可能需要用户增加 OBS 来源高度。展示层不修改排队、选择期限或跳转行为。
+点歌区按可用高度显示最多 6 首等待歌曲，多余数量另行提示。候选在同一区域每页显示
+3 首、每 6 秒轮换，编号保留完整列表的位置。下方固定区域将弹幕和事件按到达顺序混排，
+长内容最多显示两行。组件随来源尺寸调整，但不会随消息数量、长文本或候选数量增高。
+
+`overlay.history_limit` 默认 10，可设 1–100，GUI、数据库与 JSON 备份均支持。worker 持有
+独立 `overlay::History`，收到弹幕立即写入，每次引擎动作产生的通知按发生顺序取出并记录；
+即使曲库尚未就绪也接收普通弹幕。`/api/state` 的 `feed` 包含 `id/at/kind/name/text`，
+其中 `kind` 为 `chat` 或 `event`，`id` 为本次运行的递增序号；`feed_limit` 为当前容量。
+相同时间、相同内容仍是不同记录。超出容量或调小容量时从头移除；没有时间过期。
+刷新网页从服务端恢复最近记录，切换直播档案时清空，不写入配置备份或持久存储。
+旧 `notices` 字段与文本文件仍遵循原有时间／条数规则，便于已有自定义页面继续使用。
 
 服务器仅允许 GET/HEAD，请求 Host/Origin 限制为本地地址，禁用缓存。
 URL 解码后拒绝路径穿越、隐藏文件及 Windows 特殊路径；解析符号链接和目录联接后仍需位于
@@ -45,7 +52,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "& ./scripts/build.ps1 -C
 完成后按 Ctrl+C 关闭本地服务，释放端口。自动 HTTP/快照测试位于
 `tests/overlay.rs`。可选的浏览器检查需要 Python Playwright：启动预览后运行
 `py scripts/check-overlay.py --browser "C:/Program Files/Google/Chrome/Application/chrome.exe"`。
-不提供 `--browser` 时使用 Playwright 安装的 Chromium；截图保存在忽略的 `analysis/overlay-compact/`。
+不提供 `--browser` 时使用 Playwright 安装的 Chromium；截图保存在忽略的 `analysis/overlay-history/`。
 `scripts/smoke-dll.py` 也会检查真实 DLL 启动 HTTP 服务、提供页面/状态，以及关闭后释放端口。
 
 ## Controller menu and live configuration
@@ -87,6 +94,25 @@ egui 0.34 with Ouroboros UI components and a small fixed-function D3D9 painter; 
 separate process is required. Fonts load once from Windows (Microsoft YaHei and
 Japanese fallbacks), without redistributing them. Rendering/input failures are
 reported under `[gui]` and do not execute game commands.
+
+The Win32 input bridge preserves the window's ANSI/Unicode procedure type when
+installing, forwarding and restoring its subclass. Spice2x's legacy touch
+emulator directly calls the result of `GetWindowLongPtrA(GWLP_WNDPROC)` to send
+`WM_TOUCH`. Installing a Unicode procedure on its ANSI window can make that
+getter return a conversion token instead of a callable address. This caused the
+2026-09-27 login-touch crash with Spice2x 2026-09-12: execute access violation at
+`0xffff00fd`, called from `spice64.exe+0x320959` (`call rax` after the A getter).
+The input bridge now matches the existing procedure type, and ANSI `WM_CHAR`
+is decoded using the process code page, including split DBCS and UTF-8 sequences.
+The separate Unicode callback retains UTF-16 handling.
+
+`host::menu::input::tests` creates hidden ANSI and Unicode windows, exercises the
+same direct touch dispatch, verifies forwarding and restoration, and tests text
+decoding. The touch test reproduces the invalid procedure on the old bridge and
+passes with the matching subclass. In callers that own touch dispatch, the
+general Windows API requirement is to use
+[`CallWindowProc`](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-callwindowproca)
+for values returned by `GetWindowLongPtr`; conversion tokens are not functions.
 
 `src/gui/design.rs` holds the shared theme. Ouroboros provides buttons, switches,
 search/input fields, cards, badges and key hints. Its git revision is pinned;
@@ -215,6 +241,23 @@ are unsupported unless separately analyzed and given a matching adapter. The DLL
 checks both the game file hash and native entry-point bytes before installing
 hooks; changing a version label or bypassing the hash check does not make a new
 build compatible.
+
+The input poll at RVA `0xa7a2f0` also accepts the x64 MinHook relay used by
+2dxtra: an `E9 rel32` replacing only the first five-byte instruction, followed
+by unchanged signature bytes, with an executable `FF 25 00 00 00 00` relay
+pointing into a loaded external executable module. The input vtable must still
+point to the verified game entry. Our vtable wrapper calls that entry, preserving
+the existing detour and its trampoline. All other function signatures and the
+on-disk game hash remain checked. Unknown patches still reject startup and log
+the observed bytes. `[input] Input poll chain:` reports `native` or
+`MinHook -> <module>` as seen during installation.
+
+After building the release DLL, `py scripts/smoke-dll.py --input-detour` checks
+startup with a synthetic MinHook relay and calls through the installed input
+wrapper to a harmless Windows function. `--bad-input-detour` checks that a
+modified signature is rejected before any vtable is changed. Both use a private
+mapped image from `analysis/bm2dx.dll`, with no game code or live plugins running.
+Actual game startup and controller interaction with 2dxtra require an in-game check.
 
 It supports the main `CMusicSelectScene` used by normal song selection, including
 SP/DP. Special selection interfaces (such as Life/STEP UP, Arena/BPL and course

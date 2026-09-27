@@ -1,10 +1,12 @@
 //! Read-only loopback overlay. Network requests only access owned snapshots;
 //! they never call the game or hold the engine's state across an await.
+mod history;
 use crate::{
     engine::{Engine, Request as SongRequest},
     platforms::Connection,
 };
 use anyhow::{Context, Result, ensure};
+pub use history::History;
 use http_body_util::Full;
 use hyper::{
     Method, Request, Response, StatusCode,
@@ -33,12 +35,18 @@ fn request(e: &Engine, r: &SongRequest) -> Value {
 }
 
 /// Deliberately excludes configuration, cookies, identity codes and sender IDs.
-pub fn snapshot(engine: Option<&Engine>, status: &Connection, now: u64) -> Value {
+pub fn snapshot(
+    engine: Option<&Engine>,
+    status: &Connection,
+    now: u64,
+    history: &History,
+) -> Value {
     let mut state = json!({
         "version": env!("CARGO_PKG_VERSION"),
         "connected": status.connected, "status": status.text,
         "ready": engine.is_some(), "current": null, "queue": [],
-        "capacity": 0, "pending": [], "notices": []
+        "capacity": 0, "pending": [], "notices": [],
+        "feed": history.entries, "feed_limit": history.limit
     });
     if let Some(e) = engine {
         state["capacity"] = json!(e.config.requests.queue_capacity);

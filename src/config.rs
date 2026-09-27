@@ -61,6 +61,7 @@ pub struct Overlay {
     pub enabled: bool,
     pub port: u16,
     pub static_dir: PathBuf,
+    pub history_limit: usize,
 }
 impl Default for Overlay {
     fn default() -> Self {
@@ -68,6 +69,7 @@ impl Default for Overlay {
             enabled: true,
             port: 32133,
             static_dir: "chart_request_static".into(),
+            history_limit: 10,
         }
     }
 }
@@ -246,6 +248,10 @@ impl Config {
             "controls.double_tap_ms must be 100..2000"
         );
         ensure!(self.overlay.port != 0, "overlay.port must be 1..65535");
+        ensure!(
+            (1..=100).contains(&self.overlay.history_limit),
+            "网页弹幕与事件保留条数应为 1–100"
+        );
         ensure!(
             !self.overlay.static_dir.as_os_str().is_empty(),
             "网页静态目录不能为空"

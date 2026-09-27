@@ -1,11 +1,13 @@
 """Exercise real DLL startup/shutdown without executing game code or networking.
 
-Usage: py scripts/smoke-dll.py [--reject | --occupied-port | --no-sdk-input]
+Usage: py scripts/smoke-dll.py [--reject | --input-detour | --bad-input-detour]
+Additional options: --occupied-port --no-sdk-input --sdk-renderer --profiles
 Requires the built release DLL and the ignored local game copy for positive mode.
 Artifacts remain under analysis/smoke-* for inspection.
 """
 import ctypes
 import json
+import os
 import pathlib
 import shutil
 import socket
@@ -21,6 +23,10 @@ root = pathlib.Path(__file__).resolve().parent.parent
 reject = "--reject" in sys.argv
 occupied_port = "--occupied-port" in sys.argv
 profiles = "--profiles" in sys.argv
+bad_input_detour = "--bad-input-detour" in sys.argv
+input_detour = "--input-detour" in sys.argv or bad_input_detour
+startup_rejected = reject or bad_input_detour
+assert not (reject and input_detour), "Detour checks require the supported game image"
 work = root / "analysis" / ("smoke-" + uuid.uuid4().hex)
 work.mkdir(parents=True)
 dll_path = work / "chart_requester.dll"
@@ -40,7 +46,7 @@ if reject:
     config = config.replace('module = "bm2dx.dll"', 'module = "kernel32.dll"')
 profile_ids = [str(uuid.uuid4()), str(uuid.uuid4())]
 if profiles:
-    assert not reject
+    assert not startup_rejected
     for profile_id, cards in zip(profile_ids, [["E004012345678901", "E004012345678902"], ["E004012345678903"]]):
         config += f'\n[[profiles]]\nid = "{profile_id}"\nname = "Smoke profile"\ncards = {json.dumps(cards)}\n[profiles.bilibili]\nenabled = false\nauth_code = "smoke-only-disabled"\n'
 (work / "chart-requester.toml").write_text(config, encoding="utf-8")
@@ -53,6 +59,38 @@ if not reject:
     # callbacks and the game entry point from running. Never call game exports.
     game = kernel.LoadLibraryExW(str(root / "analysis/bm2dx.dll"), None, 1)
     assert game, ctypes.WinError(ctypes.get_last_error())
+if input_detour:
+    # Synthetic MinHook x64 entry + relay in this process's private image.
+    # Route to a real loaded executable module, never to the game body.
+    kernel.VirtualProtect.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_uint32,
+                                      ctypes.POINTER(ctypes.c_uint32)]
+    kernel.VirtualProtect.restype = ctypes.c_int
+    kernel.GetCurrentProcess.argtypes = []
+    kernel.GetCurrentProcess.restype = ctypes.c_void_p
+    kernel.FlushInstructionCache.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t]
+    kernel.FlushInstructionCache.restype = ctypes.c_int
+
+    def patch(address, code):
+        protection = ctypes.c_uint32()
+        assert kernel.VirtualProtect(address, len(code), 0x40, ctypes.byref(protection))
+        try:
+            ctypes.memmove(address, code, len(code))
+        finally:
+            unused = ctypes.c_uint32()
+            assert kernel.VirtualProtect(address, len(code), protection.value, ctypes.byref(unused))
+        assert kernel.FlushInstructionCache(kernel.GetCurrentProcess(), address, len(code))
+
+    input_entry = game + 0xa7a2f0
+    input_relay = game + 0x1000
+    input_target = ctypes.cast(kernel.GetCurrentProcessId, ctypes.c_void_p).value
+    original_entry = ctypes.string_at(input_entry, 16)
+    assert original_entry == bytes.fromhex("48894c24085553565741544155415641")
+    patched_entry = b"\xe9" + struct.pack("<i", input_relay - input_entry - 5) + original_entry[5:]
+    if bad_input_detour:
+        patched_entry = patched_entry[:5] + bytes([patched_entry[5] ^ 1]) + patched_entry[6:]
+    relay_code = bytes.fromhex("ff2500000000") + struct.pack("<Q", input_target)
+    patch(input_relay, relay_code)
+    patch(input_entry, patched_entry)
 plugin = ctypes.CDLL(str(dll_path))
 plugin.chart_requester_shutdown.argtypes = []
 plugin.chart_requester_shutdown.restype = None
@@ -75,10 +113,15 @@ with sqlite3.connect(work / "chart-requester.db") as database:
     if profiles:
         assert database.execute("SELECT count(*) FROM stream_cards").fetchone()[0] == 3
 assert (work / "chart-requester.toml").read_text(encoding="utf-8") == config
-if reject:
-    assert "Unsupported bm2dx.dll build" in text, text
+if startup_rejected:
+    reason = "Unsupported bm2dx.dll build" if reject else "Input poll at RVA a7a2f0 is incompatible"
+    assert reason in text, text
     assert "Native hooks installed" not in text
-    assert "Unsupported bm2dx.dll build" in (work / "obs/interaction.txt").read_text(encoding="utf-8")
+    assert reason in (work / "obs/interaction.txt").read_text(encoding="utf-8")
+    if bad_input_detour:
+        assert "Unsupported input entry patch: observed=" in text, text
+        for table, slot, rva in [(0xd84788, 13, 0x8eb820), (0xdd05c0, 3, 0xa7a2f0)]:
+            assert ctypes.c_void_p.from_address(game + table + slot * 8).value == game + rva
 else:
     assert "Native hooks installed" in text, text
     assert "[status]" in text and "select_updates=0" in text, text
@@ -92,12 +135,28 @@ else:
         with urllib.request.urlopen(f"http://127.0.0.1:{overlay_port}/api/state", timeout=3) as response:
             state = json.load(response)
             assert state["ready"] is False and state["queue"] == []
+            assert state["feed"] == [] and state["feed_limit"] == 10
     for table, slot, rva in [(0xd84788, 13, 0x8eb820), (0xd84788, 14, 0x8ebeb0),
                              (0xd84788, 15, 0x8ec1f0), (0xce9f40, 1, 0x7f2fd0),
                              (0xdd05c0, 3, 0xa7a2f0)]:
         hooked = ctypes.c_void_p.from_address(game + table + slot*8).value
         assert hooked != game+rva, f"Slot {slot} was not patched"
         assert abs(hooked-plugin._handle) < 0x4000000, "Hook is not inside plugin image"
+    if input_detour:
+        assert "Input poll chain: MinHook -> " in text, text
+        assert ctypes.string_at(input_entry, 16) == patched_entry
+        assert ctypes.string_at(input_relay, 14) == relay_code
+        # Call the installed vtable wrapper and prove it preserves the existing
+        # detour and its return value. GetCurrentProcessId ignores extra x64 args.
+        instance = ctypes.create_string_buffer(0x68)
+        ctypes.c_void_p.from_buffer(instance).value = game + 0xdd05c0
+        input_slot = ctypes.c_void_p.from_address(game + 0xdd05c0 + 3 * 8).value
+        poll = ctypes.CFUNCTYPE(ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t,
+                               ctypes.c_size_t, ctypes.c_size_t)(input_slot)
+        assert poll(ctypes.addressof(instance), 0, 0, 0) == os.getpid()
+        print("PASS: existing MinHook relay preserved and called through the installed input wrapper")
+    else:
+        assert "Input poll chain: native" in text, text
 
 if profiles:
     # Synthetic state in our private mapped image; never execute the game's code.
@@ -186,7 +245,7 @@ if "--sdk-renderer" in sys.argv:
     # even before the host has ever supplied a device.
     for event in (0, 1, 2, 3):
         draw_callback(event, None, None)
-if not reject and "--no-sdk-input" not in sys.argv:
+if not startup_rejected and "--no-sdk-input" not in sys.argv:
     deadline = time.monotonic() + 3
     while time.monotonic() < deadline:
         if "sdk_status=-2" in logfile.read_text(encoding="utf-8"):
@@ -195,7 +254,7 @@ if not reject and "--no-sdk-input" not in sys.argv:
     else:
         raise AssertionError("DLL did not retain the SDK get_button function")
 destroy_callback()
-if not reject:
+if not startup_rejected:
     assert (work / "obs/queue.txt").read_text(encoding="utf-8").strip() == "点歌已停止"
     if not occupied_port:
         try:
@@ -205,4 +264,4 @@ if not reject:
         else:
             raise AssertionError("Overlay server still running after shutdown")
 port_blocker.close()
-print("PASS: " + ("unsupported image rejected" if reject else "occupied-port fallback and SDK shutdown" if occupied_port else "mapped-image hooks, web overlay, OBS files, and SDK shutdown") + f" ({work.name})")
+print("PASS: " + ("unsupported image rejected" if reject else "unknown input patch rejected before installing hooks" if bad_input_detour else "occupied-port fallback and SDK shutdown" if occupied_port else "mapped-image hooks, web overlay, OBS files, and SDK shutdown") + f" ({work.name})")

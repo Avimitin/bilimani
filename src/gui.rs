@@ -793,6 +793,13 @@ impl Menu {
                 Heading::new("OBS 显示").h2().show(ui);
                 toggle(ui, &mut self.draft.overlay.enabled, "启用浏览器来源");
                 number(ui, "本机端口", &mut self.draft.overlay.port, 1..=65535);
+                number(
+                    ui,
+                    "网页弹幕与事件保留条数",
+                    &mut self.draft.overlay.history_limit,
+                    1..=100,
+                );
+                ui.weak("按条数保留，超出后移除最早一条，不按时间消失。");
                 path_field(ui, "网页静态目录", &mut self.draft.overlay.static_dir);
                 ui.weak("目录中需有 index.html。相对路径以 DLL 目录为准，修改页面文件后刷新即可。");
                 ui.label(format!(
@@ -805,13 +812,13 @@ impl Menu {
                 ui.horizontal_wrapped(|ui| {
                     number(
                         ui,
-                        "提示保留（秒）",
+                        "文本提示保留（秒）",
                         &mut self.draft.output.message_seconds,
                         1..=86400,
                     );
                     number(
                         ui,
-                        "最近提示条数",
+                        "文本提示条数",
                         &mut self.draft.output.recent_messages,
                         1..=100,
                     );

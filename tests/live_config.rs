@@ -50,11 +50,16 @@ fn static_directory_defaults_for_old_settings_and_round_trips_relative_to_dll() 
         .as_object_mut()
         .unwrap()
         .remove("static_dir");
+    settings["overlay"]
+        .as_object_mut()
+        .unwrap()
+        .remove("history_limit");
     connection
         .execute("UPDATE settings SET settings = ?1", [settings.to_string()])
         .unwrap();
     drop(connection);
     let mut store = Store::open(&database).unwrap();
+    assert_eq!(store.raw.overlay.history_limit, 10);
     assert_eq!(
         store.raw.overlay.static_dir,
         PathBuf::from("chart_request_static")
@@ -66,10 +71,15 @@ fn static_directory_defaults_for_old_settings_and_round_trips_relative_to_dll() 
     );
     let mut config = store.raw.clone();
     config.overlay.static_dir = "themes/custom".into();
+    config.overlay.history_limit = 15;
     let resolved = store
         .commit(store.prepare(config.clone(), store.revision, &dll).unwrap())
         .unwrap();
     assert_eq!(resolved.overlay.static_dir, f.0.join("themes/custom"));
+    assert_eq!(
+        Store::open(&database).unwrap().raw.overlay.history_limit,
+        15
+    );
     assert_eq!(
         Store::open(&database).unwrap().raw.overlay.static_dir,
         PathBuf::from("themes/custom")
@@ -82,6 +92,14 @@ fn static_directory_defaults_for_old_settings_and_round_trips_relative_to_dll() 
     store
         .export_json(std::path::Path::new("static-backup.json"))
         .unwrap();
+    assert_eq!(
+        store
+            .import_json(std::path::Path::new("static-backup.json"))
+            .unwrap()
+            .overlay
+            .history_limit,
+        15
+    );
     assert_eq!(
         store
             .import_json(std::path::Path::new("static-backup.json"))

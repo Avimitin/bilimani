@@ -1,6 +1,8 @@
 //! The verified IIDX 33 binary profile. No offsets escape this module.
 pub mod catalog;
 #[cfg(windows)]
+mod input_hook;
+#[cfg(windows)]
 mod native;
 pub mod player;
 #[cfg(windows)]
@@ -52,6 +54,10 @@ impl crate::game::GameAdapter for Adapter {
                 "game",
                 "Native hooks installed for the verified IIDX 33 build; waiting for song select."
                     .into(),
+            ),
+            (
+                "input",
+                format!("Input poll chain: {}", native::input_chain()),
             ),
         ]
     }

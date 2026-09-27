@@ -61,8 +61,13 @@
 - Current request expires 600 seconds after a successful jump, configurable.
   Expiration can advance while still in song select; never jump during gameplay.
 - Separate UTF-8 OBS files for current/waiting requests and interactions.
-- Optional loopback HTTP service with a compact queue browser overlay and bottom
-  interaction popup, enabled by default on port 32133. HTML/CSS/JS ship next to the
+- Optional loopback HTTP service with a queue and persistent chat/event history,
+  enabled by default on port 32133. The layout fills the fixed OBS source height.
+  History retains the latest 10 arrivals by default (configurable 1–100), evicts
+  oldest first and never expires by time. Refresh restores the running worker's
+  history; disconnection preserves it, profile switches and restarts clear it.
+  Long messages show at most two lines; candidate pages remain in the song panel.
+  HTML/CSS/JS ship next to the
   DLL in `chart_request_static/` inside the release ZIP. `overlay.static_dir` can
   select another public asset directory, relative to the DLL or absolute. Read
   files per request so replacements take effect on refresh; `/api/state` retains

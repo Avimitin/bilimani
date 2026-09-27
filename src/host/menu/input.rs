@@ -9,6 +9,7 @@ use std::{
 };
 use windows::Win32::{
     Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM},
+    Globalization::{CP_UTF8, GetACP, IsDBCSLeadByteEx, MB_ERR_INVALID_CHARS, MultiByteToWideChar},
     Graphics::Gdi::ScreenToClient,
     UI::{
         Input::{Ime::*, KeyboardAndMouse::*},
@@ -16,14 +17,60 @@ use windows::Win32::{
     },
 };
 static WINDOW: AtomicUsize = AtomicUsize::new(0);
-static PROCEDURES: OnceLock<Mutex<HashMap<usize, isize>>> = OnceLock::new();
+static PROCEDURES: OnceLock<Mutex<HashMap<usize, Procedure>>> = OnceLock::new();
+#[derive(Clone, Copy)]
+struct Procedure {
+    original: isize,
+    unicode: bool,
+}
 static INPUT: Mutex<Input> = Mutex::new(Input {
     events: Vec::new(),
     high_surrogate: None,
+    ansi: Vec::new(),
 });
+#[derive(Default)]
 struct Input {
     events: Vec<Event>,
     high_surrogate: Option<u16>,
+    ansi: Vec<u8>,
+}
+impl Input {
+    fn ansi_character(&mut self, value: u16, code_page: u32) {
+        // WM_CHAR can carry a DBCS pair together or one byte at a time.
+        let bytes = value.to_be_bytes();
+        for &byte in if value > 0xff {
+            &bytes[..]
+        } else {
+            &bytes[1..]
+        } {
+            self.ansi.push(byte);
+            if code_page == CP_UTF8 {
+                if let Err(error) = std::str::from_utf8(&self.ansi) {
+                    if error.error_len().is_none() && self.ansi.len() < 4 {
+                        continue;
+                    }
+                    self.ansi.clear();
+                    continue;
+                }
+            } else if self.ansi.len() == 1 && unsafe { IsDBCSLeadByteEx(code_page, byte) }.is_ok() {
+                continue;
+            }
+            let mut wide = [0u16; 2];
+            let count = unsafe {
+                MultiByteToWideChar(code_page, MB_ERR_INVALID_CHARS, &self.ansi, Some(&mut wide))
+            };
+            self.ansi.clear();
+            if count > 0 {
+                let text: String = String::from_utf16_lossy(&wide[..count as usize])
+                    .chars()
+                    .filter(|c| !c.is_control())
+                    .collect();
+                if !text.is_empty() {
+                    self.events.push(Event::Text(text));
+                }
+            }
+        }
+    }
 }
 pub fn install(window: HWND) -> Result<(), i32> {
     if WINDOW.load(Ordering::Acquire) == window.0 as usize {
@@ -32,13 +79,24 @@ pub fn install(window: HWND) -> Result<(), i32> {
     restore();
     let mut procedures = PROCEDURES.get_or_init(Default::default).lock().unwrap();
     unsafe {
-        let old = GetWindowLongPtrW(window, GWLP_WNDPROC);
+        // Changing an ANSI window to a W procedure makes GetWindowLongPtrA
+        // return a conversion token. Spice's touch emulator calls that value
+        // directly, so preserve the host's window encoding when subclassing.
+        let unicode = IsWindowUnicode(window).as_bool();
+        let (get, set) = window_functions(unicode);
+        let old = get(window, GWLP_WNDPROC);
         if old == 0 {
             return Err(-4);
         }
         // Keep old entries alive for later hooks that may still chain through us.
-        procedures.insert(window.0 as usize, old);
-        if SetWindowLongPtrW(window, GWLP_WNDPROC, wndproc as *const () as isize) == 0 {
+        procedures.insert(
+            window.0 as usize,
+            Procedure {
+                original: old,
+                unicode,
+            },
+        );
+        if set(window, GWLP_WNDPROC, callback_address(unicode)) == 0 {
             return Err(-4);
         }
     }
@@ -55,8 +113,9 @@ pub fn restore() {
         if let Some(old) = old {
             unsafe {
                 let window = HWND(raw as _);
-                if GetWindowLongPtrW(window, GWLP_WNDPROC) == wndproc as *const () as isize {
-                    SetWindowLongPtrW(window, GWLP_WNDPROC, old);
+                let (get, set) = window_functions(old.unicode);
+                if get(window, GWLP_WNDPROC) == callback_address(old.unicode) {
+                    set(window, GWLP_WNDPROC, old.original);
                 }
             }
         }
@@ -67,6 +126,7 @@ pub fn clear() {
     if let Ok(mut input) = INPUT.try_lock() {
         input.events.clear();
         input.high_surrogate = None;
+        input.ansi.clear();
     }
 }
 fn active(window: HWND) -> bool {
@@ -86,8 +146,31 @@ fn modifiers() -> Modifiers {
         command: down(VK_CONTROL),
     }
 }
-unsafe extern "system" fn wndproc(window: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESULT {
-    let captured = std::panic::catch_unwind(|| message(window, msg, w, l)).unwrap_or(false);
+type GetProcedure = unsafe fn(HWND, WINDOW_LONG_PTR_INDEX) -> isize;
+type SetProcedure = unsafe fn(HWND, WINDOW_LONG_PTR_INDEX, isize) -> isize;
+fn window_functions(unicode: bool) -> (GetProcedure, SetProcedure) {
+    if unicode {
+        (GetWindowLongPtrW, SetWindowLongPtrW)
+    } else {
+        (GetWindowLongPtrA, SetWindowLongPtrA)
+    }
+}
+fn callback_address(unicode: bool) -> isize {
+    if unicode {
+        wndproc_w as *const () as isize
+    } else {
+        wndproc_a as *const () as isize
+    }
+}
+unsafe extern "system" fn wndproc_a(window: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESULT {
+    wndproc(window, msg, w, l, false)
+}
+unsafe extern "system" fn wndproc_w(window: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESULT {
+    wndproc(window, msg, w, l, true)
+}
+fn wndproc(window: HWND, msg: u32, w: WPARAM, l: LPARAM, unicode: bool) -> LRESULT {
+    let captured =
+        std::panic::catch_unwind(|| message(window, msg, w, l, unicode)).unwrap_or(false);
     if captured {
         return LRESULT(0);
     }
@@ -96,22 +179,29 @@ unsafe extern "system" fn wndproc(window: HWND, msg: u32, w: WPARAM, l: LPARAM) 
         .and_then(|p| p.lock().ok()?.get(&(window.0 as usize)).copied());
     unsafe {
         if let Some(old) = old {
-            CallWindowProcW(
+            let call = if unicode {
+                CallWindowProcW
+            } else {
+                CallWindowProcA
+            };
+            call(
                 Some(std::mem::transmute::<
                     isize,
                     unsafe extern "system" fn(HWND, u32, WPARAM, LPARAM) -> LRESULT,
-                >(old)),
+                >(old.original)),
                 window,
                 msg,
                 w,
                 l,
             )
-        } else {
+        } else if unicode {
             DefWindowProcW(window, msg, w, l)
+        } else {
+            DefWindowProcA(window, msg, w, l)
         }
     }
 }
-fn message(window: HWND, msg: u32, w: WPARAM, l: LPARAM) -> bool {
+fn message(window: HWND, msg: u32, w: WPARAM, l: LPARAM, unicode: bool) -> bool {
     if !active(window) {
         return false;
     }
@@ -152,6 +242,10 @@ fn message(window: HWND, msg: u32, w: WPARAM, l: LPARAM) -> bool {
             return !mods.alt;
         }
         WM_CHAR => {
+            if !unicode {
+                input.ansi_character(w.0 as u16, unsafe { GetACP() });
+                return true;
+            }
             let c = w.0 as u16;
             if (0xD800..=0xDBFF).contains(&c) {
                 input.high_surrogate = Some(c);
@@ -296,4 +390,107 @@ fn key(code: u32) -> Option<Key> {
         0x5A => Key::Z,
         _ => return None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use windows::core::{s, w};
+
+    #[test]
+    fn ansi_text_decodes_dbcs_packed_bytes_and_utf8_without_control_characters() {
+        for (code_page, values, expected) in [
+            (932, vec![0x82, 0xa0], "あ"),
+            (936, vec![0xd6d0], "中"),
+            (1252, vec![0xe9, 0x0d], "é"),
+            (CP_UTF8, vec![0xf0, 0x9f, 0x8e, 0xb5], "🎵"),
+            (CP_UTF8, vec![0xff, 0x41], "A"),
+        ] {
+            let mut input = Input::default();
+            for value in values {
+                input.ansi_character(value, code_page);
+            }
+            assert_eq!(input.events, vec![Event::Text(expected.into())]);
+            assert!(input.ansi.is_empty());
+        }
+    }
+
+    unsafe extern "system" fn touch_sink(_: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESULT {
+        if msg == WM_TOUCH && w.0 == 1 && l.0 == 0x1234 {
+            LRESULT(0x5678)
+        } else {
+            LRESULT(0)
+        }
+    }
+
+    #[test]
+    fn subclass_preserves_window_encoding_and_direct_touch_dispatch() {
+        unsafe {
+            // Hidden windows; no game, live input, or display changes required.
+            let ansi = CreateWindowExA(
+                WINDOW_EX_STYLE(0),
+                s!("STATIC"),
+                s!("Input regression"),
+                WS_OVERLAPPEDWINDOW,
+                0,
+                0,
+                1,
+                1,
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+            let unicode = CreateWindowExW(
+                WINDOW_EX_STYLE(0),
+                w!("STATIC"),
+                w!("Input regression"),
+                WS_OVERLAPPEDWINDOW,
+                0,
+                0,
+                1,
+                1,
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+            for (window, wide) in [(ansi, false), (unicode, true)] {
+                let get = if wide {
+                    GetWindowLongPtrW
+                } else {
+                    GetWindowLongPtrA
+                };
+                let set = if wide {
+                    SetWindowLongPtrW
+                } else {
+                    SetWindowLongPtrA
+                };
+                let original = set(window, GWLP_WNDPROC, touch_sink as *const () as isize);
+                install(window).unwrap();
+                let current = get(window, GWLP_WNDPROC);
+                // Spice's touch emulator calls this value directly. Check it
+                // before calling: a mismatched A/W subclass returns a thunk token.
+                assert!(
+                    crate::host::windows::executable_address(current as usize),
+                    "touch dispatcher received a non-executable WndProc: {current:#x}"
+                );
+                assert_eq!(IsWindowUnicode(window).as_bool(), wide);
+                let call: unsafe extern "system" fn(HWND, u32, WPARAM, LPARAM) -> LRESULT =
+                    std::mem::transmute(current);
+                assert_eq!(
+                    call(window, WM_TOUCH, WPARAM(1), LPARAM(0x1234)),
+                    LRESULT(0x5678)
+                );
+                install(window).unwrap(); // Repeated frames must not chain to ourselves.
+                restore();
+                assert_eq!(get(window, GWLP_WNDPROC), touch_sink as *const () as isize);
+                assert_eq!(IsWindowUnicode(window).as_bool(), wide);
+                set(window, GWLP_WNDPROC, original);
+                DestroyWindow(window).unwrap();
+            }
+        }
+    }
 }

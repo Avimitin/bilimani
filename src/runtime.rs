@@ -113,9 +113,10 @@ fn start(module: HMODULE) -> Result<()> {
         .enable_all()
         .build()?;
     rt.block_on(async {
+        let mut history = overlay::History::new(config.overlay.history_limit);
         let mut overlay_error = String::new();
         let mut web = if config.overlay.enabled {
-            match overlay::Server::start(config.overlay.port, &config.overlay.static_dir, &overlay::snapshot(None, &Connection::waiting(), 0)).await {
+            match overlay::Server::start(config.overlay.port, &config.overlay.static_dir, &overlay::snapshot(None, &Connection::waiting(), 0, &history)).await {
                 Ok(server) => {
                     logger.info("overlay", &format!("Browser source: http://{}/queue", server.address));
                     Some(server)
@@ -190,6 +191,7 @@ fn start(module: HMODULE) -> Result<()> {
             view.player_card = update.player_card;
             if let Some(change) = view.sync_stream(&config, &mut active_stream, engine.as_mut()) {
                 if change.profile_changed {
+                    history.clear();
                     game.cancel_selection();
                     ack = None;
                     plays = new_plays;
@@ -305,7 +307,7 @@ fn start(module: HMODULE) -> Result<()> {
                                 || next.overlay.port != config.overlay.port
                                 || (next.overlay.enabled && web.is_none());
                             let replacement = if replace_web && next.overlay.enabled {
-                                Some(overlay::Server::start(next.overlay.port, &next.overlay.static_dir, &overlay::snapshot(engine.as_ref(), &connection, now)).await?)
+                                Some(overlay::Server::start(next.overlay.port, &next.overlay.static_dir, &overlay::snapshot(engine.as_ref(), &connection, now, &history)).await?)
                             } else { None };
                             // Changing only the asset directory reuses the existing listener.
                             let static_files = if !replace_web && next.overlay.enabled
@@ -330,6 +332,7 @@ fn start(module: HMODULE) -> Result<()> {
                             game.configure_controls(&next.controls);
                             logger.reconfigure(root, &next);
                             config = next;
+                            history.set_limit(config.overlay.history_limit);
                             view.config = store.raw.clone();
                             view.loaded_draft = Some(store.raw.clone());
                             view.revision = store.revision;
@@ -337,6 +340,7 @@ fn start(module: HMODULE) -> Result<()> {
                             if let Some(change) = view.sync_stream(&config, &mut active_stream, engine.as_mut()) {
                                 profile_changed = change.profile_changed;
                                 if profile_changed {
+                                    history.clear();
                                     game.cancel_selection();
                                     manual_selection = None;
                                 }
@@ -356,6 +360,7 @@ fn start(module: HMODULE) -> Result<()> {
                     view.reply = (command.id, result.unwrap_or_else(|e| format!("未应用：{e}")));
                 }
             }
+            if let Some(e) = engine.as_mut() { record_notices(e, &mut history, &mut logger); }
             for _ in 0..128 {
                 let Some(event) = network.try_recv() else {
                     break;
@@ -372,6 +377,7 @@ fn start(module: HMODULE) -> Result<()> {
                     }
                     Event::Chat(c) => {
                         gui::record_chat(&mut view.chats, &c, now);
+                        history.chat(&c, now);
                         received += 1;
                         logger.danmu(&format!("received seq={received} user={:?} name={:?} text={:?}", c.user, c.name, c.text));
                         if let Some(e) = engine.as_mut() {
@@ -381,9 +387,11 @@ fn start(module: HMODULE) -> Result<()> {
                             if !outcome.starts_with("ignored_") { handled += 1; }
                             logger.debug("request", &format!("seq={received} result={outcome} queued={} pending={}", e.queue.len(), e.pending.len()));
                             if outcome == "awaiting_selection" && let Some(p) = e.pending.get(&user) {
+                                history.notice(now, &format!("{}：找到 {} 首候选，请回复编号", p.name, p.songs.len()));
                                 logger.info("request", &format!("seq={received} selection_deadline={}s candidates={:?}", p.until.saturating_sub(now),
                                     p.songs.iter().map(|s| (s.id, &s.title)).collect::<Vec<_>>()));
                             }
+                            record_notices(e, &mut history, &mut logger);
                         } else {
                             gui::record_processing(&mut view.processing, &c, "ignored_catalog_not_ready", now);
                             logger.info("request", &format!("seq={received} result=ignored_catalog_not_ready"));
@@ -399,7 +407,7 @@ fn start(module: HMODULE) -> Result<()> {
                         j.request.token, j.request.song.id, j.request.song.title, j.request.mode, j.request.chart, j.epoch));
                     game.submit(j.selection());
                 }
-                for message in e.take_diagnostics() { logger.info("request", &message); }
+                record_notices(e, &mut history, &mut logger);
                 e.render(now)
             } else {
                 (
@@ -418,7 +426,7 @@ fn start(module: HMODULE) -> Result<()> {
                 web = None;
             }
             if let Some(server) = &web {
-                server.publish(&overlay::snapshot(engine.as_ref(), &connection, now));
+                server.publish(&overlay::snapshot(engine.as_ref(), &connection, now, &history));
             }
             if !overlay_error.is_empty() { i.push_str(&format!("\n{overlay_error}\n")); }
             if now >= next_status {
@@ -451,6 +459,12 @@ fn start(module: HMODULE) -> Result<()> {
         }
     });
     Ok(())
+}
+fn record_notices(engine: &mut Engine, history: &mut overlay::History, logger: &mut Logger) {
+    for (at, text) in engine.take_notices() {
+        history.notice(at, &text);
+        logger.info("request", &text);
+    }
 }
 unsafe extern "system" fn worker(module: *mut c_void) -> u32 {
     let result = std::panic::catch_unwind(|| start(module));

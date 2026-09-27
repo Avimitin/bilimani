@@ -72,7 +72,7 @@ pub struct Engine {
     cooldowns: HashMap<String, u64>,
     in_flight: Option<Jump>,
     next_token: u64,
-    diagnostics: VecDeque<String>,
+    diagnostics: VecDeque<(u64, String)>,
     skipped_before_jump: Option<String>,
 }
 impl Engine {
@@ -173,7 +173,7 @@ impl Engine {
     }
     pub fn notice(&mut self, now: u64, message: impl Into<String>) {
         let message = message.into();
-        self.diagnostics.push_back(message.clone());
+        self.diagnostics.push_back((now, message.clone()));
         if self.diagnostics.len() > 2048 {
             self.diagnostics.pop_front();
         }
@@ -183,6 +183,9 @@ impl Engine {
         }
     }
     pub fn take_diagnostics(&mut self) -> impl Iterator<Item = String> + '_ {
+        self.take_notices().map(|(_, text)| text)
+    }
+    pub fn take_notices(&mut self) -> impl Iterator<Item = (u64, String)> + '_ {
         self.diagnostics.drain(..)
     }
     pub fn activity(&self) -> &'static str {

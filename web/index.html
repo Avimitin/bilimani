@@ -17,16 +17,24 @@
           <div id="current-content"></div>
           <div class="time-track"><span id="current-progress"></span></div>
         </section>
+        <div id="pending-area" hidden>
+          <div id="pending-list"></div>
+          <div id="pending-page" class="page-note" hidden></div>
+        </div>
         <header class="panel-heading"><h2>接下来</h2><span id="queue-count" class="count-label">00 <span>/ 20</span></span></header>
-        <ol id="queue-list" class="queue-list"></ol>
-        <div id="queue-empty" class="empty-state">队列为空</div>
-        <div id="queue-more" class="overflow-note" hidden></div>
+        <div id="queue-body">
+          <ol id="queue-list" class="queue-list"></ol>
+          <div id="queue-empty" class="empty-state">队列为空</div>
+        </div>
+        <div id="queue-more" class="overflow-note"></div>
       </section>
-      <aside id="queue-popup" class="panel popup" aria-label="点歌交互提示" hidden>
+      <aside id="activity-panel" class="panel activity-panel" aria-label="弹幕与点歌事件">
+        <header class="panel-heading"><h2>弹幕与事件</h2><span id="feed-count" class="count-label">0 / 10</span></header>
         <div class="connection-banner" role="status" hidden></div>
-        <div id="pending-list"></div>
-        <div id="pending-page" class="page-note" hidden></div>
-        <div id="notices" class="notices" aria-live="polite"></div>
+        <div class="feed-body">
+          <ol id="activity-list" class="activity-list" aria-live="polite" aria-relevant="additions"></ol>
+          <div id="feed-empty" class="empty-state">等待弹幕与点歌事件</div>
+        </div>
       </aside>
     </div>
   </main>

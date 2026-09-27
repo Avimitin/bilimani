@@ -5,7 +5,7 @@ use chart_requester::{
     engine::{Chat, Engine, Phase, Snapshot},
     game::Song,
     games::iidx,
-    overlay::{Server, StaticFiles, snapshot},
+    overlay::{History, Server, StaticFiles, snapshot},
 };
 use std::{collections::BTreeMap, path::PathBuf};
 struct StaticFixture {
@@ -39,6 +39,78 @@ fn connection(text: &str) -> Connection {
         connected: text == "弹幕已连接",
         text: text.into(),
     }
+}
+
+#[test]
+fn mixed_history_keeps_order_duplicates_and_survives_notice_expiry() {
+    let mut history = History::default();
+    let mut engine = Engine::new(
+        Config::default(),
+        Catalog::new(
+            vec![Song {
+                id: 1,
+                title: "AA".into(),
+                search_terms: vec![],
+                charts: iidx::available_charts([4; 10]),
+            }],
+            &BTreeMap::new(),
+        )
+        .unwrap(),
+        &iidx::RULES,
+    );
+    let chat = Chat {
+        user: "private-sender-id".into(),
+        name: "观众\n甲".into(),
+        text: "晚上好！".into(),
+    };
+    history.chat(&chat, 1);
+    assert_eq!(engine.chat(chat, 1), "ignored_not_a_request");
+    // Identical notices in the same second are separate arrivals, not duplicates.
+    engine.notice(1, "已加入队列");
+    engine.notice(1, "已加入队列");
+    for (at, text) in engine.take_notices() {
+        history.notice(at, &text);
+    }
+    assert_eq!(engine.take_notices().count(), 0);
+    engine.expire(1000);
+    let state = snapshot(Some(&engine), &connection("弹幕已连接"), 1000, &history);
+    assert!(state["notices"].as_array().unwrap().is_empty());
+    assert_eq!(state["feed_limit"], 10);
+    let feed = state["feed"].as_array().unwrap();
+    assert_eq!(feed.len(), 3);
+    assert_eq!(feed[0]["kind"], "chat");
+    assert_eq!(feed[0]["name"], "观众甲");
+    assert_eq!(feed[0]["text"], "晚上好！");
+    assert_eq!(feed[1]["kind"], "event");
+    assert_ne!(feed[1]["id"], feed[2]["id"]);
+    assert!(!state.to_string().contains("private-sender-id"));
+    // Ordinary chat is also available before the game catalog exists.
+    assert_eq!(
+        snapshot(None, &connection("等待曲库"), 2000, &history)["feed"],
+        state["feed"]
+    );
+}
+
+#[test]
+fn history_drops_oldest_on_overflow_resize_and_profile_clear() {
+    let mut history = History::default();
+    for i in 1..=11 {
+        history.notice(0, &format!("事件 {i}"));
+    }
+    let read =
+        |history: &History| snapshot(None, &connection("弹幕已连接"), 0, history)["feed"].clone();
+    let feed = read(&history);
+    assert_eq!(feed.as_array().unwrap().len(), 10);
+    assert_eq!(feed[0]["text"], "事件 2");
+    assert_eq!(feed[9]["text"], "事件 11");
+    history.set_limit(3);
+    assert_eq!(read(&history)[0]["text"], "事件 9");
+    history.set_limit(10);
+    assert_eq!(read(&history).as_array().unwrap().len(), 3); // Evicted entries do not reappear.
+    history.clear();
+    assert!(read(&history).as_array().unwrap().is_empty());
+    history.notice(0, "另一个直播间");
+    assert_eq!(read(&history)[0]["id"], 12);
 }
 
 #[test]
@@ -88,7 +160,12 @@ fn public_snapshot_preserves_choices_and_timers_without_credentials_or_sender_id
     );
     let jump = engine.next_jump(10).unwrap();
     engine.jump_result(jump.request.token, Some(Ok(())), 10);
-    let state = snapshot(Some(&engine), &connection("弹幕已连接"), 20);
+    let state = snapshot(
+        Some(&engine),
+        &connection("弹幕已连接"),
+        20,
+        &History::default(),
+    );
     assert_eq!(state["current"]["title"], "冥");
     assert_eq!(state["current"]["chart"], "SPA");
     assert_eq!(state["current"]["chart_style"], "red");
@@ -119,7 +196,7 @@ async fn serves_static_assets_live_snapshots_and_releases_port_on_shutdown() {
     let mut server = Server::start(
         0,
         &files.public,
-        &snapshot(None, &connection("等待弹幕连接"), 0),
+        &snapshot(None, &connection("等待弹幕连接"), 0, &History::default()),
     )
     .await
     .unwrap();
@@ -164,7 +241,7 @@ async fn serves_static_assets_live_snapshots_and_releases_port_on_shutdown() {
             .status(),
         404
     );
-    let updated = snapshot(None, &connection("新连接状态"), 1);
+    let updated = snapshot(None, &connection("新连接状态"), 1, &History::default());
     server.publish(&updated);
     assert_eq!(
         client
@@ -436,13 +513,20 @@ fn old_configs_enable_overlay_and_invalid_ports_are_rejected() {
     let config: Config = toml::from_str("").unwrap();
     assert!(config.overlay.enabled);
     assert_eq!(config.overlay.port, 32133);
+    assert_eq!(config.overlay.history_limit, 10);
     assert_eq!(
         config.overlay.static_dir,
         PathBuf::from("chart_request_static")
     );
     let old: Config = toml::from_str("[overlay]\nenabled = true\nport = 32133").unwrap();
     assert_eq!(old.overlay.static_dir, config.overlay.static_dir);
+    assert_eq!(old.overlay.history_limit, 10);
     let mut invalid = config;
+    for limit in [0, 101] {
+        invalid.overlay.history_limit = limit;
+        assert!(invalid.validate().is_err());
+    }
+    invalid.overlay.history_limit = 10;
     invalid.overlay.port = 0;
     assert!(invalid.validate().is_err());
     invalid.overlay.port = 32133;
