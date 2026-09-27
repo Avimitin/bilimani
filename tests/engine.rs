@@ -84,6 +84,59 @@ fn picking_a_queued_song_preserves_order_until_ack_and_replaces_current_on_succe
 }
 
 #[test]
+fn stream_switch_clears_requests_candidates_cooldowns_and_ignores_late_native_results() {
+    use chart_requester::{
+        gui::{View, record_chat, record_processing},
+        profiles::{ActiveStream, CardId, StreamProfile},
+    };
+    let mut e = engine();
+    chat(&mut e, "a", "点歌 冥", 0);
+    let playing = jump(&mut e, 0);
+    chat(&mut e, "b", "点歌 雪月花", 1);
+    let token = e.queue[0].token;
+    let old_jump = e.select_queued(token, 1).unwrap();
+    chat(&mut e, "c", "点歌 AA", 1);
+    assert!(!e.pending.is_empty());
+    let mut config = Config::default();
+    let card = CardId::parse("E0040123456789AB").unwrap();
+    let mut profile = StreamProfile::new(card.clone());
+    profile.bilibili.auth_code = "fixture-only".into();
+    config.profiles.push(profile);
+    let mut active = ActiveStream::new(&config);
+    let mut view = View::new(config.clone());
+    let old_chat = Chat {
+        user: "old".into(),
+        name: "old".into(),
+        text: "old room".into(),
+    };
+    record_chat(&mut view.chats, &old_chat, 1);
+    record_processing(&mut view.processing, &old_chat, "enqueued", 1);
+    view.update_engine(Some(&e));
+    view.player_card = Some(card);
+    assert!(
+        view.sync_stream(&config, &mut active, Some(&mut e))
+            .unwrap()
+            .profile_changed
+    );
+    assert!(
+        e.current.is_none() && e.queue.is_empty() && e.pending.is_empty() && e.messages.is_empty()
+    );
+    assert!(
+        view.current.is_none()
+            && view.queue.is_empty()
+            && view.chats.is_empty()
+            && view.processing.is_empty()
+    );
+    chat(&mut e, "a", "点歌 冥", 2); // Previous room's cooldown is gone.
+    let fresh = e.queue[0].token;
+    assert!(fresh > token && token > playing);
+    e.jump_result(old_jump.request.token, Some(Ok(())), 2);
+    assert!(e.current.is_none());
+    assert_eq!(e.queue[0].token, fresh);
+    assert!(e.select_queued(fresh, 1).is_some());
+}
+
+#[test]
 fn picking_a_queued_song_rejects_stale_scene_mode_and_inflight_requests() {
     let mut e = engine();
     chat(&mut e, "a", "点歌 冥", 0);

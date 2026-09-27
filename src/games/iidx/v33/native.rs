@@ -67,6 +67,12 @@ pub fn configure_controls(config: Controls) {
     MAILBOX.lock().unwrap().taps.reset();
 }
 
+pub fn player_card() -> Option<crate::profiles::CardId> {
+    super::player::snapshot(ADAPTER.get()?.base, read_memory)
+        .ok()
+        .flatten()
+}
+
 /// Read-only diagnostics. Native callbacks update counters; disk IO stays on the worker.
 pub fn diagnostics() -> String {
     let slots_intact = ADAPTER.get().is_some_and(|a| {
@@ -144,6 +150,9 @@ pub fn install(image: ModuleImage) -> Result<()> {
         (0x9493e0, "85c9781783f90273124863c1488d0dbd"),
         (0x806f60, "4883ec28e8f7feffff85c07517e84eff"),
         (0xa7a2f0, "48894c24085553565741544155415641"),
+        (0x5c4480, "833d614caf00007411833d5c4caf0000"),
+        (0x5ad900, "48895c240848896c2410488974241857"),
+        (0x5ad8a0, "4883ec28e8d76b010085c075484863c9"),
     ] {
         ensure!(
             read_memory(base + rva, 16)? == hex::decode(expected)?,

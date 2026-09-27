@@ -38,12 +38,26 @@
   current song. Failed/cancelled manual picks preserve the queue and current song.
   Automatic jumps wait while the panel is open; gameplay closes the panel.
 - Apply/save validates aliases, output paths and the new HTTP listener before an
-  SQLite transaction. Existing requests/deadlines survive. Connection changes
+  SQLite transaction. Existing requests/deadlines survive within the same profile. Connection changes
   stop the old transport before starting the new one. Native module/catalog settings
   can be edited in the GUI but take effect after restart. Concurrent database
   updates require an explicit refresh before saving. JSON import only stages a
   draft; apply uses the same validation. Export includes credentials, excludes
   unsaved edits/chat/queue, and refuses to overwrite an existing file.
+- A global stream profile serves unbound cards, guests and ambiguous two-player
+  contexts. A logged-in unbound player can create a room from the panel; saving
+  binds its settings to that card. Profiles support names, multiple cards, removal
+  and deletion. Duplicate card assignments are rejected. Edits are drafts until
+  saved; login-bound saves reject a changed login. Selecting a profile to edit
+  does not change the active connection. Profile switches cancel pending native
+  selections and clear queue/current/pending/cooldowns/chat/processing history;
+  monotonic tokens reject late acknowledgements. Cards sharing a profile do not
+  clear state or reconnect. SQLite v1 migrates to v2; JSON backups include all
+  profiles/cards and accept the previous version. Card IDs remain outside OBS.
+- The control panel header displays the active room's anchor, title and connection
+  state on one line. Long titles truncate with a full-text tooltip. Metadata refreshes
+  every minute alongside the socket; failures preserve the last known information
+  and do not block chat. Source changes clear old metadata and discard late events.
 - Current request expires 600 seconds after a successful jump, configurable.
   Expiration can advance while still in song select; never jump during gameplay.
 - Separate UTF-8 OBS files for current/waiting requests and interactions.

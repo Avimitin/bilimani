@@ -1,6 +1,6 @@
 //! Rust port of the protocol used by xfgryujk/blivedm and blivechat.
 //! See THIRD-PARTY-NOTICES.md for upstream licenses and source revisions.
-use super::{Chat, ChatSource, Connection, Event};
+use super::{Chat, ChatSource, Connection, Event, RoomInfo};
 use crate::config::Bilibili;
 use anyhow::{Context, Result, bail, ensure};
 use futures_util::{SinkExt, StreamExt};
@@ -204,6 +204,7 @@ struct Session {
     urls: Vec<String>,
     auth: String,
     game_id: Option<String>,
+    room: RoomInfo,
 }
 struct Client {
     cfg: Bilibili,
@@ -369,6 +370,11 @@ impl Client {
                 urls,
                 auth,
                 game_id: Some(game_id.clone()),
+                room: RoomInfo {
+                    room_id: d["anchor_info"]["room_id"].as_u64().unwrap_or(0),
+                    name: room_text(d["anchor_info"]["uname"].as_str().unwrap_or("")),
+                    title: String::new(),
+                },
             })
         })();
         if parsed.is_err() {
@@ -384,6 +390,26 @@ impl Client {
             .get(url)
             .header("Referer", "https://live.bilibili.com/")
             .header("Cookie", cookie)
+    }
+    async fn room_title(&self, room_id: u64) -> Result<String> {
+        let data = read_api(
+            self.web_get("https://api.live.bilibili.com/room/v1/Room/get_info")
+                .query(&[("room_id", room_id)])
+                .send()
+                .await?,
+        )
+        .await?;
+        parse_room_title(&data, room_id)
+    }
+    async fn room_name(&self, room_id: u64) -> Result<String> {
+        let data = read_api(
+            self.web_get("https://api.live.bilibili.com/live_user/v1/UserInfo/get_anchor_in_room")
+                .query(&[("roomid", room_id)])
+                .send()
+                .await?,
+        )
+        .await?;
+        parse_room_name(&data)
     }
     async fn start_web(&self) -> Result<Session> {
         ensure!(self.cfg.room_id > 0, "Set bilibili.room_id for web mode");
@@ -446,7 +472,79 @@ impl Client {
             urls,
             auth,
             game_id: None,
+            room: RoomInfo {
+                room_id,
+                name: String::new(),
+                title: room_text(room["title"].as_str().unwrap_or("")),
+            },
         })
+    }
+}
+fn room_text(text: &str) -> String {
+    text.chars()
+        .filter(|c| !c.is_control())
+        .take(256)
+        .collect::<String>()
+        .trim()
+        .to_owned()
+}
+fn parse_room_title(data: &Value, room_id: u64) -> Result<String> {
+    ensure!(
+        data["room_id"].as_u64() == Some(room_id) && room_id > 0,
+        "Unexpected room ID"
+    );
+    Ok(room_text(
+        data["title"].as_str().context("Missing room title")?,
+    ))
+}
+fn parse_room_name(data: &Value) -> Result<String> {
+    let name = room_text(
+        data["info"]["uname"]
+            .as_str()
+            .context("Missing anchor name")?,
+    );
+    ensure!(!name.is_empty(), "Empty anchor name");
+    Ok(name)
+}
+// Run alongside the socket and drop this future when that session ends. Slow or
+// unavailable metadata must never hold up authentication, heartbeats or chat.
+async fn watch_room(client: &Client, initial: &RoomInfo, tx: &mpsc::Sender<Event>) {
+    let mut room = initial.clone();
+    if room.room_id == 0 {
+        std::future::pending::<()>().await;
+    }
+    if tx.send(Event::RoomInfo(room.clone())).await.is_err() {
+        return;
+    }
+    let mut refresh = tokio::time::interval(Duration::from_secs(60));
+    refresh.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    loop {
+        refresh.tick().await;
+        let (title, name) = tokio::join!(
+            client.room_title(room.room_id),
+            client.room_name(room.room_id)
+        );
+        let mut next = room.clone();
+        match title {
+            Ok(title) => next.title = title,
+            Err(e) => diagnostic(
+                tx,
+                format!("room_title_unavailable reason={}", failure_reason(&e)),
+            ),
+        }
+        match name {
+            Ok(name) => next.name = name,
+            Err(e) => diagnostic(
+                tx,
+                format!("room_name_unavailable reason={}", failure_reason(&e)),
+            ),
+        }
+        if next != room {
+            if tx.send(Event::RoomInfo(next.clone())).await.is_err() {
+                return;
+            }
+            room = next;
+        }
     }
 }
 async fn read_api(response: reqwest::Response) -> Result<Value> {
@@ -580,15 +678,10 @@ pub async fn run(cfg: Bilibili, tx: mpsc::Sender<Event>, mut stop: watch::Receiv
                     format!("session_created websocket_endpoints={}", session.urls.len()),
                 );
                 let began = Instant::now();
-                let result = socket_session(
-                    &client,
-                    &session,
-                    retries as usize,
-                    &tx,
-                    &mut stop,
-                    &mut dedup,
-                )
-                .await;
+                let result = tokio::select! {
+                    result = socket_session(&client, &session, retries as usize, &tx, &mut stop, &mut dedup) => result,
+                    _ = watch_room(&client, &session.room, &tx) => Ok(()),
+                };
                 if let Some(id) = &session.game_id {
                     let ended = client
                         .api("end", json!({"app_id":client.cfg.app_id,"game_id":id}))
@@ -703,6 +796,23 @@ async fn socket_session(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn room_metadata_validates_identity_and_limits_display_text() {
+        // Public get_info/get_anchor_in_room wire shapes (the room ID is canonical).
+        let data = json!({"room_id":7734200,"short_id":6,"title":" IIDX 点歌\n练习\t "});
+        assert_eq!(parse_room_title(&data, 7734200).unwrap(), "IIDX 点歌练习");
+        assert!(parse_room_title(&data, 6).is_err());
+        assert!(parse_room_title(&json!({"room_id":7734200}), 7734200).is_err());
+        assert!(parse_room_title(&json!({"room_id":0,"title":""}), 0).is_err());
+        assert_eq!(
+            parse_room_name(&json!({"info":{"uname":" 主播名字 "}})).unwrap(),
+            "主播名字"
+        );
+        assert!(parse_room_name(&json!({"info":{"uname":"\n"}})).is_err());
+        assert!(parse_room_name(&json!({"uname":"wrong nesting"})).is_err());
+        assert_eq!(room_text(&"歌".repeat(1024)).chars().count(), 256);
+    }
 
     #[test]
     fn public_relay_uses_api_hosts_and_preserves_custom_or_direct_access() {
@@ -864,6 +974,7 @@ mod tests {
                 urls: vec![format!("ws://{address}")],
                 auth: "{\"test\":true}".into(),
                 game_id: None,
+                room: RoomInfo::default(),
             };
             socket_session(
                 &client,

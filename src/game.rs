@@ -116,6 +116,8 @@ pub enum Navigation {
 }
 #[derive(Default)]
 pub struct GameUpdate {
+    /// Confirmed logged-in card, absent for guests/ambiguous player context.
+    pub player_card: Option<crate::profiles::CardId>,
     pub snapshot: Snapshot,
     /// Monotonic counter: do not miss a short gameplay transition between polls.
     pub plays: u64,
@@ -128,6 +130,7 @@ pub struct GameUpdate {
 }
 
 pub trait GameAdapter: Send + Sync {
+    fn cancel_selection(&self) {}
     fn set_menu_open(&self, _open: bool) {}
     fn configure_controls(&self, _controls: &crate::config::Controls) {}
     fn rules(&self) -> &'static dyn GameRules;

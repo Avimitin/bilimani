@@ -76,6 +76,18 @@ pub struct Engine {
     skipped_before_jump: Option<String>,
 }
 impl Engine {
+    /// A different stream must not inherit requests, cooldowns or acknowledgements.
+    /// Keep monotonically increasing tokens so a late native result stays stale.
+    pub fn clear_stream(&mut self) {
+        self.queue.clear();
+        self.current = None;
+        self.pending.clear();
+        self.messages.clear();
+        self.cooldowns.clear();
+        self.in_flight = None;
+        self.diagnostics.clear();
+        self.skipped_before_jump = None;
+    }
     pub fn remove_queued(&mut self, token: u64, now: u64) -> bool {
         if self
             .in_flight

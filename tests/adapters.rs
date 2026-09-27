@@ -94,6 +94,7 @@ impl GameAdapter for FakeGame {
     fn poll(&self) -> GameUpdate {
         let mut s = self.0.lock().unwrap();
         GameUpdate {
+            player_card: None,
             snapshot: s.snapshot,
             plays: s.plays,
             selection_result: s.result.take(),

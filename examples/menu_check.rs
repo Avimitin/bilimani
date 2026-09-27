@@ -17,7 +17,27 @@ fn main() -> anyhow::Result<()> {
         .map(PathBuf::from)
         .unwrap_or_else(|| "analysis/menu-preview".into());
     std::fs::create_dir_all(&output)?;
-    let view = support::fixture();
+    let screen_size = if std::env::args().any(|arg| arg == "--narrow") {
+        egui::vec2(900.0, 720.0)
+    } else {
+        egui::vec2(1280.0, 800.0)
+    };
+    let mut view = support::fixture();
+    if std::env::args().any(|arg| arg == "--profiles") {
+        use chart_requester::profiles::{CardId, StreamProfile};
+        let card = CardId::parse("E0040123456789AB")?;
+        let mut profile = StreamProfile::new(card.clone());
+        profile.name = "主播的直播间".into();
+        profile.bilibili.auth_code = "preview-only".into();
+        profile.cards.push(CardId::parse("E0040123456789CD")?);
+        view.player_card = Some(card);
+        view.active_profile = profile.id.clone();
+        view.config.profiles.push(profile);
+        if std::env::args().any(|arg| arg == "--unbound") {
+            view.player_card = Some(CardId::parse("E0040123456789EF")?);
+            view.active_profile = chart_requester::profiles::GLOBAL.into();
+        }
+    }
     let fonts = menu::fonts();
     let (bridge, _rx) = Bridge::new(view.clone(), fonts.clone());
     bridge.visible.store(true, Ordering::Release);
@@ -82,10 +102,7 @@ fn main() -> anyhow::Result<()> {
             for frame in 0..20 {
                 let result = context.run_ui(
                     egui::RawInput {
-                        screen_rect: Some(egui::Rect::from_min_size(
-                            egui::Pos2::ZERO,
-                            egui::vec2(1280.0, 800.0),
-                        )),
+                        screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, screen_size)),
                         time: Some((index * 20 + frame) as f64 / 60.0),
                         ..Default::default()
                     },

@@ -1,6 +1,6 @@
 //! SQLite persistence; game/render code only sees owned configuration values.
 //! All mutations are transactional and compare persistent revisions.
-use crate::{config::Config, output::resolved_output};
+use crate::{config::Config, output::resolved_output, profiles::StreamProfile};
 use anyhow::{Context, Result, ensure};
 use rusqlite::{Connection, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
@@ -10,7 +10,7 @@ use std::{
     time::Duration,
 };
 
-const SCHEMA: i64 = 1;
+const SCHEMA: i64 = 2;
 const APPLICATION_ID: i64 = 0x43525153;
 const MAX_IMPORT_BYTES: u64 = 4 * 1024 * 1024;
 
@@ -54,6 +54,7 @@ impl Store {
         let version: i64 = tx.query_row("PRAGMA user_version", [], |r| r.get(0))?;
         let application: i64 = tx.query_row("PRAGMA application_id", [], |r| r.get(0))?;
         ensure!(version <= SCHEMA, "配置数据库来自更新版本，请升级插件");
+        let mut initial_profiles = Vec::new();
         if version == 0 {
             let tables: i64 = tx.query_row(
                 "SELECT count(*) FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'",
@@ -91,14 +92,32 @@ impl Store {
                 [source],
             )?;
             tx.execute("INSERT INTO settings VALUES (1, 0, 1, ?1)", [global])?;
+            initial_profiles = raw.profiles;
             tx.pragma_update(None, "application_id", APPLICATION_ID)?;
-            tx.pragma_update(None, "user_version", SCHEMA)?;
         } else {
             ensure!(
                 application == APPLICATION_ID,
                 "该文件不是 chart-requester 配置数据库"
             );
         }
+        if version < 2 {
+            tx.execute_batch(
+                "ALTER TABLE stream_profiles ADD COLUMN profile_key TEXT;
+                 CREATE UNIQUE INDEX profile_keys ON stream_profiles(profile_key);
+                 UPDATE stream_profiles SET profile_key = 'global', name = '全局档案'
+                    WHERE id = (SELECT default_profile FROM settings WHERE id = 1);
+                 CREATE TABLE stream_cards (
+                    card_id TEXT PRIMARY KEY,
+                    profile_id INTEGER NOT NULL REFERENCES stream_profiles(id) ON DELETE CASCADE
+                 );",
+            )?;
+            tx.pragma_update(None, "user_version", SCHEMA)?;
+        }
+        if !initial_profiles.is_empty() {
+            write_profiles(&tx, &initial_profiles)?;
+        }
+        // Validate inside the migration transaction, so corrupt input rolls it back.
+        read_config(&tx)?;
         tx.commit()?;
         let (raw, revision) = read(&connection)?;
         Ok(Self {
@@ -180,6 +199,7 @@ impl Store {
         let revision = if prepared.save {
             let (global, source) = encode(&prepared.raw)?;
             tx.execute("UPDATE stream_profiles SET settings = ?1 WHERE id = (SELECT default_profile FROM settings WHERE id = 1)", [source])?;
+            write_profiles(&tx, &prepared.raw.profiles)?;
             let expected = i64::try_from(prepared.expected)?;
             ensure!(expected < i64::MAX, "配置版本号已超出范围");
             tx.execute("UPDATE settings SET settings = ?1, revision = revision + 1 WHERE id = 1 AND revision = ?2", params![global, expected])?;
@@ -225,7 +245,7 @@ impl Store {
             )
         })?;
         ensure!(
-            backup.format == "chart-requester" && backup.version == 1,
+            backup.format == "chart-requester" && matches!(backup.version, 1 | 2),
             "不支持的 JSON 备份格式或版本"
         );
         backup.config.validate()?;
@@ -238,7 +258,7 @@ impl Store {
         let (config, _) = read(&self.connection)?;
         let bytes = serde_json::to_vec_pretty(&Backup {
             format: "chart-requester".into(),
-            version: 1,
+            version: 2,
             config,
         })?;
         ensure!(
@@ -270,16 +290,38 @@ fn revision_of(connection: &Connection) -> Result<u64> {
         })?;
     Ok(u64::try_from(revision)?)
 }
+fn write_profiles(connection: &Connection, profiles: &[StreamProfile]) -> Result<()> {
+    connection.execute("DELETE FROM stream_profiles WHERE id != (SELECT default_profile FROM settings WHERE id = 1)", [])?;
+    for profile in profiles {
+        connection.execute("INSERT INTO stream_profiles (name, platform, settings, profile_key) VALUES (?1, 'bilibili', ?2, ?3)",
+            params![profile.name, serde_json::to_string(&profile.bilibili)?, profile.id])?;
+        let profile_id = connection.last_insert_rowid();
+        for card in &profile.cards {
+            connection.execute(
+                "INSERT INTO stream_cards (card_id, profile_id) VALUES (?1, ?2)",
+                params![card.as_str(), profile_id],
+            )?;
+        }
+    }
+    Ok(())
+}
 fn encode(config: &Config) -> Result<(String, String)> {
     let mut global = serde_json::to_value(config)?;
     let source = global.as_object_mut().unwrap().remove("bilibili").unwrap();
+    global.as_object_mut().unwrap().remove("profiles");
     Ok((
         serde_json::to_string(&global)?,
         serde_json::to_string(&source)?,
     ))
 }
 fn read(connection: &Connection) -> Result<(Config, u64)> {
-    // A single SELECT gives an internally consistent snapshot across both tables.
+    let tx = connection.unchecked_transaction()?;
+    let result = read_config(&tx)?;
+    tx.commit()?;
+    Ok(result)
+}
+fn read_config(connection: &Connection) -> Result<(Config, u64)> {
+    // Caller holds a transaction across settings, profiles and card bindings.
     let (global, source, platform, revision): (String, String, String, i64) = connection.query_row(
         "SELECT s.settings, p.settings, p.platform, s.revision FROM settings s JOIN stream_profiles p ON p.id = s.default_profile WHERE s.id = 1",
         [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?;
@@ -292,7 +334,35 @@ fn read(connection: &Connection) -> Result<(Config, u64)> {
             .insert("bilibili".into(), serde_json::from_str(&source)?);
         Ok(serde_json::from_value(value)?)
     };
-    let config = parse().map_err(|_| anyhow::anyhow!("配置数据库内容无效，原文件保持不变"))?;
+    let mut config = parse().map_err(|_| anyhow::anyhow!("配置数据库内容无效，原文件保持不变"))?;
+    let mut query = connection.prepare("SELECT id, profile_key, name, platform, settings FROM stream_profiles WHERE id != (SELECT default_profile FROM settings WHERE id = 1) ORDER BY id")?;
+    let rows = query.query_map([], |r| {
+        Ok((
+            r.get::<_, i64>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, String>(2)?,
+            r.get::<_, String>(3)?,
+            r.get::<_, String>(4)?,
+        ))
+    })?;
+    for row in rows {
+        let (sql_id, id, name, platform, settings) = row?;
+        ensure!(platform == "bilibili", "数据库包含当前版本不支持的直播平台");
+        let mut cards_query = connection
+            .prepare("SELECT card_id FROM stream_cards WHERE profile_id = ?1 ORDER BY rowid")?;
+        let cards = cards_query
+            .query_map([sql_id], |r| r.get::<_, String>(0))?
+            .map(|r| crate::profiles::CardId::parse(&r?))
+            .collect::<Result<Vec<_>>>()?;
+        let bilibili =
+            serde_json::from_str(&settings).map_err(|_| anyhow::anyhow!("直播档案内容无效"))?;
+        config.profiles.push(StreamProfile {
+            id,
+            name,
+            cards,
+            bilibili,
+        });
+    }
     config.validate()?;
     Ok((config, u64::try_from(revision)?))
 }

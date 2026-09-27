@@ -152,6 +152,19 @@ JSON round trips, rejected backups, deferred game settings, path validation, fuz
 alias filtering, chat bounds and rendering every page. Engine tests cover stale
 deletes, in-flight protection and preserving native search terms during alias updates.
 
+Stream profiles use SQLite schema 2 and JSON backup version 2. `tests/stream_profiles.rs`
+covers schema 1 migration, atomic profile/card saves, conflicting revisions, backup
+compatibility and global fallback. Engine tests cover queue/candidate/cooldown clearing
+and late native acknowledgements when switching profiles. GUI tests exercise creating
+a card-bound draft with controller input and a busy command channel. The standalone
+live preview has no logged-in game card and therefore uses the global connection.
+
+Render the personal-profile page with `cargo run --example menu_check -- analysis/menu-profiles --profiles`;
+add `--unbound` to show the creation entry point. These fixtures use synthetic cards and
+do not connect to live rooms. `py scripts/smoke-dll.py --profiles` tests actual DLL card
+polling and profile switching in its private mapped game image, without executing game
+code. Real card login/logout timing still needs an interactive game check.
+
 ## Bilibili connection
 
 The default **Open Live** mode follows blivechat: it sends the broadcaster identity
@@ -284,7 +297,7 @@ summary every 30 seconds. Adjust them on the GUI logging page.
   `enqueued`, rejection reasons, candidates and timeout/queue notices.
 - `[jump]`: submission token, song/chart and the game's acknowledgement.
 - `[input]`: enabled/window settings, eligible player side, SDK read status and
-  double-tap token/epoch/acceptance. No card IDs are read or logged.
+  double-tap token/epoch/acceptance. Card IDs are not logged.
 - `[status]` and `[game]`: connection status, received/handled counts, queue,
   pending/current requests, waiting reason, selection phase and callback counts.
   `handled` counts messages recognized as requests or pending selections,

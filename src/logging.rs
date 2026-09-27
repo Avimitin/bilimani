@@ -22,6 +22,18 @@ impl Logger {
     }
     pub fn new(root: &Path, config: &Config) -> Self {
         let mut secrets = config.source().redaction_secrets();
+        for profile in &config.profiles {
+            secrets.extend(
+                crate::platforms::SourceConfig::Bilibili(profile.bilibili.clone())
+                    .redaction_secrets(),
+            );
+            secrets.extend(
+                profile
+                    .cards
+                    .iter()
+                    .flat_map(|c| [c.as_str().to_owned(), c.as_str().to_ascii_lowercase()]),
+            );
+        }
         secrets.sort_by_key(|s| std::cmp::Reverse(s.len()));
         // Callers use Debug formatting for quoted chat fields; also redact its escaped form.
         let escaped: Vec<_> = secrets

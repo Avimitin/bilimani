@@ -11,6 +11,8 @@ pub struct Config {
     pub requests: Requests,
     pub output: Output,
     pub bilibili: Bilibili,
+    /// Card-bound connections; bilibili is the global fallback.
+    pub profiles: Vec<crate::profiles::StreamProfile>,
     pub game: Game,
     pub logging: Logging,
     pub overlay: Overlay,
@@ -237,6 +239,7 @@ impl Config {
         Ok(self)
     }
     pub fn validate(&self) -> Result<()> {
+        crate::profiles::validate(&self.profiles)?;
         ensure!(!self.game.module.trim().is_empty(), "游戏模块名称不能为空");
         ensure!(
             (100..=2000).contains(&self.controls.double_tap_ms),

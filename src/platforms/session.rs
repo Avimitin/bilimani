@@ -94,6 +94,13 @@ mod tests {
                 let _ = stop.changed().await;
                 tokio::time::sleep(Duration::from_millis(20)).await;
                 let _ = tx
+                    .send(Event::RoomInfo(super::super::RoomInfo {
+                        room_id: 123,
+                        name: "old anchor".into(),
+                        title: "must not appear in new profile".into(),
+                    }))
+                    .await;
+                let _ = tx
                     .send(Event::Chat(Chat {
                         user: "old room".into(),
                         name: String::new(),

@@ -162,7 +162,15 @@ impl Backend {
                     }
                     action => {
                         let prepared = match action {
-                            Action::Apply { config, revision } => {
+                            Action::Apply {
+                                config,
+                                revision,
+                                bind_card,
+                            } => {
+                                chart_requester::profiles::check_login(
+                                    bind_card.as_ref(),
+                                    view.player_card.as_ref(),
+                                )?;
                                 self.store.prepare(*config, revision, &executable)?
                             }
                             Action::Reload => self.store.reload(&executable)?,
@@ -176,6 +184,7 @@ impl Backend {
                         logger.reconfigure(&log_root, &next);
                         if reconnect {
                             network.replace(next.source());
+                            view.room = None;
                             view.connection = Connection {
                                 connected: false,
                                 text: "配置已更新，正在重新连接弹幕…".into(),
@@ -205,6 +214,7 @@ impl Backend {
                     break;
                 };
                 match event {
+                    Event::RoomInfo(room) => view.room = Some(room),
                     Event::Status(status) => {
                         logger.info("connection", &status.text);
                         self.engine.status = status.text.clone();

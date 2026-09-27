@@ -127,7 +127,11 @@ fn start(module: HMODULE) -> Result<()> {
                 }
             }
         } else { None };
-        let mut network = platforms::session::Session::new(config.source());
+        let mut active_stream = crate::profiles::ActiveStream::new(&config);
+        view.player_card = game.poll().player_card;
+        let initial_source = view.sync_stream(&config, &mut active_stream, None)
+            .map_or_else(|| config.source(), |change| change.source);
+        let mut network = platforms::session::Session::new(initial_source);
         let mut engine: Option<Engine> = None;
         let mut interval = tokio::time::interval(Duration::from_millis(100));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -182,7 +186,20 @@ fn start(module: HMODULE) -> Result<()> {
             }
             // Report game state even before the catalog becomes available.
             let update = game.poll();
-            let (snapshot, new_plays, ack, skip) = (update.snapshot, update.plays, update.selection_result, update.skip);
+            let (snapshot, new_plays, mut ack, skip) = (update.snapshot, update.plays, update.selection_result, update.skip);
+            view.player_card = update.player_card;
+            if let Some(change) = view.sync_stream(&config, &mut active_stream, engine.as_mut()) {
+                if change.profile_changed {
+                    game.cancel_selection();
+                    ack = None;
+                    plays = new_plays;
+                    if let Some((_, id)) = manual_selection.take() { view.reply = (id, "直播档案已切换，已取消选曲并清空队列".into()); }
+                    logger.info("profiles", &format!("Active stream profile changed id={}; queue and chat cleared", active_stream.id));
+                }
+                network.replace(change.source);
+                connection = view.connection.clone();
+                status = connection.text.clone();
+            }
             if update.toggle_menu {
                 if menu::available() { bridge.toggle(); }
                 else { logger.info("gui", "Cannot open menu: upgrade Spice2x to SDK v0.4 with D3D9 callbacks"); }
@@ -273,7 +290,10 @@ fn start(module: HMODULE) -> Result<()> {
                         }
                         action => {
                             let prepared = match action {
-                                Action::Apply { config, revision } => store.prepare(*config, revision, &path)?,
+                                Action::Apply { config, revision, bind_card } => {
+                                    crate::profiles::check_login(bind_card.as_ref(), view.player_card.as_ref())?;
+                                    store.prepare(*config, revision, &path)?
+                                },
                                 Action::Reload => store.reload(&path)?,
                                 _ => unreachable!(),
                             };
@@ -292,7 +312,6 @@ fn start(module: HMODULE) -> Result<()> {
                                 && next.overlay.static_dir != config.overlay.static_dir {
                                 Some(overlay::StaticFiles::open(&next.overlay.static_dir).await?)
                             } else { None };
-                            let source_changed = next.source() != config.source();
                             // A failed atomic save drops the prepared web server, leaving old state intact.
                             let next = store.commit(prepared)?;
                             if let Some(e) = engine.as_mut() {
@@ -310,19 +329,24 @@ fn start(module: HMODULE) -> Result<()> {
                             if next.output.interaction_path != config.output.interaction_path { interaction = TextFile::new(next.output.interaction_path.clone()); }
                             game.configure_controls(&next.controls);
                             logger.reconfigure(root, &next);
-                            if source_changed {
-                                network.replace(next.source());
-                                connection = Connection { connected: false, text: "配置已更新，正在重新连接弹幕…".into() };
-                                status = connection.text.clone();
-                                if let Some(e) = engine.as_mut() { e.status = status.clone(); }
-                            }
                             config = next;
                             view.config = store.raw.clone();
                             view.loaded_draft = Some(store.raw.clone());
                             view.revision = store.revision;
+                            let mut profile_changed = false;
+                            if let Some(change) = view.sync_stream(&config, &mut active_stream, engine.as_mut()) {
+                                profile_changed = change.profile_changed;
+                                if profile_changed {
+                                    game.cancel_selection();
+                                    manual_selection = None;
+                                }
+                                network.replace(change.source);
+                                connection = view.connection.clone();
+                                status = connection.text.clone();
+                            }
                             next_status = 0;
-                            logger.info("config", "Live configuration applied; queue preserved");
-                            Ok(if store.restart_required() { "配置已保存；游戏模块或曲库路径将在下次启动生效" } else { "配置已应用；现有队列保持不变" }.into())
+                            logger.info("config", "Live configuration applied");
+                            Ok(if store.restart_required() { "配置已保存；游戏模块或曲库路径将在下次启动生效" } else if profile_changed { "档案已保存并切换；已清空原直播间的点歌和弹幕" } else { "配置已应用；现有队列保持不变" }.into())
                         }
                     }
                 }.await;
@@ -337,6 +361,7 @@ fn start(module: HMODULE) -> Result<()> {
                     break;
                 };
                 match event {
+                    Event::RoomInfo(room) => view.room = Some(room),
                     Event::Status(s) => {
                         logger.info("connection", &s.text);
                         status = s.text.clone();

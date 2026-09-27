@@ -10,5 +10,6 @@ pub mod logging;
 pub mod output;
 pub mod overlay;
 pub mod platforms;
+pub mod profiles;
 #[cfg(windows)]
 mod runtime;

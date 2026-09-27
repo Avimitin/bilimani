@@ -20,6 +20,7 @@ import urllib.error
 root = pathlib.Path(__file__).resolve().parent.parent
 reject = "--reject" in sys.argv
 occupied_port = "--occupied-port" in sys.argv
+profiles = "--profiles" in sys.argv
 work = root / "analysis" / ("smoke-" + uuid.uuid4().hex)
 work.mkdir(parents=True)
 dll_path = work / "chart_requester.dll"
@@ -37,6 +38,11 @@ else:
 config = config.replace("port = 32133", f"port = {overlay_port}")
 if reject:
     config = config.replace('module = "bm2dx.dll"', 'module = "kernel32.dll"')
+profile_ids = [str(uuid.uuid4()), str(uuid.uuid4())]
+if profiles:
+    assert not reject
+    for profile_id, cards in zip(profile_ids, [["E004012345678901", "E004012345678902"], ["E004012345678903"]]):
+        config += f'\n[[profiles]]\nid = "{profile_id}"\nname = "Smoke profile"\ncards = {json.dumps(cards)}\n[profiles.bilibili]\nenabled = false\nauth_code = "smoke-only-disabled"\n'
 (work / "chart-requester.toml").write_text(config, encoding="utf-8")
 
 kernel = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -61,11 +67,13 @@ while time.monotonic() < deadline:
 else:
     raise AssertionError("DLL worker did not initialize within 20 seconds")
 with sqlite3.connect(work / "chart-requester.db") as database:
-    assert database.execute("PRAGMA user_version").fetchone()[0] == 1
+    assert database.execute("PRAGMA user_version").fetchone()[0] == 2
     settings = json.loads(database.execute("SELECT settings FROM settings").fetchone()[0])
-    profile = json.loads(database.execute("SELECT settings FROM stream_profiles").fetchone()[0])
+    profile = json.loads(database.execute("SELECT p.settings FROM stream_profiles p JOIN settings s ON p.id = s.default_profile").fetchone()[0])
     assert settings["overlay"]["port"] == overlay_port
     assert "bilibili" not in settings and profile["enabled"] is False
+    if profiles:
+        assert database.execute("SELECT count(*) FROM stream_cards").fetchone()[0] == 3
 assert (work / "chart-requester.toml").read_text(encoding="utf-8") == config
 if reject:
     assert "Unsupported bm2dx.dll build" in text, text
@@ -90,6 +98,49 @@ else:
         hooked = ctypes.c_void_p.from_address(game + table + slot*8).value
         assert hooked != game+rva, f"Slot {slot} was not patched"
         assert abs(hooked-plugin._handle) < 0x4000000, "Hook is not inside plugin image"
+
+if profiles:
+    # Synthetic state in our private mapped image; never execute the game's code.
+    # Exercise the actual DLL worker's read-only card polling and routing.
+    def word(rva, value):
+        ctypes.c_uint32.from_address(game + rva).value = value
+
+    def wait_switches(count):
+        deadline = time.monotonic() + 4
+        while time.monotonic() < deadline:
+            text = logfile.read_text(encoding="utf-8")
+            lines = [line for line in text.splitlines() if "Active stream profile changed id=" in line]
+            if len(lines) >= count:
+                assert len(lines) == count, lines
+                return lines
+            time.sleep(0.05)
+        raise AssertionError(f"Profile transition {count} did not arrive")
+
+    word(0x10b90e8, 1)
+    word(0x10b90ec, 1)
+    word(0x6c11820, 0)
+    ctypes.c_ubyte.from_address(game + 0x312771e).value = 1
+    ctypes.c_uint64.from_address(game + 0x6c11808).value = 0xE004012345678901
+    word(0xacd79b0, 1)
+    assert f"id={profile_ids[0]};" in wait_switches(1)[-1]
+    ctypes.c_uint64.from_address(game + 0x6c11808).value = 0xE004012345678902
+    time.sleep(0.35)
+    assert len(wait_switches(1)) == 1  # Shared profile does not reconnect.
+    ctypes.c_uint64.from_address(game + 0x6c11808).value = 0xE004012345678903
+    assert f"id={profile_ids[1]};" in wait_switches(2)[-1]
+    word(0xacd79b0, 0)
+    assert "id=global;" in wait_switches(3)[-1]
+    # Same checks for a player joining on the right side.
+    stride = 0x3b103a0
+    word(0x6c11820 + stride, 0)
+    ctypes.c_ubyte.from_address(game + 0x312771e + stride).value = 1
+    ctypes.c_uint64.from_address(game + 0x6c11808 + stride).value = 0xE004012345678901
+    word(0xacd79b4, 1)
+    assert f"id={profile_ids[0]};" in wait_switches(4)[-1]
+    word(0x6c11820 + stride, 1)  # Guest flag overrides leftover card bytes.
+    assert "id=global;" in wait_switches(5)[-1]
+    assert "E0040123456789" not in logfile.read_text(encoding="utf-8")
+    print("PASS: DLL card routing, shared-profile cards, both sides, logout and guest fallback")
 
 # Simulate Spice's documented SDK initialization/shutdown callback ABI.
 destroy_callback = None

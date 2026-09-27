@@ -8,6 +8,7 @@ use crate::{
 use egui::{RichText, ScrollArea, TextEdit, Ui};
 pub mod design;
 mod live;
+mod streams;
 use nucleo_matcher::{
     Matcher, Utf32Str,
     pattern::{AtomKind, CaseMatching, Normalization, Pattern},
@@ -111,10 +112,13 @@ pub struct QueueRow {
 }
 #[derive(Clone)]
 pub struct View {
+    pub player_card: Option<crate::profiles::CardId>,
+    pub active_profile: String,
     pub config: Config,
     pub loaded_draft: Option<Config>,
     pub revision: u64,
     pub connection: Connection,
+    pub room: Option<crate::platforms::RoomInfo>,
     pub chats: VecDeque<ChatLine>,
     pub current: Option<QueueRow>,
     pub queue: Vec<QueueRow>,
@@ -124,12 +128,42 @@ pub struct View {
     pub processing: VecDeque<ProcessingLine>,
 }
 impl View {
+    pub fn sync_stream(
+        &mut self,
+        config: &Config,
+        active: &mut crate::profiles::ActiveStream,
+        engine: Option<&mut Engine>,
+    ) -> Option<crate::profiles::StreamChange> {
+        let change = active.update(config, self.player_card.as_ref())?;
+        self.active_profile = active.id.clone();
+        self.room = None;
+        self.connection = Connection {
+            connected: false,
+            text: "正在连接当前直播档案…".into(),
+        };
+        if change.profile_changed {
+            self.chats.clear();
+            self.processing.clear();
+            self.current = None;
+            self.queue.clear();
+        }
+        if let Some(engine) = engine {
+            if change.profile_changed {
+                engine.clear_stream();
+            }
+            engine.status = self.connection.text.clone();
+        }
+        Some(change)
+    }
     pub fn new(config: Config) -> Self {
         Self {
+            player_card: None,
+            active_profile: crate::profiles::GLOBAL.into(),
             config,
             loaded_draft: None,
             revision: 0,
             connection: Connection::waiting(),
+            room: None,
             chats: VecDeque::new(),
             current: None,
             queue: vec![],
@@ -164,13 +198,23 @@ impl View {
     }
 }
 pub enum Action {
-    Apply { config: Box<Config>, revision: u64 },
+    Apply {
+        config: Box<Config>,
+        revision: u64,
+        bind_card: Option<crate::profiles::CardId>,
+    },
     Reload,
     ImportJson(std::path::PathBuf),
     ExportJson(std::path::PathBuf),
     Remove(u64),
-    Select { token: u64, epoch: u64 },
-    Skip { token: u64, epoch: u64 },
+    Select {
+        token: u64,
+        epoch: u64,
+    },
+    Skip {
+        token: u64,
+        epoch: u64,
+    },
 }
 pub struct Command {
     pub id: u64,
@@ -252,6 +296,11 @@ const PAGES: [(Page, &str); 9] = [
     (Page::Data, "备份与恢复"),
 ];
 pub struct Menu {
+    profile: String,
+    observed_profile: String,
+    bind_card: Option<crate::profiles::CardId>,
+    card_input: String,
+    delete_profile: bool,
     pub page: Page,
     draft: Config,
     aliases: Vec<(u64, String, String)>,
@@ -329,6 +378,11 @@ impl Menu {
     }
     pub fn new(view: &View) -> Self {
         let mut menu = Self {
+            profile: view.active_profile.clone(),
+            observed_profile: view.active_profile.clone(),
+            bind_card: None,
+            card_input: String::new(),
+            delete_profile: false,
             page: Page::Live,
             draft: view.config.clone(),
             aliases: vec![],
@@ -352,6 +406,14 @@ impl Menu {
     fn reset(&mut self, view: &View) {
         self.draft = view.config.clone();
         self.revision = view.revision;
+        self.bind_card = None;
+        self.card_input.clear();
+        self.delete_profile = false;
+        if self.profile != crate::profiles::GLOBAL
+            && !self.draft.profiles.iter().any(|p| p.id == self.profile)
+        {
+            self.profile = view.active_profile.clone();
+        }
         self.aliases = self
             .draft
             .aliases
@@ -373,6 +435,12 @@ impl Menu {
     }
     pub fn show(&mut self, ctx: &egui::Context, bridge: &Bridge) {
         let view = bridge.snapshot();
+        if self.observed_profile != view.active_profile {
+            self.observed_profile = view.active_profile.clone();
+            if self.bind_card.is_none() {
+                self.profile = view.active_profile.clone();
+            }
+        }
         if self.revision != view.revision {
             self.reset(&view);
         }
@@ -432,6 +500,15 @@ impl Menu {
                         Heading::new("Chart Requester").h2().show(ui);
                         Text::new("直播控制台").caption().muted().show(ui);
                     });
+                    if view.player_card.is_some()
+                        && crate::profiles::for_card(&self.draft, view.player_card.as_ref())
+                            .is_none()
+                        && ui
+                            .add_enabled(self.pending.is_none(), egui::Button::new("创建新直播间"))
+                            .clicked()
+                    {
+                        self.create_profile(&view);
+                    }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if Button::new("")
                             .icon_left(icons::X)
@@ -456,6 +533,21 @@ impl Menu {
                             .on_hover_text(&view.connection.text);
                         if !view.ready {
                             Badge::new("等待曲库").warning().sm().show(ui);
+                        }
+                        if let Some(room) = &view.room {
+                            let name = if room.name.is_empty() {
+                                format!("直播间 {}", room.room_id)
+                            } else {
+                                room.name.clone()
+                            };
+                            let title = if room.title.is_empty() {
+                                "标题暂不可用"
+                            } else {
+                                &room.title
+                            };
+                            let text = format!("{name} · {title}");
+                            ui.add(egui::Label::new(&text).truncate().selectable(false))
+                                .on_hover_text(format!("{text}\n直播间 {}", room.room_id));
                         }
                     });
                 });
@@ -523,7 +615,16 @@ impl Menu {
                                         .show(ui, |ui| {
                                             Card::new().sm().show(ui, |ui| {
                                                 ui.set_min_width((ui.available_width()).max(360.0));
-                                                self.settings(ui, &view.connection, bridge);
+                                                self.settings(ui, &view, bridge);
+                                                // Keep keyboard/controller focus visible even in
+                                                // long profile lists and credential forms.
+                                                if let Some(response) = ui
+                                                    .memory(|m| m.focused())
+                                                    .and_then(|id| ui.ctx().read_response(id))
+                                                    .filter(|r| ui.min_rect().contains_rect(r.rect))
+                                                {
+                                                    response.scroll_to_me(None);
+                                                }
                                             });
                                         });
                                 }
@@ -548,6 +649,7 @@ impl Menu {
                                         Action::Apply {
                                             config: Box::new(self.draft.clone()),
                                             revision: self.revision,
+                                            bind_card: self.bind_card.clone(),
                                         },
                                     );
                                 }
@@ -585,7 +687,7 @@ impl Menu {
             bridge.visible.store(false, Ordering::Release);
         }
     }
-    fn settings(&mut self, ui: &mut Ui, connection: &Connection, bridge: &Bridge) {
+    fn settings(&mut self, ui: &mut Ui, view: &View, bridge: &Bridge) {
         match self.page {
             Page::Live => {}
             Page::Aliases => {
@@ -685,33 +787,7 @@ impl Menu {
                 ui.weak("新规则用于后续请求；已有队列、候选和倒计时继续保留。");
             }
             Page::Bilibili => {
-                Heading::new("直播连接").h2().show(ui);
-                Text::new(&connection.text)
-                    .caption()
-                    .muted()
-                    .wrap()
-                    .show(ui);
-                let c = &mut self.draft.bilibili;
-                toggle(ui, &mut c.enabled, "启用弹幕连接");
-                Text::new("连接方式").label().show(ui);
-                ui.horizontal(|ui| {
-                    ui.selectable_value(&mut c.mode, "open_live".into(), "主播身份码");
-                    ui.selectable_value(&mut c.mode, "web".into(), "直播间网页");
-                });
-                if c.mode == "open_live" {
-                    field(ui, "身份码", &mut c.auth_code, true);
-                    field(ui, "会话接口地址", &mut c.relay_url, false);
-                    ui.collapsing("自有开放平台应用（直连）", |ui| {
-                        number(ui, "App ID", &mut c.app_id, 0..=u64::MAX);
-                        field(ui, "Access Key ID", &mut c.access_key_id, true);
-                        field(ui, "Access Key Secret", &mut c.access_key_secret, true);
-                    });
-                } else {
-                    number(ui, "直播间号", &mut c.room_id, 0..=u64::MAX);
-                    field(ui, "SESSDATA", &mut c.sessdata, true);
-                    field(ui, "buvid3", &mut c.buvid3, true);
-                }
-                ui.weak("应用后自动关闭旧会话并重新连接，队列不清空。凭据始终隐藏显示。");
+                self.streams(ui, view);
             }
             Page::Output => {
                 Heading::new("OBS 显示").h2().show(ui);
@@ -968,6 +1044,8 @@ mod controller_tests {
         for _ in 3..PAGES.len() {
             frame(&mut menu, &ctx, &bridge, Some(Navigation::Down));
         }
+        // The global profile selector now precedes the connection switch.
+        frame(&mut menu, &ctx, &bridge, Some(Navigation::Down));
         let enabled = menu.draft.bilibili.enabled;
         frame(&mut menu, &ctx, &bridge, Some(Navigation::Confirm));
         assert_ne!(menu.draft.bilibili.enabled, enabled);

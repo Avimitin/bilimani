@@ -25,10 +25,17 @@ impl Connection {
         }
     }
 }
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RoomInfo {
+    pub room_id: u64,
+    pub name: String,
+    pub title: String,
+}
 #[derive(Debug)]
 pub enum Event {
     Chat(Chat),
     Status(Connection),
+    RoomInfo(RoomInfo),
     Diagnostic(String),
 }
 pub trait ChatSource: Send {

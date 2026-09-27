@@ -103,6 +103,36 @@ ambiguous states, these two flags allow both absent and both present states to
 disable the shortcut. The function's first 16 bytes are guarded at installation.
 No card identifiers or authentication state are inferred from it.
 
+## Logged-in card snapshot
+
+The IIDX 33 adapter reads static player state with `ReadProcessMemory`, without
+calling authentication or reader functions. Both subsystem flags at `0x10b90e8`
+and `0x10b90ec` must be nonzero, matching the native side-validation function at
+`0x5c4480`. Participation flags at `0xacd79b0` select exactly one side. No joined
+side or two joined sides produce the global stream fallback.
+
+Per-player data has stride `0x3b103a0`. Side zero's card UID is the u64 at
+`0x6c11808`; native `0x5ad900` copies the reader's eight bytes in reverse order
+into this field. Native formatter `0xab7060` prints this numeric value as sixteen
+uppercase hexadecimal digits. Card entry `0x8badb0` passes reader output through
+`0x5ad900`, and `0x5b4190` formats the same field for the card lookup request.
+The adapter uses that representation, not an IIDX player ID or display name.
+
+The play type at `0x6c11820` must differ from 1 (guest, whose card is also zeroed
+by `0x5adb20`), and the player-data flag at `0x312771e` must be nonzero. Native
+player-data operations including `0x5ad8a0` and `0x59e090` check both conditions;
+`0x5abed0` clears the per-player data before a new card is processed. Null and
+all-ones UIDs are rejected. The adapter takes two matching snapshots before
+publishing an owned `CardId`; read errors or changing data produce no identity.
+Entry-point guards cover `0x5c4480`, `0x5ad900`, and `0x5ad8a0` in addition to the
+existing exact file fingerprint. Card IDs are masked in the menu and excluded
+from diagnostics and OBS snapshots.
+
+Unit fixtures cover both sides, guest/unready/ambiguous states. The DLL smoke
+test with `--profiles` changes synthetic flags/cards in its private mapped copy,
+verifying actual worker routing, same-profile stability and logout fallback.
+This does not authenticate a real card or run a live game session.
+
 ## Native search index
 
 Search input initialization loads `/data/info/1//music_title_yomi.xml` through AVS.

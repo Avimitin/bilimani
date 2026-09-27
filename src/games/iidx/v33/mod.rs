@@ -2,6 +2,7 @@
 pub mod catalog;
 #[cfg(windows)]
 mod native;
+pub mod player;
 #[cfg(windows)]
 mod search_index;
 pub const SUPPORTED_SHA256: &str =
@@ -24,6 +25,11 @@ struct Adapter {
 
 #[cfg(windows)]
 impl crate::game::GameAdapter for Adapter {
+    fn cancel_selection(&self) {
+        let mut m = native::MAILBOX.lock().unwrap();
+        m.command = None;
+        m.ack = None;
+    }
     fn set_menu_open(&self, open: bool) {
         native::MENU_OPEN.store(open, std::sync::atomic::Ordering::Release);
     }
@@ -72,6 +78,7 @@ impl crate::game::GameAdapter for Adapter {
             .take()
             .is_some_and(|e| m.menu_side == Some(e.side) && m.snapshot.epoch == e.epoch);
         GameUpdate {
+            player_card: native::player_card(),
             snapshot: m.snapshot,
             plays: m.plays,
             selection_result: m.ack.take(),
