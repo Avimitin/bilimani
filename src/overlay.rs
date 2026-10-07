@@ -2,8 +2,8 @@
 //! they never call the game or hold the engine's state across an await.
 mod history;
 use crate::{
-    engine::{Engine, Request as SongRequest},
-    platforms::Connection,
+    engine::{CANDIDATE_PAGE_SIZE, Engine, Request as SongRequest},
+    platforms::{Connection, RoomInfo},
 };
 use anyhow::{Context, Result, ensure};
 pub use history::History;
@@ -38,12 +38,17 @@ fn request(e: &Engine, r: &SongRequest) -> Value {
 pub fn snapshot(
     engine: Option<&Engine>,
     status: &Connection,
+    room: Option<&RoomInfo>,
     now: u64,
     history: &History,
 ) -> Value {
+    let room = room
+        .filter(|_| status.connected)
+        .map(|room| json!({"room_id": room.room_id, "name": room.name, "title": room.title}));
     let mut state = json!({
         "version": env!("CARGO_PKG_VERSION"),
         "connected": status.connected, "status": status.text,
+        "room": room,
         "ready": engine.is_some(), "current": null, "queue": [],
         "capacity": 0, "pending": [], "notices": [],
         "now_playing": crate::game::NowPlaying::default(),
@@ -62,6 +67,7 @@ pub fn snapshot(
             "requester": p.name, "mode": p.mode, "chart": p.chart.map(|c| c.label()),
             "chart_style": e.chart_style(p.chart),
             "remaining": p.until.saturating_sub(now), "duration": e.config.requests.selection_timeout_seconds,
+            "page": p.page, "page_size": CANDIDATE_PAGE_SIZE, "page_count": p.page_count(),
             "candidates": p.songs.iter().map(|s| json!({"title": s.title,
                 "available": s.supports(p.mode, p.chart)})).collect::<Vec<_>>()
         })).collect();

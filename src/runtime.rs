@@ -116,7 +116,7 @@ fn start(module: HMODULE) -> Result<()> {
         let mut history = overlay::History::new(config.overlay.history_limit);
         let mut overlay_error = String::new();
         let mut web = if config.overlay.enabled {
-            match overlay::Server::start(config.overlay.port, &config.overlay.static_dir, &overlay::snapshot(None, &Connection::waiting(), 0, &history)).await {
+            match overlay::Server::start(config.overlay.port, &config.overlay.static_dir, &overlay::snapshot(None, &Connection::waiting(), None, 0, &history)).await {
                 Ok(server) => {
                     logger.info("overlay", &format!("Browser source: http://{}/queue", server.address));
                     Some(server)
@@ -311,7 +311,7 @@ fn start(module: HMODULE) -> Result<()> {
                                 || next.overlay.port != config.overlay.port
                                 || (next.overlay.enabled && web.is_none());
                             let replacement = if replace_web && next.overlay.enabled {
-                                Some(overlay::Server::start(next.overlay.port, &next.overlay.static_dir, &overlay::snapshot(engine.as_ref(), &connection, now, &history)).await?)
+                                Some(overlay::Server::start(next.overlay.port, &next.overlay.static_dir, &overlay::snapshot(engine.as_ref(), &connection, view.room.as_ref(), now, &history)).await?)
                             } else { None };
                             // Changing only the asset directory reuses the existing listener.
                             let static_files = if !replace_web && next.overlay.enabled
@@ -430,7 +430,7 @@ fn start(module: HMODULE) -> Result<()> {
                 web = None;
             }
             if let Some(server) = &web {
-                let mut state = overlay::snapshot(engine.as_ref(), &connection, now, &history);
+                let mut state = overlay::snapshot(engine.as_ref(), &connection, view.room.as_ref(), now, &history);
                 state["now_playing"] = serde_json::json!(update.now_playing);
                 server.publish(&state);
             }

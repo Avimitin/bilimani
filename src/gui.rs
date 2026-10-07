@@ -73,8 +73,10 @@ pub fn processing_label(outcome: &str) -> &str {
     match outcome {
         "enqueued" => "已处理：加入队列",
         "awaiting_selection" => "已处理：等待观众选择",
+        "selection_page_changed" => "已处理：候选列表翻页",
         "ignored_not_a_request" => "已忽略：普通聊天",
         "ignored_no_pending_selection" => "已忽略：没有待选择的请求",
+        "ignored_selection_page_boundary" => "已忽略：已到候选列表首页或末页",
         "ignored_invalid_sender_or_oversized_message" => "已忽略：用户无效或消息过长",
         "ignored_catalog_not_ready" => "未处理：曲库尚未就绪",
         "rejected_missing_song" => "已拒绝：缺少曲名",

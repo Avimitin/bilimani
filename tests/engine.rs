@@ -359,6 +359,69 @@ fn pending_replaced_timeout_and_invalid_selection() {
     assert!(e.pending.is_empty());
     assert_eq!(e.queue.len(), 1);
 }
+
+#[test]
+fn candidate_pages_are_per_sender_bounded_and_keep_global_numbers_and_deadline() {
+    let mut e = engine();
+    e.config.requests.candidates = 12;
+    e.catalog = Catalog::new(
+        (1..=12)
+            .map(|id| song(id, &format!("Page {id:02}")))
+            .collect(),
+        &BTreeMap::new(),
+    )
+    .unwrap();
+    let send = |e: &mut Engine, user: &str, text: &str, now| {
+        e.chat(
+            Chat {
+                user: user.into(),
+                name: user.into(),
+                text: text.into(),
+            },
+            now,
+        )
+    };
+    assert_eq!(send(&mut e, "a", "点歌 Page", 0), "awaiting_selection");
+    assert_eq!(send(&mut e, "b", "点歌 Page", 0), "awaiting_selection");
+    assert_eq!(
+        send(&mut e, "outsider", "n", 1),
+        "ignored_no_pending_selection"
+    );
+    assert_eq!(send(&mut e, "a", "p", 1), "ignored_selection_page_boundary");
+    assert_eq!(send(&mut e, "a", " N ", 1), "selection_page_changed");
+    assert_eq!(e.pending["a"].page, 1);
+    assert_eq!(e.pending["b"].page, 0);
+    assert_eq!(e.pending["a"].page_count(), 3);
+    assert_eq!(send(&mut e, "a", "n", 2), "selection_page_changed");
+    assert_eq!(e.pending["a"].page, 2);
+    assert_eq!(send(&mut e, "a", "n", 3), "ignored_selection_page_boundary");
+    assert_eq!(send(&mut e, "a", "P", 4), "selection_page_changed");
+    assert_eq!(e.pending["a"].page, 1);
+    assert_eq!(e.pending["a"].until, 60);
+    assert_eq!(send(&mut e, "a", "13", 5), "rejected_invalid_selection");
+    assert_eq!(e.pending["a"].page, 1);
+    let chosen = e.pending["a"].songs[5].id;
+    assert_eq!(send(&mut e, "a", "6", 6), "enqueued");
+    assert_eq!(e.queue[0].song.id, chosen);
+    assert!(!e.pending.contains_key("a"));
+    assert_eq!(send(&mut e, "a", "n", 7), "ignored_no_pending_selection");
+    assert_eq!(send(&mut e, "b", "n", 8), "selection_page_changed");
+    assert_eq!(send(&mut e, "b", "点歌 Page", 10), "awaiting_selection");
+    assert_eq!(e.pending["b"].page, 0);
+    assert_eq!(e.pending["b"].until, 70);
+    assert_eq!(send(&mut e, "b", "n", 69), "selection_page_changed");
+    assert_eq!(send(&mut e, "b", "p", 70), "ignored_no_pending_selection");
+    assert!(e.pending.is_empty());
+    assert_eq!(e.queue.len(), 1);
+
+    let mut short = engine();
+    send(&mut short, "a", "点歌 AA", 0);
+    assert_eq!(
+        send(&mut short, "a", "n", 1),
+        "ignored_selection_page_boundary"
+    );
+    assert_eq!(short.pending["a"].page, 0);
+}
 #[test]
 fn mode_and_nonexistent_chart_rejected() {
     let mut e = engine();

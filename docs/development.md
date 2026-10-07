@@ -23,7 +23,11 @@ HTML、CSS 和 JavaScript 按样式存放于 `web/card/` 和 `web/mecha/`，每�
 Cookie、应用凭据或观众平台 ID。网页每 500 毫秒读取一次，曲名、昵称和内容通过 `textContent`
 写入 DOM，倒计时更新不重建整张卡片。连接持续失败时清空旧队列、显示连接提示，并保留已有弹幕记录；成功后采用服务端最新快照。
 
-点歌区按可用高度显示最多 6 首等待歌曲，多余数量另行提示。有候选时隐藏当前点歌及队列，
+`/api/state.room` 返回当前已连接直播间的公开信息：`room_id`、`name`（UP 主名字）、`title`（直播标题）。
+DLL 复用直播连接后台通过 B 站直播 API 获取并每 60 秒刷新的房间信息，网页不需要凭据或额外请求 B 站。
+断开连接、切换档案尚未取得新信息时返回 `null`；曲库未就绪不会阻止房间信息显示。旧 DLL 没有此字段时，前端隐藏主播名字。
+
+卡片样式的点歌区按可用高度显示最多 6 首等待歌曲，多余数量另行提示。有候选时隐藏当前点歌及队列，
 在同一区域完整展示当前观众的 1–20 个候选；超过 8 个使用两列，按列从上到下编号。
 选歌期间上方整块区域反转为主题色背景、原背景色文字，编号及倒计时强调在弹幕中回复编号；候选本身不分页。
 多人同时待选时每 6 秒轮换整份列表，快照顺序变化保持正在显示的观众，候选全部消失后恢复最新队列与原配色。
@@ -42,6 +46,13 @@ ResizeObserver 在区域动画和来源尺寸变化时分别调整行数，避�
 相同时间、相同内容仍是不同记录。超出容量或调小容量时从头移除；没有时间过期。
 刷新网页从服务端恢复最近记录，切换直播档案时清空，不写入配置备份或持久存储。
 旧 `notices` 字段与文本文件仍遵循原有时间／条数规则，便于已有自定义页面继续使用。
+
+Mecha 的候选使用单列分页，每页 5 首，背景显示隔行扫描动画。`pending[]` 增加
+`page`（从 0 开始）、`page_size`（5）和 `page_count`；`candidates` 仍返回完整有序列表，
+数字选择仍为全局编号，兼容卡片样式与已有前端。引擎只接受点歌本人发送的 `n` / `p`
+来切换其页码，不区分大小写，首尾不循环，不延长截止时间；新点歌重置为首页。
+Mecha 优先展示刚翻页的观众，然后恢复每 6 秒轮换。刷新页面从快照恢复页码。
+旧 DLL 缺少分页字段时按首页显示，但无法响应翻页命令；使用分页应同时升级 DLL。
 
 服务器仅允许 GET/HEAD，请求 Host/Origin 限制为本地地址，禁用缓存。
 URL 解码后拒绝路径穿越、隐藏文件及 Windows 特殊路径；解析符号链接和目录联接后仍需位于
@@ -63,7 +74,7 @@ py scripts/preview-overlay.py --style mecha
 480×800 视口；也可在 OBS 浏览器来源中填写此地址，查看合成效果。
 
 默认时间表位于 `scripts/fixtures/overlay-loop.json`，每 **42 秒**循环一次：等待连接 →
-弹幕出现 → 实际选曲与 BPM／难度／雷达 → 点歌与队列 → 9 个候选 → 确认入队 →
+弹幕出现 → 实际选曲与 BPM／难度／雷达 → 点歌与队列 → 9 个候选与 n/p 翻页 → 确认入队 →
 开始演奏 → 历史超过 10 条 → 清空收起 → 再次出现消息 → 断开与下一轮。
 歌曲参数全部为模拟值。每轮从初始状态重新构建，消息 ID 跨轮递增；多个浏览器标签共享
 同一时间轴，刷新页面不会重置播放，也不会重复插入消息。
@@ -513,7 +524,8 @@ summary every 30 seconds. Adjust them on the GUI logging page.
 - `[danmu]`: received message sequence number, sender ID/name and actual text.
 - `[request]`: the matching sequence number and processing outcome, including
   `ignored_not_a_request`, `ignored_catalog_not_ready`, `awaiting_selection`,
-  `enqueued`, rejection reasons, candidates and timeout/queue notices.
+  `selection_page_changed`, `ignored_selection_page_boundary`, `enqueued`,
+  rejection reasons, candidates and timeout/queue notices.
 - `[jump]`: submission token, song/chart and the game's acknowledgement.
 - `[input]`: enabled/window settings, eligible player side, SDK read status and
   double-tap token/epoch/acceptance. Card IDs are not logged.

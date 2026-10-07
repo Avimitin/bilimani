@@ -7,6 +7,9 @@
   let pageSince = performance.now();
   let pageIndex = 0;
   let activeChoice = null;
+  const choicePages = new Map();
+  const candidatePageSize = 5;
+  const candidatePage = (p) => Math.min(Math.max(0, Math.floor(Number(p.page) || 0)), Math.max(0, Math.ceil(p.candidates.length / candidatePageSize) - 1));
   const signatures = new Map();
   const $ = (id) => document.getElementById(id);
   const frame = document.body.dataset.layout === "frame";
@@ -24,6 +27,30 @@
   const text = (el, value) => { if (el.textContent !== String(value)) el.textContent = value; };
   const pad = (n) => String(n).padStart(2, "0");
   const clock = (n) => `${pad(Math.floor(n / 60))}:${pad(n % 60)}`;
+  const digitSegments = ["abcdef", "bc", "abdeg", "abcdg", "bcfg", "acdfg", "acdefg", "abc", "abcdefg", "abcdfg"];
+  const segmentShapes = ["4,2 16,2 18,4 16,6 4,6 2,4", "16,6 18,4 20,6 20,14 18,16 16,14", "16,20 18,18 20,20 20,28 18,30 16,28", "4,28 16,28 18,30 16,32 4,32 2,30", "0,20 2,18 4,20 4,28 2,30 0,28", "0,6 2,4 4,6 4,14 2,16 0,14", "4,15 16,15 18,17 16,19 4,19 2,17"];
+  function vfdNumber(el, value) {
+    if (el.dataset.value === value) return;
+    el.dataset.value = value;
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    const width = value.length * 25 - 5;
+    svg.setAttribute("viewBox", `0 0 ${width} 34`);
+    svg.setAttribute("width", width);
+    svg.setAttribute("height", 34);
+    svg.setAttribute("class", "vfd-digits");
+    svg.setAttribute("aria-hidden", "true");
+    for (const [i, character] of [...value].entries()) {
+      const lit = digitSegments[character] || "g";
+      segmentShapes.forEach((points, segment) => {
+        const polygon = document.createElementNS(svg.namespaceURI, "polygon");
+        polygon.setAttribute("points", points);
+        polygon.setAttribute("transform", `translate(${i * 25} 0)`);
+        polygon.setAttribute("class", lit.includes("abcdefg"[segment]) ? "segment-on" : "segment-off");
+        svg.append(polygon);
+      });
+    }
+    el.replaceChildren(node("span", "vfd-readable", value), svg);
+  }
   const chart = (r) => {
     const label = r.chart || `${r.mode} · 当前难度`;
     const el = node("span", "chart", label);
@@ -73,7 +100,6 @@
       const box = $("current-content");
       box.classList.add("game-content");
       box.replaceChildren();
-      text(document.querySelector(".current-label"), offline ? "等待连接" : game.phase === "playing" ? "正在演奏" : game.phase === "selecting" ? "正在选曲" : "等待选曲");
       if (!song) {
         const empty = node("div", "current-idle");
         empty.append(node("h2", "", offline ? "等待游戏连接" : "等待选择歌曲"));
@@ -93,7 +119,11 @@
         const badge = chart({chart: `${player.side}P ${info.chart.id} ${info.level}`, chart_style: info.style});
         const bpm = info.bpm ? (info.bpm.min === info.bpm.max ? String(info.bpm.max) : `${info.bpm.min}–${info.bpm.max}`) : "—";
         const top = node("div", "chart-summary");
-        top.append(badge, node("span", "song-bpm", `BPM ${bpm}`));
+        const bpmDisplay = node("span", "song-bpm");
+        const digits = node("span", "");
+        vfdNumber(digits, bpm);
+        bpmDisplay.append(document.createTextNode("BPM "), digits);
+        top.append(badge, bpmDisplay);
         group.append(top, node("div", "song-notes", `${info.difficulty} · ${info.note_count ?? "—"} NOTES`));
         charts.append(group);
       });
@@ -138,8 +168,13 @@
     const warning = offline ? "等待游戏连接 · 游戏启动后会自动恢复" : !s.connected ? s.status : !s.ready ? "等待游戏曲库 · 请进入普通选曲界面" : "";
     document.querySelectorAll(".connection-banner").forEach((el) => { el.hidden = !warning; text(el, warning); });
     if (frame) {
-      text($("link-status"), warning ? "等待连接" : "已连接");
-      $("link-status").dataset.connected = String(!warning);
+      const connected = !offline && s.connected;
+      const name = connected && typeof s.room?.name === "string" ? s.room.name.trim() : "";
+      const roomName = $("room-name");
+      text(roomName, connected ? name : "未连接");
+      roomName.hidden = connected && !name;
+      roomName.title = name;
+      roomName.dataset.connected = String(connected);
     }
     const c = s.current;
     if (frame && s.now_playing) {
@@ -147,7 +182,6 @@
     } else {
       signatures.delete("game-song");
       $("current-content").classList.remove("game-content");
-      if (frame) text(document.querySelector(".current-label"), "当前点歌");
       changed("current", c ? [c.token, c.title, c.requester, c.chart, c.mode, c.chart_style] : [null, offline, s.ready, s.queue.length > 0], () => {
         const box = $("current-content");
         box.replaceChildren();
@@ -179,33 +213,40 @@
     changed("count", [s.queue.length, s.capacity], () => {
       $("queue-count").replaceChildren(document.createTextNode(pad(s.queue.length) + " "), node("span", "", `/ ${s.capacity || "—"}`));
     });
-    // A viewer's entire list replaces the queue. Only different viewers rotate.
+    // Each viewer controls their candidate page through chat. Viewers rotate independently.
     const choices = s.pending.filter((p) => p.candidates.length > 0);
     const choiceKey = (p) => JSON.stringify([p.requester, p.mode, p.chart, p.candidates]);
     const pages = choices.length;
     const previousIndex = choices.findIndex((p) => choiceKey(p) === activeChoice);
-    pageIndex = previousIndex < 0 ? 0 : previousIndex;
-    if (previousIndex < 0) pageSince = performance.now();
+    const flippedIndex = choices.findIndex((p) => choicePages.has(choiceKey(p)) && choicePages.get(choiceKey(p)) !== candidatePage(p));
+    choicePages.clear();
+    choices.forEach((p) => choicePages.set(choiceKey(p), candidatePage(p)));
+    pageIndex = flippedIndex >= 0 ? flippedIndex : previousIndex < 0 ? 0 : previousIndex;
+    if (previousIndex < 0 || flippedIndex >= 0) pageSince = performance.now();
     if (performance.now() - pageSince > 6000) { pageIndex = (pageIndex + 1) % Math.max(1, pages); pageSince = performance.now(); }
     activeChoice = pages ? choiceKey(choices[pageIndex]) : null;
     const pending = choices.slice(pageIndex, pageIndex + 1);
     const queueState = pages || s.queue.length ? "expanded" : c ? "current" : "collapsed";
     document.querySelector(".overlay").dataset.queueState = queueState;
+    const queueVisible = !frame || pages > 0 || s.queue.length > 0;
+    const queuePanel = document.querySelector(".queue-panel");
+    queuePanel.hidden = !queueVisible;
+    if (frame) document.querySelector(".sidebar").dataset.queueVisible = String(queueVisible);
     $("pending-area").hidden = !pages;
     $("queue-area").hidden = pages > 0;
-    $("queue-area").setAttribute("aria-hidden", String(pages > 0 || (!frame && queueState === "collapsed")));
-    $("waiting-area").setAttribute("aria-hidden", String(pages > 0 || (!frame && !s.queue.length)));
-    document.querySelector(".queue-panel").classList.toggle("choosing", pages > 0);
-    text($("request-hint"), pages ? "等待选歌确认" : "点歌 <曲名> [难度]");
+    $("queue-area").setAttribute("aria-hidden", String(!queueVisible || pages > 0 || (!frame && queueState === "collapsed")));
+    $("waiting-area").setAttribute("aria-hidden", String(!queueVisible || pages > 0 || (!frame && !s.queue.length)));
+    queuePanel.classList.toggle("choosing", pages > 0);
     changed("pending", [pageIndex, pending.map(({remaining, ...p}) => p)], () => {
       $("pending-list").replaceChildren(...pending.map((p) => {
         const card = node("section", "choice-panel");
         const count = p.candidates.length;
-        const columns = count > 8 ? 2 : 1;
-        card.classList.toggle("compact", count > 5);
-        card.classList.toggle("dense", count > 16);
-        card.style.setProperty("--choice-columns", columns);
-        card.style.setProperty("--choice-rows", Math.ceil(count / columns));
+        const currentPage = candidatePage(p);
+        const pageCount = Math.ceil(count / candidatePageSize);
+        const first = currentPage * candidatePageSize;
+        const last = Math.min(first + candidatePageSize, count);
+        card.style.setProperty("--choice-columns", 1);
+        card.style.setProperty("--choice-rows", Math.min(count, candidatePageSize));
         const prompt = node("p", "choice-prompt", "请在弹幕发送编号选歌");
         const heading = node("div", "choice-heading");
         const person = node("div", "");
@@ -216,24 +257,34 @@
         countdown.append(node("b", "", ""), node("span", "", "秒"));
         heading.append(person, chart(p), countdown);
         const list = node("ol", "candidates");
-        list.append(...p.candidates.map((song, i) => {
+        list.append(...p.candidates.slice(first, last).map((song, i) => {
           const row = node("li", `candidate${song.available ? "" : " unavailable"}`);
           const name = node("div", "candidate-title", song.title);
           name.title = song.title;
           if (!song.available) name.append(node("span", "unavailable-note", "所请求谱面不存在"));
-          row.append(node("span", "candidate-number", i + 1), name);
+          row.append(node("span", "candidate-number", first + i + 1), name);
           return row;
         }));
         const track = node("div", "time-track");
         track.append(node("span", ""));
         const help = node("p", "choice-help");
-        help.append(document.createTextNode("只发送 "), node("strong", "", count === 1 ? "1" : `1–${count}`), document.createTextNode(" 中的编号 · 由点歌本人回复"));
-        card.append(prompt, heading, list, help, track);
+        help.append(document.createTextNode("发送 "), node("strong", "", first + 1 === last ? String(last) : `${first + 1}–${last}`), document.createTextNode(" 选歌 · 由点歌本人回复"));
+        card.append(prompt, heading, list, help);
+        if (pageCount > 1) {
+          const pager = node("div", "choice-pagination");
+          const previous = node("span", "", "p 上一页");
+          const next = node("span", "", "n 下一页");
+          previous.classList.toggle("at-boundary", currentPage === 0);
+          next.classList.toggle("at-boundary", currentPage === pageCount - 1);
+          pager.append(previous, node("span", "candidate-page", `${currentPage + 1} / ${pageCount}`), next);
+          card.append(pager);
+        }
+        card.append(track);
         return card;
       }));
     });
     $("pending-list").querySelectorAll(".choice-panel").forEach((card, i) => {
-      text(card.querySelector(".countdown b"), pad(pending[i].remaining));
+      vfdNumber(card.querySelector(".countdown b"), pad(pending[i].remaining));
       card.querySelector(".countdown").classList.toggle("urgent", pending[i].remaining <= 10);
       progress(card.querySelector(".time-track span"), pending[i].remaining, pending[i].duration);
     });
@@ -245,8 +296,12 @@
     const history = s.feed.slice(-limit);
     const chats = history.filter((message) => message.kind === "chat");
     const events = history.filter((message) => message.kind !== "chat");
-    const feed = frame ? chats.slice(-4) : history;
     const activity = $("activity-panel");
+    // Measure the reclaimed queue space before choosing how many chats to show.
+    activity.dataset.feedState = (frame ? chats : history).length ? "active" : "collapsed";
+    if (frame) $("chat-empty").hidden = chats.length > 0;
+    const feedBody = activity.querySelector(".feed-body");
+    const feed = frame ? chats : history;
     activity.style.setProperty("--feed-rows", Math.max(1, feed.length));
     const chatRows = feed.filter((message) => message.kind === "chat").length;
     activity.style.setProperty("--feed-chat-rows", chatRows);
@@ -254,10 +309,9 @@
     activity.dataset.feedState = feed.length ? "active" : "collapsed";
     const banner = activity.querySelector(".connection-banner");
     activity.style.setProperty("--feed-warning-height", `${banner.getBoundingClientRect().height}px`);
-    activity.querySelector(".feed-body").setAttribute("aria-hidden", String(!feed.length));
-    text($("feed-count"), `${feed.length} / ${frame ? chats.length : limit}`);
-    function renderFeed(key, list, messages) {
-      changed(key, messages, () => {
+    feedBody.setAttribute("aria-hidden", String(!feed.length));
+    function renderFeed(key, list, messages, availableHeight = null) {
+      changed(key, [messages, availableHeight], () => {
         list.replaceChildren(...messages.map((message) => {
           const item = node("li", "activity-row");
           item.dataset.id = message.id;
@@ -275,9 +329,26 @@
           item.append(content);
           return item;
         }));
+        if (availableHeight !== null) {
+          // Pack actual one/two-line row heights, keeping a contiguous recent history.
+          const rows = [...list.children];
+          const gap = parseFloat(getComputedStyle(list).rowGap) || 0;
+          let used = 0;
+          let first = rows.length;
+          for (let i = rows.length - 1; i >= 0; i--) {
+            const height = rows[i].offsetHeight;
+            const next = height + (first < rows.length ? gap : 0);
+            if (used + next > availableHeight && first < rows.length) break;
+            used += next;
+            first = i;
+          }
+          rows.slice(0, first).forEach((row) => row.remove());
+        }
       });
+      return list.children.length;
     }
-    renderFeed("feed", $("activity-list"), feed);
+    const visibleFeed = renderFeed("feed", $("activity-list"), feed, frame ? feedBody.clientHeight : null);
+    text($("feed-count"), `${visibleFeed} / ${frame ? chats.length : limit}`);
     if (frame) {
       renderFeed("events", $("event-list"), events.slice(-3));
       text($("event-count"), `${Math.min(3, events.length)} / ${events.length}`);

@@ -48,7 +48,7 @@ class Timeline:
         cycle, offset = divmod(max(0, elapsed), self.duration)
         state = {
             "version": "preview", "connected": True, "ready": True,
-            "status": "模拟直播间已连接", "capacity": 20,
+            "status": "模拟直播间已连接", "capacity": 20, "room": None,
             "current": None, "queue": [], "pending": [], "notices": [],
             "now_playing": {"phase": "idle", "song": None, "players": []},
             "feed": [], "feed_limit": self.limit,

@@ -29,12 +29,21 @@ impl Request {
         )
     }
 }
+pub const CANDIDATE_PAGE_SIZE: usize = 5;
+
 pub struct Pending {
     pub name: String,
     pub songs: Vec<Song>,
     pub mode: Mode,
     pub chart: Option<Chart>,
     pub until: u64,
+    /// Zero-based page; displayed song numbers always use the full candidate list.
+    pub page: usize,
+}
+impl Pending {
+    pub fn page_count(&self) -> usize {
+        self.songs.len().div_ceil(CANDIDATE_PAGE_SIZE).max(1)
+    }
 }
 pub struct Current {
     pub request: Request,
@@ -267,10 +276,25 @@ impl Engine {
                         mode,
                         chart,
                         until: now + self.config.requests.selection_timeout_seconds,
+                        page: 0,
                     },
                 );
                 "awaiting_selection"
             }
+        } else if text.eq_ignore_ascii_case("n") || text.eq_ignore_ascii_case("p") {
+            let Some(pending) = self.pending.get_mut(&chat.user) else {
+                return "ignored_no_pending_selection";
+            };
+            let page = if text.eq_ignore_ascii_case("n") {
+                (pending.page + 1).min(pending.page_count() - 1)
+            } else {
+                pending.page.saturating_sub(1)
+            };
+            if page == pending.page {
+                return "ignored_selection_page_boundary";
+            }
+            pending.page = page;
+            "selection_page_changed"
         } else if text.bytes().all(|b| b.is_ascii_digit()) && !text.is_empty() {
             let Some(pending) = self.pending.get(&chat.user) else {
                 return "ignored_no_pending_selection";

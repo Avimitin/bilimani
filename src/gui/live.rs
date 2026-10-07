@@ -269,7 +269,7 @@ impl Menu {
                     for line in view.processing.iter().rev() {
                         let color = match line.outcome {
                             "enqueued" => theme.success,
-                            "awaiting_selection" => theme.info,
+                            "awaiting_selection" | "selection_page_changed" => theme.info,
                             s if s.starts_with("rejected_") || s == "ignored_catalog_not_ready" => {
                                 theme.warning
                             }

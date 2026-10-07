@@ -23,7 +23,8 @@
       "set": {
         "connected": true,
         "ready": true,
-        "status": "预览：直播间已连接"
+        "status": "预览：直播间已连接",
+        "room": {"room_id": 12345, "name": "CookieBacon", "title": "IIDX 循环预览"}
       }
     },
     {
@@ -192,10 +193,139 @@
                 "title": "Anthem Landing",
                 "available": true
               }
-            ]
+            ],
+            "page": 0,
+            "page_size": 5,
+            "page_count": 2
           }
         ]
       }
+    },
+    {
+      "at": 14,
+      "set": {
+        "pending": [
+          {
+            "requester": "阿青",
+            "mode": "SP",
+            "chart": "SPA",
+            "chart_style": "red",
+            "remaining": 28,
+            "duration": 30,
+            "candidates": [
+              {
+                "title": "A",
+                "available": true
+              },
+              {
+                "title": "AA",
+                "available": true
+              },
+              {
+                "title": "AA -rebuild-",
+                "available": true
+              },
+              {
+                "title": "ABSOLUTE",
+                "available": true
+              },
+              {
+                "title": "ALBIDA",
+                "available": true
+              },
+              {
+                "title": "ANDROMEDA",
+                "available": true
+              },
+              {
+                "title": "ARTCORE",
+                "available": true
+              },
+              {
+                "title": "Anisakis",
+                "available": true
+              },
+              {
+                "title": "Anthem Landing",
+                "available": true
+              }
+            ],
+            "page": 1,
+            "page_size": 5,
+            "page_count": 2
+          }
+        ]
+      },
+      "feed": [
+        {
+          "kind": "chat",
+          "name": "阿青",
+          "text": "n"
+        }
+      ]
+    },
+    {
+      "at": 16,
+      "set": {
+        "pending": [
+          {
+            "requester": "阿青",
+            "mode": "SP",
+            "chart": "SPA",
+            "chart_style": "red",
+            "remaining": 26,
+            "duration": 30,
+            "candidates": [
+              {
+                "title": "A",
+                "available": true
+              },
+              {
+                "title": "AA",
+                "available": true
+              },
+              {
+                "title": "AA -rebuild-",
+                "available": true
+              },
+              {
+                "title": "ABSOLUTE",
+                "available": true
+              },
+              {
+                "title": "ALBIDA",
+                "available": true
+              },
+              {
+                "title": "ANDROMEDA",
+                "available": true
+              },
+              {
+                "title": "ARTCORE",
+                "available": true
+              },
+              {
+                "title": "Anisakis",
+                "available": true
+              },
+              {
+                "title": "Anthem Landing",
+                "available": true
+              }
+            ],
+            "page": 0,
+            "page_size": 5,
+            "page_count": 2
+          }
+        ]
+      },
+      "feed": [
+        {
+          "kind": "chat",
+          "name": "阿青",
+          "text": "p"
+        }
+      ]
     },
     {
       "at": 17,
@@ -359,7 +489,8 @@
       "at": 34,
       "set": {
         "connected": false,
-        "status": "预览：直播间断开，等待下一轮连接"
+        "status": "预览：直播间断开，等待下一轮连接",
+        "room": null
       }
     },
     {

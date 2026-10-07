@@ -1,4 +1,4 @@
-use chart_requester::platforms::Connection;
+use chart_requester::platforms::{Connection, RoomInfo};
 use chart_requester::{
     catalog::Catalog,
     config::Config,
@@ -73,7 +73,13 @@ fn mixed_history_keeps_order_duplicates_and_survives_notice_expiry() {
     }
     assert_eq!(engine.take_notices().count(), 0);
     engine.expire(1000);
-    let state = snapshot(Some(&engine), &connection("弹幕已连接"), 1000, &history);
+    let state = snapshot(
+        Some(&engine),
+        &connection("弹幕已连接"),
+        None,
+        1000,
+        &history,
+    );
     assert!(state["notices"].as_array().unwrap().is_empty());
     assert_eq!(state["feed_limit"], 10);
     let feed = state["feed"].as_array().unwrap();
@@ -86,7 +92,7 @@ fn mixed_history_keeps_order_duplicates_and_survives_notice_expiry() {
     assert!(!state.to_string().contains("private-sender-id"));
     // Ordinary chat is also available before the game catalog exists.
     assert_eq!(
-        snapshot(None, &connection("等待曲库"), 2000, &history)["feed"],
+        snapshot(None, &connection("等待曲库"), None, 2000, &history)["feed"],
         state["feed"]
     );
 }
@@ -97,8 +103,9 @@ fn history_drops_oldest_on_overflow_resize_and_profile_clear() {
     for i in 1..=11 {
         history.notice(0, &format!("事件 {i}"));
     }
-    let read =
-        |history: &History| snapshot(None, &connection("弹幕已连接"), 0, history)["feed"].clone();
+    let read = |history: &History| {
+        snapshot(None, &connection("弹幕已连接"), None, 0, history)["feed"].clone()
+    };
     let feed = read(&history);
     assert_eq!(feed.as_array().unwrap().len(), 10);
     assert_eq!(feed[0]["text"], "事件 2");
@@ -118,16 +125,26 @@ fn public_snapshot_preserves_choices_and_timers_without_credentials_or_sender_id
     let mut config = Config::default();
     config.bilibili.auth_code = "private-identity-code".into();
     config.bilibili.sessdata = "private-cookie".into();
-    let songs = ["AA", "AA -rebuild-", "冥"]
-        .into_iter()
-        .enumerate()
-        .map(|(i, title)| Song {
-            id: i as u32 + 1,
-            title: title.into(),
-            search_terms: vec![],
-            charts: iidx::available_charts([4; 10]),
-        })
-        .collect();
+    config.requests.candidates = 7;
+    let songs = [
+        "AA",
+        "AA -rebuild-",
+        "AA 3",
+        "AA 4",
+        "AA 5",
+        "AA 6",
+        "AA 7",
+        "冥",
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(i, title)| Song {
+        id: i as u32 + 1,
+        title: title.into(),
+        search_terms: vec![],
+        charts: iidx::available_charts([4; 10]),
+    })
+    .collect();
     let mut engine = Engine::new(
         config,
         Catalog::new(songs, &BTreeMap::new()).unwrap(),
@@ -160,9 +177,18 @@ fn public_snapshot_preserves_choices_and_timers_without_credentials_or_sender_id
     );
     let jump = engine.next_jump(10).unwrap();
     engine.jump_result(jump.request.token, Some(Ok(())), 10);
+    engine.chat(
+        Chat {
+            user: "private-user-one".into(),
+            name: "观众甲".into(),
+            text: "n".into(),
+        },
+        19,
+    );
     let state = snapshot(
         Some(&engine),
         &connection("弹幕已连接"),
+        None,
         20,
         &History::default(),
     );
@@ -172,9 +198,12 @@ fn public_snapshot_preserves_choices_and_timers_without_credentials_or_sender_id
     assert_eq!(state["pending"][0]["chart_style"], "neutral");
     assert_eq!(state["current"]["remaining"], 590);
     assert_eq!(state["pending"][0]["remaining"], 40);
+    assert_eq!(state["pending"][0]["page"], 1);
+    assert_eq!(state["pending"][0]["page_size"], 5);
+    assert_eq!(state["pending"][0]["page_count"], 2);
     assert_eq!(
         state["pending"][0]["candidates"].as_array().unwrap().len(),
-        2
+        7
     );
     assert_eq!(state["pending"][0]["candidates"][0]["title"], "AA");
     assert!(state["queue"].as_array().unwrap().is_empty());
@@ -190,13 +219,46 @@ fn public_snapshot_preserves_choices_and_timers_without_credentials_or_sender_id
     assert!(wire.contains("观众甲"));
 }
 
+#[test]
+fn public_room_tracks_the_connected_profile_even_before_catalog_is_ready() {
+    let history = History::default();
+    let connected = connection("弹幕已连接");
+    let first = RoomInfo {
+        room_id: 123,
+        name: "主播甲".into(),
+        title: "IIDX 点歌".into(),
+    };
+    let room = snapshot(None, &connected, Some(&first), 0, &history)["room"].clone();
+    assert_eq!(
+        room,
+        serde_json::json!({"room_id": 123, "name": "主播甲", "title": "IIDX 点歌"})
+    );
+    // Disconnecting or switching profiles must not advertise a stale anchor.
+    assert!(snapshot(None, &Connection::waiting(), Some(&first), 1, &history)["room"].is_null());
+    assert!(snapshot(None, &connected, None, 2, &history)["room"].is_null());
+    let second = RoomInfo {
+        room_id: 456,
+        name: "主播乙".into(),
+        title: "新直播间".into(),
+    };
+    let next = snapshot(None, &connected, Some(&second), 3, &history);
+    assert_eq!(next["room"]["name"], "主播乙");
+    assert_eq!(next["room"]["room_id"], 456);
+}
+
 #[tokio::test]
 async fn serves_static_assets_live_snapshots_and_releases_port_on_shutdown() {
     let files = StaticFixture::new();
     let mut server = Server::start(
         0,
         &files.public,
-        &snapshot(None, &connection("等待弹幕连接"), 0, &History::default()),
+        &snapshot(
+            None,
+            &connection("等待弹幕连接"),
+            None,
+            0,
+            &History::default(),
+        ),
     )
     .await
     .unwrap();
@@ -242,7 +304,13 @@ async fn serves_static_assets_live_snapshots_and_releases_port_on_shutdown() {
             .status(),
         404
     );
-    let mut updated = snapshot(None, &connection("新连接状态"), 1, &History::default());
+    let mut updated = snapshot(
+        None,
+        &connection("新连接状态"),
+        None,
+        1,
+        &History::default(),
+    );
     // Game metadata remains available before the request-engine catalog exists.
     updated["now_playing"] = serde_json::json!({
         "phase": "playing", "song": {"id": 11040, "title": "AA", "artist": "D.J.Amuro"},
@@ -276,7 +344,13 @@ async fn serves_static_assets_live_snapshots_and_releases_port_on_shutdown() {
             .unwrap(),
         updated
     );
-    let idle = snapshot(None, &connection("新连接状态"), 2, &History::default());
+    let idle = snapshot(
+        None,
+        &connection("新连接状态"),
+        None,
+        2,
+        &History::default(),
+    );
     server.publish(&idle);
     assert_eq!(
         client

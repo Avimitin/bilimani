@@ -20,6 +20,7 @@ async fn main() -> anyhow::Result<()> {
                 connected: false,
                 text: "预览服务：未连接游戏".into(),
             },
+            None,
             0,
             &History::default(),
         ),
