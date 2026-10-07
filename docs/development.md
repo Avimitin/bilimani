@@ -7,8 +7,8 @@
 ## 本地网页界面
 
 `src/overlay.rs` 使用 Hyper 提供只读 HTTP 服务，默认只监听 `127.0.0.1:32133`。
-HTML、CSS 和 JavaScript 源文件位于 `web/`，由 `scripts/package.ps1` 复制到 Release ZIP
-中的 `chart_request_static/`，与 DLL 并列。页面不再嵌入 DLL，无前端构建步骤、CDN 或外部字体依赖。
+HTML、CSS 和 JavaScript 按样式存放于 `web/card/` 和 `web/mecha/`，每个目录都有完整的 `index.html` 及独立资源。
+`scripts/package.ps1` 将样式目录复制到 Release ZIP 的 `chart_request_static/`，并在其根目录生成卡片版副本以兼容旧配置。页面不再嵌入 DLL，无前端构建步骤、CDN 或外部字体依赖。
 `overlay.static_dir` 默认为 `chart_request_static`；相对路径以 DLL 所在目录为准，也支持绝对路径。
 可在「OBS 显示」页修改并保存。只切换目录时复用已有监听端口，验证目录及 `index.html`
 可读取后再提交配置；验证或保存失败保留原服务。旧数据库和 JSON/TOML 配置自动补入默认值。
@@ -49,11 +49,13 @@ URL 解码后拒绝路径穿越、隐藏文件及 Windows 特殊路径；解析�
 启动失败会记录日志并保留文本
 输出；关闭时中止监听及连接任务。`[overlay]` 设置兼容旧配置，默认开启。
 
-无需游戏即可预览源码中的实际页面（默认读取 `web/`，也可在 Cargo 的 `--` 后传入其他静态目录）：
+无需游戏即可预览源码中的实际页面（默认读取 `web/card/`，也可在 Cargo 的 `--` 后传入其他静态目录）：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -Command "& ./scripts/build.ps1 -CargoArgs @('run','--example','overlay_preview')"
 ```
+
+机甲框架预览可运行 `cargo run --example overlay_preview -- web/mecha`，然后运行 `python scripts/check-frame.py`（需要 Playwright 和 Pillow）。两种样式统一通过 `/queue` 访问，切换预览目录前先停止当前服务。
 
 此工具仅用于开发，不随 DLL 打包；打开输出的网址可查看未连接游戏的状态。
 浏览器检查脚本通过拦截 `/api/state` 提供测试数据，模拟数据不进入 DLL。
@@ -65,7 +67,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "& ./scripts/build.ps1 -C
 
 ### 按时间表录制网页演示
 
-`scripts/record-overlay.py` 直接读取 `web/`，在独立浏览器中拦截所有请求，用 JSON 时间表提供模拟快照，
+`scripts/record-overlay.py` 直接读取 `web/card/`，在独立浏览器中拦截所有请求，用 JSON 时间表提供模拟快照，
 无需运行游戏或预览服务。安装开发依赖后运行：
 
 ```powershell

@@ -20,7 +20,7 @@ impl StaticFixture {
         for name in ["index.html", "overlay.css", "overlay.js"] {
             std::fs::copy(
                 std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                    .join("web")
+                    .join("web/card")
                     .join(name),
                 public.join(name),
             )
@@ -310,6 +310,51 @@ async fn serves_static_assets_live_snapshots_and_releases_port_on_shutdown() {
     server.stop().await;
     let rebound = tokio::net::TcpListener::bind(server.address).await.unwrap();
     drop(rebound);
+}
+
+#[tokio::test]
+async fn bundled_styles_switch_with_the_same_queue_url_and_live_state() {
+    let web = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("web");
+    let state = serde_json::json!({"status": "style-switch-test"});
+    let mut server = Server::start(0, &web.join("card"), &state).await.unwrap();
+    let root = format!("http://{}", server.address);
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    for style in ["card", "mecha", "card"] {
+        server.set_static_files(StaticFiles::open(&web.join(style)).await.unwrap());
+        let page = client
+            .get(format!("{root}/queue"))
+            .send()
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap();
+        assert_eq!(page.contains("data-layout=\"frame\""), style == "mecha");
+        for asset in ["overlay.css", "overlay.js", "frame.css"] {
+            let response = client.get(format!("{root}/{asset}")).send().await.unwrap();
+            if asset == "frame.css" && style == "card" {
+                assert_eq!(response.status(), 404);
+            } else {
+                assert_eq!(response.status(), 200);
+                assert_eq!(
+                    response.text().await.unwrap(),
+                    std::fs::read_to_string(web.join(style).join(asset)).unwrap()
+                );
+            }
+        }
+        assert_eq!(
+            client
+                .get(format!("{root}/api/state"))
+                .send()
+                .await
+                .unwrap()
+                .json::<serde_json::Value>()
+                .await
+                .unwrap(),
+            state
+        );
+    }
+    server.stop().await;
 }
 
 #[tokio::test]

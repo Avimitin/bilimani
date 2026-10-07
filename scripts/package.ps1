@@ -16,6 +16,10 @@ if (Test-Path -LiteralPath $staticRoot) {
     Remove-Item -LiteralPath $staticRoot -Recurse -Force
 }
 Copy-Item -LiteralPath (Join-Path $root 'web') -Destination $staticRoot -Recurse
+# Preserve the default static_dir for existing installs; each style is also selectable.
+Get-ChildItem -LiteralPath (Join-Path $root 'web\card') -File | ForEach-Object {
+    Copy-Item -LiteralPath $_.FullName -Destination $staticRoot
+}
 $cargo = (Get-Command cargo -ErrorAction Stop).Source
 Push-Location $root
 try {

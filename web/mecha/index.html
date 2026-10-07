@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>GREEN ROOM · 直播框架</title>
+  <link rel="stylesheet" href="/overlay.css">
+  <link rel="stylesheet" href="/frame.css">
+  <script src="/overlay.js" defer></script>
+</head>
+<body data-layout="frame">
+  <main class="stream-frame overlay" data-queue-state="collapsed" aria-label="直播框架">
+    <!-- Clip the complete assembly, including light, outside the capture aperture. -->
+    <svg class="chassis" viewBox="0 0 1920 1080" clip-path="url(#chassis-cutout)" aria-hidden="true">
+      <defs>
+        <clipPath id="chassis-cutout"><path clip-rule="evenodd" d="M0 0H1920V1080H0Z M24 40V904H1560V40Z"/></clipPath>
+        <linearGradient id="metal" x1="0" y1="0" x2=".7" y2="1"><stop stop-color="#252c29"/><stop offset=".35" stop-color="#1b211f"/><stop offset=".8" stop-color="#191e1c"/><stop offset="1" stop-color="#252b28"/></linearGradient>
+        <linearGradient id="lower-armor" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#272e2a"/><stop offset=".12" stop-color="#222925"/><stop offset="1" stop-color="#1b211e"/></linearGradient>
+        <linearGradient id="bevel" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#5c6961" stop-opacity=".4"/><stop offset=".5" stop-color="#111714"/><stop offset="1" stop-color="#46524a" stop-opacity=".4"/></linearGradient>
+        <linearGradient id="armor-face" x1="0" y1="0" x2=".25" y2="1"><stop stop-color="#3e4942"/><stop offset=".12" stop-color="#303b34"/><stop offset=".7" stop-color="#222c26"/><stop offset="1" stop-color="#1b241e"/></linearGradient>
+        <linearGradient id="graphite-face" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#363c38"/><stop offset=".1" stop-color="#2a312c"/><stop offset="1" stop-color="#181f1b"/></linearGradient>
+        <linearGradient id="machined-edge" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#19201b"/><stop offset=".35" stop-color="#5a685d"/><stop offset=".6" stop-color="#323f35"/><stop offset="1" stop-color="#101813"/></linearGradient>
+        <filter id="glow" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="3"/></filter>
+      </defs>
+      <path fill="url(#metal)" fill-rule="evenodd" d="M0 0H1920V1080H0Z M24 40V904H1560V40Z"/>
+      <!-- Broad fitted armor faces, with a shallow recessed joint between them. -->
+      <path d="M0 944h1539l41-25h340v161H0Z" fill="url(#lower-armor)"/>
+      <path d="M1580 24h300l16 16v866l-16 14h-300Z" fill="#121815"/>
+      <path d="M1580 24h300l16 16v866l-16 14h-300Z" fill="none" stroke="#070c09" stroke-width="2"/>
+      <path d="M1582 23h298l17 17v865" fill="none" stroke="#526056" stroke-opacity=".24"/>
+      <path d="M20 52l16-16h1512l16 16v840l-16 16H36l-16-16Z" fill="none" stroke="#0a100d" stroke-width="6"/>
+      <path d="M17 51l18-18h1514l18 18v842l-18 18H35l-18-18Z" fill="none" stroke="url(#bevel)" stroke-width="1.5"/>
+      <g fill="none">
+        <path d="M0 943h1538l41-25h341" stroke="#0b110d" stroke-width="3"/>
+        <path d="M0 946h1539l41-25h340" stroke="#657067" stroke-opacity=".25"/>
+        <path d="M1515 0l33 32M0 18l17 15" stroke="#101612" stroke-width="2"/>
+        <path d="M1518 0l33 32" stroke="#718074" stroke-opacity=".18"/>
+      </g>
+      <!-- Overlapping crown plates are seated on a dark elastomer gasket. -->
+      <path d="M0 0h364l-25 29H72L52 39H23L0 62Z M1236 0h327l28 24v74h-24V49l-23-18h-278Z" fill="#080f0b"/>
+      <path d="M0 0h352l-23 23H67L48 33H20L0 53Z" fill="url(#armor-face)"/>
+      <path d="M1238 0h318l28 27v58h-12V45l-27-20h-285Z" fill="url(#armor-face)"/>
+      <path d="M1 2h346l-19 18H65L46 30H20L2 48 M1247 2h307l27 27v50" fill="none" stroke="#7f9383" stroke-opacity=".35"/>
+      <path d="M377 1h840l16 16H360Z" fill="url(#graphite-face)"/>
+      <path d="M384 18h827" stroke="#0b120d" stroke-width="2"/>
+      <!-- Thin rails with sliding collars express the load-bearing spine. -->
+      <path d="M4 79h9v769H4Z M1567 101h12v713h-12Z M1904 101h10v727h-10Z" fill="#0a110d"/>
+      <path d="M6 83h4v761H6Z M1569 105h5v705h-5Z M1906 105h4v717h-4Z" fill="url(#machined-edge)"/>
+      <g fill="url(#armor-face)" stroke="#101a13" stroke-width="1">
+        <path d="M0 394h15l5 10v54l-5 10H0Z"/>
+        <path d="M1564 408h18l10 12v42l-10 12h-18Z"/>
+        <path d="M1887 408h23l10 12v42l-10 12h-23l7-13v-28Z"/>
+        <path d="M1564 737h18l10 12v33l-10 12h-18Z"/>
+        <path d="M1887 737h23l10 12v33l-10 12h-23l7-12v-20Z"/>
+      </g>
+      <g fill="none" stroke="#748b79" stroke-opacity=".3">
+        <path d="M1566 411h15l8 10M1889 411h19l9 10 M1566 740h15l8 10M1889 740h19l9 10 M2 397h11l4 9"/>
+      </g>
+      <g fill="#101a13"><path d="M1571 425h7v31h-7Z M1901 425h7v31h-7Z M1571 752h7v27h-7Z M1901 752h7v27h-7Z"/></g>
+      <!-- The sidebar head is an inset module captured by the same outer spine. -->
+      <path d="M1577 9h306l25 25v57h-22l-16-10h-272l-21-15Z" fill="#0a110d"/>
+      <path d="M1582 12h298l23 24v48h-14l-17-10h-269l-21-13Z" fill="url(#graphite-face)"/>
+      <path d="M1587 15h290l22 23v40M1605 77h265l15 10" fill="none" stroke="#697d6c" stroke-opacity=".35"/>
+      <!-- Lower corner shoes bridge the vertical spines into the main crossmember. -->
+      <path d="M0 856h17v33l24 24h101l27 32H0Z M1436 920h92l26-24v-68h34v81l-42 39h-141Z" fill="#09100b"/>
+      <path d="M0 856h12v36l25 26h103l19 22H0Z M1445 924h86l28-26v-61h24v69l-40 36h-130Z" fill="url(#armor-face)"/>
+      <path d="M2 861h7v33l26 27h103l13 15 M1445 927h88l29-27v-57h17" fill="none" stroke="#849889" stroke-opacity=".32"/>
+      <path d="M169 921h1222l-14 20H183Z" fill="url(#graphite-face)"/>
+      <path d="M190 922h1180 M185 942h1191" stroke="#728476" stroke-opacity=".2"/>
+      <!-- A recessed information rail, held by shaped end caps and coupling plates. -->
+      <path d="M0 957h118l31 20h1373l31-20h367v123H0Z" fill="#0b120d"/>
+      <path d="M0 963h111l34 22v56l-29 24H0Z" fill="url(#armor-face)"/>
+      <path d="M4 966h104l33 21v52l-27 22H4" fill="none" stroke="#718775" stroke-opacity=".34"/>
+      <path d="M154 983h1733l33-21v118H153l-16-25 17-15Z" fill="url(#graphite-face)"/>
+      <path d="M160 986h1729l25-18 M156 1070h1760" fill="none" stroke="#697b6b" stroke-opacity=".3"/>
+      <!-- Short illuminated inserts sit inside the corner joints. -->
+      <path d="M24 28h27l12-7h27 M1488 928h41l21-19 M1884 46v23 M14 979v35" fill="none" stroke="#0a150d" stroke-width="7"/>
+      <path id="joint-lights" d="M24 28h27l12-7h27 M1488 928h41l21-19 M1884 46v23 M14 979v35" fill="none" stroke="#81b495" stroke-width="2"/>
+      <use href="#joint-lights" filter="url(#glow)" opacity=".5"/>
+    </svg>
+    <div class="game-window" aria-label="透明游戏画面，1536 × 864"></div>
+    <section class="current-panel frame-current vfd-display" aria-label="当前点歌">
+      <header class="now-heading"><span class="current-label">正在播放</span></header>
+      <div id="current-content"></div>
+      <div class="time-track"><span id="current-progress"></span></div>
+    </section>
+    <aside class="sidebar" aria-label="直播互动">
+      <header class="station-header vfd-display"><h1>直播互动</h1><span id="link-status" role="status">等待连接</span></header>
+      <section class="panel queue-panel">
+        <header class="queue-banner"><span class="eyebrow">点歌队列</span><span id="queue-count" class="count-label">00 <span>/ 20</span></span></header>
+        <div class="request-command"><code id="request-hint">点歌 &lt;曲名&gt; [难度]</code></div>
+        <div id="queue-area">
+          <div id="waiting-area">
+            <div id="queue-body"><ol id="queue-list" class="queue-list"></ol><div id="queue-empty" class="empty-state">等待下一首点歌</div></div>
+            <div id="queue-more" class="overflow-note"></div>
+          </div>
+        </div>
+        <div id="pending-area" aria-label="等待观众选择歌曲" hidden><div id="pending-list"></div><div id="pending-page" class="page-note" hidden></div></div>
+      </section>
+      <section id="activity-panel" class="panel activity-panel" data-feed-state="collapsed" aria-label="实时弹幕">
+        <header class="panel-heading"><h2>实时弹幕</h2><span id="feed-count" class="count-label">0 / 0</span></header>
+        <div class="connection-banner" role="status" hidden></div>
+        <div class="feed-body" aria-hidden="true"><ol id="activity-list" class="activity-list" aria-live="polite" aria-relevant="additions"></ol></div>
+        <div id="chat-empty" class="empty-state">等待弹幕</div>
+      </section>
+      <section class="panel event-panel" aria-label="点歌事件">
+        <header class="panel-heading"><h2>最近事件</h2><span id="event-count" class="count-label">0 / 0</span></header>
+        <ol id="event-list" class="activity-list" aria-live="polite" aria-relevant="additions"></ol>
+        <div id="event-empty" class="empty-state">暂无点歌事件</div>
+      </section>
+    </aside>
+  </main>
+</body>
+</html>

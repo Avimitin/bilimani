@@ -10,7 +10,7 @@ async fn main() -> anyhow::Result<()> {
     let static_dir = std::env::args_os()
         .nth(1)
         .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("web"));
+        .unwrap_or_else(|| std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("web/card"));
     let server = Server::start(
         32133,
         &static_dir,

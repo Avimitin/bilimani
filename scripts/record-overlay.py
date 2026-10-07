@@ -114,7 +114,7 @@ def main():
             route.fulfill(json=snapshot())
         elif url.path in assets:
             name, mime = assets[url.path]
-            route.fulfill(path=ROOT / "web" / name, content_type=mime)
+            route.fulfill(path=ROOT / "web/card" / name, content_type=mime)
         else:
             route.fulfill(status=404, body="Not found")
 
