@@ -2,7 +2,7 @@
 //! All mutations are transactional and compare persistent revisions.
 use crate::{config::Config, output::resolved_output, profiles::StreamProfile};
 use anyhow::{Context, Result, ensure};
-use rusqlite::{Connection, TransactionBehavior, params};
+use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use std::{
     io::{Read, Write},
@@ -116,6 +116,13 @@ impl Store {
         if !initial_profiles.is_empty() {
             write_profiles(&tx, &initial_profiles)?;
         }
+        // Derived data only: old schema-2 readers may ignore this optional table.
+        tx.execute_batch(
+            "CREATE TABLE IF NOT EXISTS song_catalog (
+                game TEXT PRIMARY KEY,
+                songs TEXT NOT NULL
+            );",
+        )?;
         // Validate inside the migration transaction, so corrupt input rolls it back.
         read_config(&tx)?;
         tx.commit()?;
@@ -215,6 +222,48 @@ impl Store {
 
     pub fn restart_required(&self) -> bool {
         self.raw.game != self.active_game
+    }
+
+    /// Cache titles/IDs for offline alias validation without exposing native data.
+    /// Use the bound game, even when a different game is saved for next startup.
+    pub fn cache_catalog(&self, songs: &[crate::game::Song]) -> Result<()> {
+        let titles: Vec<_> = songs.iter().map(|s| (s.id, &s.title)).collect();
+        self.connection.execute(
+            "INSERT INTO song_catalog (game, songs) VALUES (?1, ?2)
+             ON CONFLICT(game) DO UPDATE SET songs = excluded.songs",
+            params![
+                serde_json::to_string(&self.active_game)?,
+                serde_json::to_string(&titles)?
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn cached_catalog(
+        &self,
+        game: &crate::config::Game,
+    ) -> Result<Option<Vec<crate::game::Song>>> {
+        let data: Option<String> = self
+            .connection
+            .query_row(
+                "SELECT songs FROM song_catalog WHERE game = ?1",
+                [serde_json::to_string(game)?],
+                |row| row.get(0),
+            )
+            .optional()?;
+        data.map(|data| {
+            let titles: Vec<(u32, String)> = serde_json::from_str(&data)?;
+            Ok(titles
+                .into_iter()
+                .map(|(id, title)| crate::game::Song {
+                    id,
+                    title,
+                    search_terms: vec![],
+                    charts: vec![],
+                })
+                .collect())
+        })
+        .transpose()
     }
 
     fn json_path(&self, path: &Path) -> Result<PathBuf> {

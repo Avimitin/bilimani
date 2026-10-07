@@ -61,9 +61,15 @@ pub struct StreamProfile {
 impl StreamProfile {
     pub fn new(card: CardId) -> Self {
         Self {
+            cards: vec![card],
+            ..Self::unbound()
+        }
+    }
+    pub fn unbound() -> Self {
+        Self {
             id: uuid::Uuid::new_v4().to_string(),
             name: "新直播间".into(),
-            cards: vec![card],
+            cards: vec![],
             bilibili: Bilibili::default(),
         }
     }

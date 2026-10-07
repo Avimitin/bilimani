@@ -1,5 +1,7 @@
 //! Host services; no game-specific IDs, offsets or layouts belong here.
 #[cfg(windows)]
+pub mod desktop;
+#[cfg(windows)]
 pub mod menu;
 #[cfg(windows)]
 pub mod spice;

@@ -46,6 +46,7 @@ pub fn snapshot(
         "connected": status.connected, "status": status.text,
         "ready": engine.is_some(), "current": null, "queue": [],
         "capacity": 0, "pending": [], "notices": [],
+        "now_playing": crate::game::NowPlaying::default(),
         "feed": history.entries, "feed_limit": history.limit
     });
     if let Some(e) = engine {
@@ -178,16 +179,34 @@ fn asset_path(url: &str) -> Option<String> {
 
 pub struct Server {
     pub address: SocketAddr,
-    state: Arc<RwLock<Bytes>>,
+    state: Arc<RwLock<Published>>,
     files: Arc<RwLock<StaticFiles>>,
     task: JoinHandle<Result<()>>,
+}
+
+/// Both endpoints are serialized together on the worker, then swapped atomically.
+struct Published {
+    state: Bytes,
+    now_playing: Bytes,
+}
+impl Published {
+    fn new(value: &Value) -> Result<Self> {
+        let game = value
+            .get("now_playing")
+            .cloned()
+            .unwrap_or_else(|| json!(crate::game::NowPlaying::default()));
+        Ok(Self {
+            state: serde_json::to_vec(value)?.into(),
+            now_playing: serde_json::to_vec(&game)?.into(),
+        })
+    }
 }
 impl Server {
     pub async fn start(port: u16, static_dir: &Path, initial: &Value) -> Result<Self> {
         let files = Arc::new(RwLock::new(StaticFiles::open(static_dir).await?));
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, port)).await?;
         let address = listener.local_addr()?;
-        let state = Arc::new(RwLock::new(Bytes::from(serde_json::to_vec(initial)?)));
+        let state = Arc::new(RwLock::new(Published::new(initial)?));
         let shared = state.clone();
         let shared_files = files.clone();
         let task = tokio::spawn(async move {
@@ -225,8 +244,8 @@ impl Server {
         })
     }
     pub fn publish(&self, value: &Value) {
-        if let Ok(bytes) = serde_json::to_vec(value) {
-            *self.state.write().unwrap() = bytes.into();
+        if let Ok(published) = Published::new(value) {
+            *self.state.write().unwrap() = published;
         }
     }
     pub fn set_static_files(&self, files: StaticFiles) {
@@ -248,7 +267,7 @@ impl Drop for Server {
 
 async fn route(
     req: Request<Incoming>,
-    state: &RwLock<Bytes>,
+    state: &RwLock<Published>,
     port: u16,
     files: &StaticFiles,
 ) -> Response<Full<Bytes>> {
@@ -286,7 +305,12 @@ async fn route(
             "/api/state" => (
                 StatusCode::OK,
                 "application/json; charset=utf-8",
-                state.read().unwrap().clone(),
+                state.read().unwrap().state.clone(),
+            ),
+            "/api/now-playing" => (
+                StatusCode::OK,
+                "application/json; charset=utf-8",
+                state.read().unwrap().now_playing.clone(),
             ),
             path => {
                 let asset = match path {

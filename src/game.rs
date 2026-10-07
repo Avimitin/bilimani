@@ -38,6 +38,68 @@ pub struct Song {
     pub search_terms: Vec<String>,
     pub charts: Vec<AvailableChart>,
 }
+
+/// Owned display data sampled by the adapter, independent of viewer requests.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct NowPlaying {
+    pub phase: SongPhase,
+    pub song: Option<SongInfo>,
+    /// One entry per participating player; side is one-based.
+    pub players: Vec<PlayerChart>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SongPhase {
+    #[default]
+    Idle,
+    Selecting,
+    Playing,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct PlayerChart {
+    pub side: u8,
+    pub chart: Chart,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct SongInfo {
+    pub id: u32,
+    pub title: String,
+    pub artist: String,
+    pub genre: String,
+    pub game_version: Option<u16>,
+    pub charts: Vec<ChartInfo>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct ChartInfo {
+    pub chart: Chart,
+    pub difficulty: &'static str,
+    pub level: String,
+    pub style: ChartStyle,
+    pub bpm: Option<BpmRange>,
+    pub note_count: Option<u32>,
+    pub radar: Option<Radar>,
+}
+
+#[derive(Clone, Copy, Debug, Serialize)]
+pub struct BpmRange {
+    pub min: u32,
+    pub max: u32,
+}
+
+/// Display values (100.0 is the game's 100% reference ring).
+#[derive(Clone, Copy, Debug, Serialize)]
+pub struct Radar {
+    pub notes: f64,
+    pub peak: f64,
+    pub scratch: f64,
+    pub soflan: f64,
+    pub charge: f64,
+    pub chord: f64,
+}
 impl Song {
     pub fn supports(&self, mode: Mode, chart: Option<Chart>) -> bool {
         self.charts
@@ -119,6 +181,7 @@ pub struct GameUpdate {
     /// Confirmed logged-in card, absent for guests/ambiguous player context.
     pub player_card: Option<crate::profiles::CardId>,
     pub snapshot: Snapshot,
+    pub now_playing: NowPlaying,
     /// Monotonic counter: do not miss a short gameplay transition between polls.
     pub plays: u64,
     pub selection_result: Option<SelectionResult>,

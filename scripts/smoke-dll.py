@@ -2,6 +2,7 @@
 
 Usage: py scripts/smoke-dll.py [--reject | --input-detour | --bad-input-detour]
 Additional options: --occupied-port --no-sdk-input --sdk-renderer --profiles
+--song-info exercises song callbacks with synthetic records and stubbed originals.
 Requires the built release DLL and the ignored local game copy for positive mode.
 Artifacts remain under analysis/smoke-* for inspection.
 """
@@ -23,6 +24,7 @@ root = pathlib.Path(__file__).resolve().parent.parent
 reject = "--reject" in sys.argv
 occupied_port = "--occupied-port" in sys.argv
 profiles = "--profiles" in sys.argv
+song_info = "--song-info" in sys.argv
 bad_input_detour = "--bad-input-detour" in sys.argv
 input_detour = "--input-detour" in sys.argv or bad_input_detour
 startup_rejected = reject or bad_input_detour
@@ -59,7 +61,7 @@ if not reject:
     # callbacks and the game entry point from running. Never call game exports.
     game = kernel.LoadLibraryExW(str(root / "analysis/bm2dx.dll"), None, 1)
     assert game, ctypes.WinError(ctypes.get_last_error())
-if input_detour:
+if input_detour or song_info:
     # Synthetic MinHook x64 entry + relay in this process's private image.
     # Route to a real loaded executable module, never to the game body.
     kernel.VirtualProtect.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_uint32,
@@ -80,6 +82,7 @@ if input_detour:
             assert kernel.VirtualProtect(address, len(code), protection.value, ctypes.byref(unused))
         assert kernel.FlushInstructionCache(kernel.GetCurrentProcess(), address, len(code))
 
+if input_detour:
     input_entry = game + 0xa7a2f0
     input_relay = game + 0x1000
     input_target = ctypes.cast(kernel.GetCurrentProcessId, ctypes.c_void_p).value
@@ -136,9 +139,11 @@ else:
             state = json.load(response)
             assert state["ready"] is False and state["queue"] == []
             assert state["feed"] == [] and state["feed_limit"] == 10
+        with urllib.request.urlopen(f"http://127.0.0.1:{overlay_port}/api/now-playing", timeout=3) as response:
+            assert json.load(response) == state["now_playing"] == dict(phase="idle", song=None, players=[])
     for table, slot, rva in [(0xd84788, 13, 0x8eb820), (0xd84788, 14, 0x8ebeb0),
                              (0xd84788, 15, 0x8ec1f0), (0xce9f40, 1, 0x7f2fd0),
-                             (0xdd05c0, 3, 0xa7a2f0)]:
+                             (0xdd05c0, 3, 0xa7a2f0), (0xda50a8, 14, 0x933640)]:
         hooked = ctypes.c_void_p.from_address(game + table + slot*8).value
         assert hooked != game+rva, f"Slot {slot} was not patched"
         assert abs(hooked-plugin._handle) < 0x4000000, "Hook is not inside plugin image"
@@ -200,6 +205,100 @@ if profiles:
     assert "id=global;" in wait_switches(5)[-1]
     assert "E0040123456789" not in logfile.read_text(encoding="utf-8")
     print("PASS: DLL card routing, shared-profile cards, both sides, logout and guest fallback")
+
+if song_info:
+    assert not startup_rejected and not occupied_port and not profiles
+    # The real installation guards already passed. Stub only this process's
+    # private mapped image; no game function body or import is executed.
+    def return_value(rva, value):
+        patch(game + rva, b'\x48\xb8' + struct.pack('<Q', value) + b'\xc3')
+
+    def record(title, music_id):
+        data = bytearray(0x7f8)
+        for offset, value in [(0, title), (0x140, 'SMOKE GENRE'), (0x1c0, 'Smoke Artist')]:
+            encoded = value.encode('utf-16-le')
+            data[offset:offset + len(encoded)] = encoded
+        struct.pack_into('<I', data, 0x67c, music_id)
+        data[0x3dc] = 33
+        data[0x3ec + 3] = 12
+        data[0x3ec + 8] = 11
+        struct.pack_into('<II', data, 0x3fc + 3 * 8, 200, 100)
+        struct.pack_into('<I', data, 0x47c + 3 * 4, 1234)
+        struct.pack_into('<6I', data, 0x4fc + 3 * 24, 15025, 10000, 5500, 0, 7500, 12000)
+        return ctypes.create_string_buffer(bytes(data))
+
+    selected_record = record('Manual selection fixture', 33001)
+    stage_record = record('Actual stage fixture', 33002)
+    reservation = ctypes.create_string_buffer(32)
+    reservation[8] = b'\x01'
+    reservation[9] = b'\x01'
+    for rva, value in [(0x8eb820, 71), (0x8ebeb0, 72), (0x8ec1f0, 73),
+                       (0x9335d0, 74), (0x933640, 75), (0x82ded0, 0),
+                       (0x806f60, 0), (0x7d60e0, ctypes.addressof(reservation)),
+                       (0x606e60, 1), (0x606fd0, ctypes.addressof(selected_record)),
+                       (0x607030, 3), (0x9493e0, 1)]:
+        return_value(rva, value)
+    # The original database accessor remains guarded and returns an empty header,
+    # so catalog startup stays pending while display metadata must still work.
+    scene = ctypes.create_string_buffer(9000)
+    controller = ctypes.create_string_buffer(64)
+    ctypes.c_void_p.from_buffer(scene).value = game + 0xd84788
+    ctypes.c_uint32.from_buffer(scene, 80).value = 3
+    ctypes.c_int32.from_buffer(scene, 128).value = 1000
+    ctypes.c_void_p.from_buffer(scene, 144).value = ctypes.addressof(controller)
+    ctypes.c_void_p.from_buffer(controller, 8).value = game + 0x8ee190
+    stage = ctypes.create_string_buffer(16)
+    ctypes.c_void_p.from_buffer(stage).value = game + 0xda50a8
+    ctypes.c_void_p.from_address(game + 0xabac028).value = ctypes.addressof(stage_record)
+    for side in range(2):
+        ctypes.c_uint32.from_address(game + 0xacd79a8 + side * 4).value = 3
+    callback = ctypes.CFUNCTYPE(ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_size_t, ctypes.c_size_t)
+
+    def invoke(instance, slot):
+        table = ctypes.c_void_p.from_buffer(instance).value
+        address = ctypes.c_void_p.from_address(table + slot * 8).value
+        return callback(address)(ctypes.addressof(instance), 0, 0, 0)
+
+    def wait_song(phase, title, chart_id=None):
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            with urllib.request.urlopen(f'http://127.0.0.1:{overlay_port}/api/now-playing', timeout=2) as response:
+                data = json.load(response)
+            if (data['phase'] == phase and (data['song'] or {}).get('title') == title
+                    and (chart_id is None or data['players'][0]['chart']['id'] == chart_id)):
+                return data
+            time.sleep(.05)
+        raise AssertionError(f'Song snapshot not published: {phase} {title}: {data}')
+
+    assert invoke(scene, 13) == 71
+    assert invoke(scene, 15) == 73
+    data = wait_song('selecting', 'Manual selection fixture')
+    assert [p['side'] for p in data['players']] == [1, 2]
+    chart = data['song']['charts'][0]
+    assert chart['bpm'] == dict(min=100, max=200) and chart['note_count'] == 1234
+    assert chart['radar']['notes'] == 150.25
+    # DP and two-player SP share a double layout but use different chart indices.
+    return_value(0x82ded0, 1)
+    ctypes.c_uint32.from_address(game + 0xacd79a4).value = 1
+    time.sleep(.3)
+    invoke(scene, 15)
+    wait_song('selecting', 'Manual selection fixture', 'DPA')
+    ctypes.c_uint32.from_address(game + 0xacd79a4).value = 0
+    time.sleep(.3)
+    invoke(scene, 15)
+    wait_song('selecting', 'Manual selection fixture', 'SPA')
+    # A folder must clear the selected song despite the native record fallback.
+    return_value(0x606e60, 0)
+    time.sleep(.3)
+    assert invoke(scene, 15) == 73
+    wait_song('selecting', None)
+    assert invoke(scene, 14) == 72
+    wait_song('idle', None)
+    assert invoke(stage, 13) == 74
+    wait_song('playing', 'Actual stage fixture')
+    assert invoke(stage, 14) == 75
+    wait_song('idle', None)
+    print('PASS: real DLL callbacks -> live song JSON, folders, distinct stage record, cleanup and preserved returns')
 
 # Simulate Spice's documented SDK initialization/shutdown callback ABI.
 destroy_callback = None

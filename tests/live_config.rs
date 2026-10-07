@@ -384,7 +384,7 @@ fn every_page_renders_and_chat_is_bounded_independent_of_request_syntax() {
                 )),
                 ..Default::default()
             },
-            |root| menu.show(root.ctx(), &bridge),
+            |root| menu.show(root, &bridge),
         );
         assert!(!output.shapes.is_empty());
     }

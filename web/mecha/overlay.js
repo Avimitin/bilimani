@@ -66,6 +66,74 @@
       row.style.setProperty("--feed-lines", Math.max(1, Math.min(2, Math.floor(available / lineHeight))));
     });
   }
+  function renderNowPlaying(game, offline) {
+    signatures.delete("current");
+    const song = offline ? null : game.song;
+    changed("game-song", [game, offline], () => {
+      const box = $("current-content");
+      box.classList.add("game-content");
+      box.replaceChildren();
+      text(document.querySelector(".current-label"), offline ? "等待连接" : game.phase === "playing" ? "正在演奏" : game.phase === "selecting" ? "正在选曲" : "等待选曲");
+      if (!song) {
+        const empty = node("div", "current-idle");
+        empty.append(node("h2", "", offline ? "等待游戏连接" : "等待选择歌曲"));
+        box.append(empty);
+        return;
+      }
+      const identity = node("div", "game-identity");
+      const title = node("h1", "current-title", song.title);
+      title.title = song.title;
+      const credits = node("div", "song-credits", [song.genre, song.artist].filter(Boolean).join(" / "));
+      credits.title = credits.textContent;
+      identity.append(title, credits);
+      const charts = node("div", "game-charts");
+      const selected = (game.players || []).map((player) => ({player, info: song.charts.find((c) => c.chart.id === player.chart.id)})).filter(({info}) => info);
+      selected.forEach(({player, info}) => {
+        const group = node("div", "game-chart");
+        const badge = chart({chart: `${player.side}P ${info.chart.id} ${info.level}`, chart_style: info.style});
+        const bpm = info.bpm ? (info.bpm.min === info.bpm.max ? String(info.bpm.max) : `${info.bpm.min}–${info.bpm.max}`) : "—";
+        const top = node("div", "chart-summary");
+        top.append(badge, node("span", "song-bpm", `BPM ${bpm}`));
+        group.append(top, node("div", "song-notes", `${info.difficulty} · ${info.note_count ?? "—"} NOTES`));
+        charts.append(group);
+      });
+      box.append(identity, charts);
+      if (selected.length) box.append(radar(selected[0].info.radar, selected[0].player.side));
+    });
+    progress($("current-progress"), 0, 1);
+  }
+  function radar(values, side) {
+    const wrap = node("div", "song-radar");
+    wrap.setAttribute("aria-label", `${side}P 谱面雷达`);
+    const axes = ["notes", "peak", "scratch", "soflan", "charge", "chord"];
+    if (values) {
+      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      svg.setAttribute("viewBox", "0 0 72 72");
+      svg.setAttribute("aria-hidden", "true");
+      const scale = Math.max(200, ...axes.map((key) => values[key]));
+      const points = (amount) => axes.map((key, i) => {
+        const r = amount(key) / scale * 31;
+        const angle = i * Math.PI / 3 - Math.PI / 2;
+        return `${36 + Math.cos(angle) * r},${36 + Math.sin(angle) * r}`;
+      }).join(" ");
+      [100, scale, null].forEach((ring) => {
+        const polygon = document.createElementNS(svg.namespaceURI, "polygon");
+        polygon.setAttribute("points", points((key) => ring ?? values[key]));
+        polygon.setAttribute("class", ring === null ? "radar-value" : "radar-ring");
+        svg.append(polygon);
+      });
+      wrap.append(svg);
+    }
+    const data = node("div", "radar-data");
+    data.append(node("span", "radar-caption", `${side}P RADAR`));
+    axes.forEach((key) => {
+      const item = node("span", "radar-axis");
+      item.append(node("span", "", key.toUpperCase()), node("b", "", values ? Number(values[key]).toFixed(2) : "—"));
+      data.append(item);
+    });
+    wrap.append(data);
+    return wrap;
+  }
   function render(s, offline = false) {
     const warning = offline ? "等待游戏连接 · 游戏启动后会自动恢复" : !s.connected ? s.status : !s.ready ? "等待游戏曲库 · 请进入普通选曲界面" : "";
     document.querySelectorAll(".connection-banner").forEach((el) => { el.hidden = !warning; text(el, warning); });
@@ -74,33 +142,40 @@
       $("link-status").dataset.connected = String(!warning);
     }
     const c = s.current;
-    changed("current", c ? [c.token, c.title, c.requester, c.chart, c.mode, c.chart_style] : [null, offline, s.ready, s.queue.length > 0], () => {
-      const box = $("current-content");
-      box.replaceChildren();
-      if (c) {
-        const title = node("h1", "current-title", c.title);
-        title.title = c.title;
-        const meta = node("div", "current-meta");
-        const time = node("span", "remaining");
-        time.append(node("b", "", ""), document.createTextNode(" 后跳过"));
-        if (frame) {
-          const song = node("div", "current-song");
-          song.append(title, chart(c));
-          box.append(song);
+    if (frame && s.now_playing) {
+      renderNowPlaying(s.now_playing, offline);
+    } else {
+      signatures.delete("game-song");
+      $("current-content").classList.remove("game-content");
+      if (frame) text(document.querySelector(".current-label"), "当前点歌");
+      changed("current", c ? [c.token, c.title, c.requester, c.chart, c.mode, c.chart_style] : [null, offline, s.ready, s.queue.length > 0], () => {
+        const box = $("current-content");
+        box.replaceChildren();
+        if (c) {
+          const title = node("h1", "current-title", c.title);
+          title.title = c.title;
+          const meta = node("div", "current-meta");
+          const time = node("span", "remaining");
+          time.append(node("b", "", ""), document.createTextNode(" 后跳过"));
+          if (frame) {
+            const song = node("div", "current-song");
+            song.append(title, chart(c));
+            box.append(song);
+          } else {
+            box.append(title);
+            meta.append(chart(c));
+          }
+          meta.append(node("span", "requester", `由 ${c.requester} 点歌`), time);
+          box.append(meta);
         } else {
-          box.append(title);
-          meta.append(chart(c));
+          const empty = node("div", "current-idle");
+          empty.append(node("h2", "", "暂无点歌"));
+          box.append(empty);
         }
-        meta.append(node("span", "requester", `由 ${c.requester} 点歌`), time);
-        box.append(meta);
-      } else {
-        const empty = node("div", "current-idle");
-        empty.append(node("h2", "", "暂无点歌"));
-        box.append(empty);
-      }
-    });
-    if (c) text($("current-content").querySelector(".remaining b"), clock(c.remaining));
-    progress($("current-progress"), c ? c.remaining : 0, c ? c.duration : 1);
+      });
+      if (c) text($("current-content").querySelector(".remaining b"), clock(c.remaining));
+      progress($("current-progress"), c ? c.remaining : 0, c ? c.duration : 1);
+    }
     changed("count", [s.queue.length, s.capacity], () => {
       $("queue-count").replaceChildren(document.createTextNode(pad(s.queue.length) + " "), node("span", "", `/ ${s.capacity || "—"}`));
     });
@@ -211,7 +286,7 @@
     }
     fitFeed();
   }
-  const empty = () => ({connected: false, ready: false, status: "等待游戏连接", current: null, capacity: 0, queue: [], pending: [], feed: state?.feed || [], feed_limit: state?.feed_limit || 10});
+  const empty = () => ({connected: false, ready: false, status: "等待游戏连接", current: null, now_playing: {phase: "idle", song: null, players: []}, capacity: 0, queue: [], pending: [], feed: state?.feed || [], feed_limit: state?.feed_limit || 10});
   async function tick() {
     if (stopped) return;
     const controller = new AbortController();

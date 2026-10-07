@@ -93,6 +93,27 @@
 .frame-current .time-track span { background: #a3d8b6; opacity: .55; }
 .frame-current .current-idle { margin: 0; }
 .frame-current .current-idle h2 { font-size: 23px; font-weight: 300; color: #9abfa8; }
+/* Live game metadata shares the existing glass; the game aperture stays clear. */
+.frame-current:has(.game-content) { gap: 20px; }
+.frame-current:has(.game-content) .now-heading { flex-basis: 70px; }
+.frame-current #current-content.game-content { gap: 24px; }
+.game-identity { flex: 1; min-width: 0; overflow: hidden; }
+.game-identity .current-title { font-size: var(--title-size); line-height: 34px; }
+.song-credits { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: #8dab98; font-size: 13px; line-height: 20px; }
+.game-charts { display: flex; gap: 24px; flex: none; }
+.game-chart { min-width: 175px; }
+.chart-summary { display: flex; gap: 16px; align-items: baseline; white-space: nowrap; }
+.frame-current .game-chart .chart { font-size: 18px; }
+.song-bpm { font-size: 16px; color: #b6d8c4; }
+.song-notes { font-size: 11px; line-height: 22px; color: #8dab98; white-space: nowrap; }
+.song-radar { display: flex; align-items: center; gap: 10px; flex: 0 0 340px; }
+.song-radar svg { width: 66px; height: 66px; flex: none; }
+.radar-ring { fill: none; stroke: #9bbba730; stroke-width: .75; }
+.radar-value { fill: #9bbba72c; stroke: #b6d8c4; stroke-width: 1.25; }
+.radar-data { flex: 1; display: grid; grid-template-columns: 1fr 1fr; column-gap: 16px; row-gap: 2px; }
+.radar-caption { grid-column: 1 / -1; color: #8dab98; font-size: 9px; letter-spacing: .12em; }
+.radar-axis { display: flex; gap: 6px; justify-content: space-between; font-size: 10px; color: #8dab98; }
+.radar-axis b { font-size: 11px; font-weight: 400; color: #b6d8c4; }
 #link-status { font-size: 10px; }
 #link-status[data-connected="true"] { color: #9dbca8; }
 /* Selection occupies the same recess; its surface and other content stay fixed. */

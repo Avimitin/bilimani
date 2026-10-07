@@ -3,13 +3,17 @@ use crate::profiles::{self, CardId, GLOBAL, StreamProfile};
 
 impl Menu {
     pub(super) fn create_profile(&mut self, view: &View) {
-        let Some(card) = &view.player_card else {
-            return;
+        let mut profile = if view.standalone {
+            StreamProfile::unbound()
+        } else {
+            let Some(card) = &view.player_card else {
+                return;
+            };
+            if profiles::for_card(&self.draft, Some(card)).is_some() {
+                return;
+            }
+            StreamProfile::new(card.clone())
         };
-        if profiles::for_card(&self.draft, Some(card)).is_some() {
-            return;
-        }
-        let mut profile = StreamProfile::new(card.clone());
         // Application credentials may be shared; never copy the previous room.
         profile.bilibili.relay_url = self.draft.bilibili.relay_url.clone();
         profile.bilibili.app_id = self.draft.bilibili.app_id;
@@ -17,10 +21,19 @@ impl Menu {
         profile.bilibili.access_key_secret = self.draft.bilibili.access_key_secret.clone();
         self.profile = profile.id.clone();
         self.draft.profiles.push(profile);
-        self.bind_card = Some(card.clone());
+        self.bind_card = if view.standalone {
+            None
+        } else {
+            view.player_card.clone()
+        };
         self.page = Page::Bilibili;
         self.delete_profile = false;
-        self.feedback = "填写身份码或直播间号后点击「应用并保存」，即会绑定当前登录卡号".into();
+        self.feedback = if view.standalone {
+            "填写直播间信息，可在下方添加卡号，再点击「应用并保存」"
+        } else {
+            "填写身份码或直播间号后点击「应用并保存」，即会绑定当前登录卡号"
+        }
+        .into();
     }
 
     fn add_card(&mut self, card: CardId) -> anyhow::Result<()> {
@@ -46,8 +59,13 @@ impl Menu {
             .iter()
             .find(|p| p.id == view.active_profile)
             .map_or("全局档案", |p| p.name.as_str());
-        ui.label(format!("当前使用：{active}"));
-        if let Some(card) = &view.player_card {
+        if view.standalone {
+            ui.weak("设置与游戏共用；保存后下次启动游戏生效。游戏已运行时，可在游戏内点击「刷新已保存设置」。");
+            if Button::new("创建新直播间").sm().show(ui).clicked() {
+                self.create_profile(view);
+            }
+        } else if let Some(card) = &view.player_card {
+            ui.label(format!("当前使用：{active}"));
             ui.label(format!("已登录卡号：{}", card.masked()));
             if profiles::for_card(&self.draft, Some(card)).is_none()
                 && Button::new("创建新直播间").sm().show(ui).clicked()
@@ -55,6 +73,7 @@ impl Menu {
                 self.create_profile(view);
             }
         } else {
+            ui.label(format!("当前使用：{active}"));
             ui.weak("登录游戏后可为当前卡号创建直播间；游客和未绑定卡号使用全局档案。");
         }
         Text::new(&view.connection.text)
@@ -104,6 +123,9 @@ impl Menu {
         if let Some(index) = index {
             ui.separator();
             Heading::new("绑定卡号").heading().show(ui);
+            if view.standalone && self.draft.profiles[index].cards.is_empty() {
+                ui.weak("此档案尚未绑定卡号；添加卡号后，该账户登录游戏时会自动使用此档案。");
+            }
             let mut remove = None;
             for (i, card) in self.draft.profiles[index].cards.iter().enumerate() {
                 ui.push_id(card.as_str(), |ui| {
@@ -193,6 +215,31 @@ fn connection_fields(ui: &mut Ui, c: &mut crate::config::Bilibili) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn standalone_creates_unbound_profiles_using_the_existing_page() {
+        let mut view = View::new(Config::default());
+        view.standalone = true;
+        let (bridge, _) = Bridge::new(view.clone(), design::fonts());
+        let ctx = egui::Context::default();
+        ctx.set_fonts(design::fonts());
+        let mut menu = Menu::new(&view);
+        bridge.visible.store(true, Ordering::Release);
+        frame(&mut menu, &ctx, &bridge, None);
+        assert!(menu.page == Page::Bilibili);
+        menu.create_profile(&view);
+        assert_eq!(menu.draft.profiles.len(), 1);
+        assert!(menu.draft.profiles[0].cards.is_empty());
+        assert!(menu.bind_card.is_none());
+        menu.draft.profiles[0].bilibili.auth_code = "offline-test".into();
+        menu.add_card(CardId::parse("E0040123456789AB").unwrap())
+            .unwrap();
+        menu.draft.validate().unwrap();
+        assert!(menu.bind_card.is_none());
+        // In-game guests still cannot create an automatically bound profile.
+        view.standalone = false;
+        menu.create_profile(&view);
+        assert_eq!(menu.draft.profiles.len(), 1);
+    }
     fn frame(menu: &mut Menu, ctx: &egui::Context, bridge: &Bridge, event: Option<Navigation>) {
         let mut input = egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(
@@ -202,7 +249,7 @@ mod tests {
             ..Default::default()
         };
         menu.controller_input(ctx, &mut input, event);
-        let _ = ctx.run_ui(input, |root| menu.show(root.ctx(), bridge));
+        let _ = ctx.run_ui(input, |root| menu.show(root, bridge));
     }
     #[test]
     fn controller_creates_a_login_bound_draft_and_busy_channel_keeps_it_editable() {

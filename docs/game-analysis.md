@@ -67,7 +67,7 @@ callbacks are preserved. Stage scene initialization reports gameplay start for
 queue advancement; selection cleanup prevents submissions outside that screen.
 Network, search, configuration, and OBS writes run on a worker thread.
 
-Stage vtables whose slot 13 is observed: `0xda50a8`, `0xda5188`, `0xda5268`,
+Stage vtables whose slots 13/14 are observed: `0xda50a8`, `0xda5188`, `0xda5268`,
 `0xda5348`, `0xda5428`, `0xda5508`, `0xda55e8`, `0xda56c8`, `0xdae1e8`,
 `0xdae2c8`, `0xdae3a8`, `0xdae488`, `0xdae728`. These identify stage entry;
 special song-selection scenes themselves are not supported by this adapter.
@@ -94,6 +94,66 @@ buffer directly would instead see a heap pointer and fail the `IIDX` header chec
 Snapshot size now comes from validated header dimensions (up to 10,000 records
 and 100,000 lookup entries), supporting databases larger than the original 4 MiB.
 Other accessor patches are rejected with a diagnostic, not executed.
+
+## Live song metadata and lifecycle
+
+The same verified IIDX 33 image was inspected again with IDA/Hex-Rays for the
+display API. `song_info.rs` decodes a fresh, bounded `0x7f8`-byte copy of the
+selected/stage record; it deliberately does not use the once-captured request
+catalog. The copied disk databases leave chart-derived fields zero. These are
+populated by the running game, so zeros/sentinels must not become fabricated
+metrics. All offsets below are **record offsets**, not image RVAs.
+
+| Record offset | Layout / evidence |
+| --- | --- |
+| `0x000` | UTF-16LE title, 256 bytes (existing catalog parser) |
+| `0x140` | UTF-16LE genre, 128 bytes; `0x601610` / `0x830250` pass `record + 320` to text rendering |
+| `0x1c0` | UTF-16LE artist, 256 bytes; `0x601610` / `0x8322e0` render `record + 448` |
+| `0x3dc` | u16 introduction-version index; `0x82d980` reads word index 494 |
+| `0x3ec + chart` | u8 level; `0x9522b0` checks nonzero and at most 12 |
+| `0x3fc + chart*8` | u32 maximum BPM |
+| `0x400 + chart*8` | u32 minimum BPM; zero means use maximum |
+| `0x47c + chart*4` | u32 total notes; score-rate consumers `0x82d1d0` / `0x6fd040` read dword index `287 + chart` |
+| `0x4fc + chart*24` | Six signed radar values in NOTES, PEAK, SCRATCH, SOFLAN, CHARGE, CHORD order |
+
+`0x637fc0` copies BPM into the widget's +28/+32 fields. `0x637e10` renders +32
+through `bpm_low*` and +28 through `bpm_high*`; minimum <= 0 hides the range.
+`0x7fefc0` copies the six radar axes from `record + 1276 + 24*chart`.
+`0x7fded0` and `0x830de0` associate that order with `100_notes`, `100_peak`,
+`100_scratch`, `100_sof_lan`, `100_charge`, `100_chord`, multiplying by 0.0001
+relative to the 100% reference vertices. JSON therefore divides raw values by
+100: 10000 becomes 100.0. No graph smoothing or visual minimum is applied to
+the exported values. All-zero/missing or negative sentinel radar becomes null.
+
+`0x82dfa0(difficulty, mode)` establishes SP indices 0–4, DP 5–9. For display,
+the mode is resolved using the play-style flag at `0xacd79a4` (`0x9493a0`, then
+booleanized by `0x949570` / `0x82e0f0`) and the existing `0x949530` layout query.
+The latter also reports a double layout with two SP participants, so it must
+not alone select DP metadata. A DP battle layout uses SP chart data, matching
+the adjustment in `0x7fefc0`. Per-side selection difficulties come from the
+existing guarded `0x607030(widget, side)` and participation from `0x9493e0`.
+
+On eligible normal selection frames, after original update returns, the adapter
+checks scene identity and song bar type, then samples at most once per 250ms.
+Folder bars clear `song` despite the native record getter's fallback to ID 1000.
+Selection cleanup clears all display state, and callbacks retain their original
+arguments and return values.
+
+`0x90f990` returns `CStageMain` at `0xabac020`. Prepare (`0x90f310`) stores the
+actual music record at +8, from `0x9493b0` / `0xacd79d0`. Stage init
+(`0x9335d0`, and the wrapper at `0x8d22d0`) calls `0x90e080`, which uses that
+record. After the original init, the adapter reads `0xabac028`, the per-side
+difficulties at `0xacd79a8` (`0x949430`), and copies the record. This handles a
+stage whose song differs from the last ordinary selection. It never assumes a
+request-engine song is the played song. The listed stage vtables' slot 14 all
+resolve to cleanup `0x933640`, which invokes `0x90d200`; these slots are now
+guarded and wrapped to clear display state on exit. No stale song is kept through
+results/logout. New read-layout evidence functions receive entry-byte guards.
+
+`scripts/smoke-dll.py --song-info` validates installed callback plumbing using
+synthetic records and stubbed original functions in a private mapped image,
+including SP/DP index selection, a directory, a different stage record, cleanup,
+and original return values. Real gameplay has not been exercised by that test.
 
 ## Opposite-Start input eligibility
 

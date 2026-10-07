@@ -65,6 +65,64 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "& ./scripts/build.ps1 -C
 不提供 `--browser` 时使用 Playwright 安装的 Chromium；截图保存在忽略的 `analysis/overlay-history/`。
 `scripts/smoke-dll.py` 也会检查真实 DLL 启动 HTTP 服务、提供页面/状态，以及关闭后释放端口。
 
+### 当前选曲／游玩歌曲 API
+
+`GET /api/now-playing` 返回实际游戏歌曲快照，无需有观众点歌。同一对象也在
+`/api/state.now_playing` 中，页面一次轮询即可获得全部内容。已有的 `current` 字段继续表示
+观众的当前点歌请求。两个接口均支持 HEAD，沿用本地 Host/Origin 检查及 `no-store`。
+
+以下为字段示意，数值使用模拟数据；`song.charts` 实际包含该曲存在的全部谱面：
+
+```json
+{
+  "phase": "selecting",
+  "song": {
+    "id": 33001,
+    "title": "Example Song",
+    "artist": "Example Artist",
+    "genre": "TEST GENRE",
+    "game_version": 33,
+    "charts": [{
+      "chart": {"mode": "SP", "id": "SPA"},
+      "difficulty": "ANOTHER",
+      "level": "12",
+      "style": "red",
+      "bpm": {"min": 100, "max": 200},
+      "note_count": 2000,
+      "radar": {"notes": 180.25, "peak": 145.5, "scratch": 65.75,
+                "soflan": 120.0, "charge": 0.0, "chord": 150.01}
+    }]
+  },
+  "players": [{"side": 2, "chart": {"mode": "SP", "id": "SPA"}}]
+}
+```
+
+| 字段 | 含义 |
+| --- | --- |
+| `phase` | `idle`、`selecting`、`playing`；演奏结束清为 `idle` |
+| `song` | 当前歌曲；启动、场景离开、选中目录或读取失败时为 `null` |
+| `game_version` | 初出版本编号，异常值为 `null` |
+| `charts` | 存在的 SP/DP B/N/H/A/L 谱面；等级为字符串，未解锁谱面也可能有元数据 |
+| `bpm` | 谱面最小／最大 BPM；恒定 BPM 两值相同，尚未加载时为 `null` |
+| `note_count` | 该谱面总音符数，尚未加载或异常时为 `null` |
+| `radar` | 六项数值，`100.0` 对应原生雷达的 100% 参考环；缺失时为 `null`，允许超过 100 |
+| `players` | 每个参与侧及其选中谱面；`side` 为 1 或 2，通过 `chart.id` 关联 `charts` |
+
+普通选曲在原生更新完成后每 250ms 采集一次；切换难度和手动选歌都更新。弹窗期间保留最近
+一次有效选曲，离开选曲清空。进入 stage 后从实际演奏上下文重新采集，不沿用上一首选曲；
+stage 清理时立即清空。特殊选曲画面暂不采集选曲信息，其支持的 stage 仍可报告演奏曲目。
+本版提供谱面 BPM 范围，尚未采集演奏进度、瞬时 BPM 或实时判定分数。
+
+游戏回调只产生拥有独立内存的 Rust 数据；worker 每 100ms 发布快照，HTTP 请求不调用游戏。
+没有可用元数据时仍返回 200 和空状态；网页应正常处理 `null`、空 `players` 与空文本。
+Mecha 底栏展示曲名、曲风／作者、参与侧难度、BPM、音符数及雷达；两侧都参与时显示两份难度，
+雷达注明其对应的首个参与侧。断线超过三秒清除歌曲，重连恢复。卡片样式维持点歌队列展示。
+
+`tests/song_info.rs` 覆盖记录索引与缺失数据，`tests/overlay.rs` 覆盖 API 发布及清空。
+`py scripts/smoke-dll.py --song-info` 使用私有映射与模拟原函数，验证真实 DLL 回调到 JSON 的
+链路、SP/DP、目录、stage 切换与清理。`scripts/check-frame.py` 验证手动选曲、双侧难度、雷达、
+缺失值、超长文本转义、断线恢复和画面边界。上述模拟测试不等于真实游戏运行验证。
+
 ### 按时间表录制网页演示
 
 `scripts/record-overlay.py` 直接读取 `web/card/`，在独立浏览器中拦截所有请求，用 JSON 时间表提供模拟快照，
@@ -158,6 +216,32 @@ to render all nine real pages in a hidden D3D9 window. It writes BMP screenshots
 under ignored `analysis/menu-preview/` and exercises device Reset between pages.
 This does not replace an in-game check of SDK callback ordering, keyboard/IME,
 mouse input, Start gestures and compatibility with other overlays.
+
+### 独立配置 EXE
+
+`cargo build --release --locked` 同时构建 DLL 和 `chart-requester-config.exe`，发布 ZIP 包含两者。
+EXE 复用游戏内 egui 页面、Win32 输入和 D3D9 渲染，默认打开自身目录下的
+`chart-requester.db`，不依赖当前工作目录，不建立直播连接或 OBS 服务。启动失败通过
+Windows 对话框显示错误。关闭控制台或按 Esc 会退出 EXE。
+
+独立配置使用自有 Win32 窗口类承载无边框 egui `CentralPanel`。`WM_NCHITTEST` 根据 egui
+发布的标题区与按钮矩形区分拖动、按钮和八个缩放方向；最大化范围为当前屏幕工作区。
+原生拖动／缩放消息循环通过定时器持续绘制，D3D9 Reset 与正常绘制共用同一状态并拒绝重入。
+游戏内仍使用居中的 egui 浮窗及原有缩放策略。
+
+```powershell
+./target/release/chart-requester-config.exe --config 'D:/IIDX/modules/chart-requester.db'
+```
+
+离线别名校验读取明确指定的 `game.database_path` 或 DLL 在 `song_catalog` 表中缓存的
+歌曲标题/ID。缓存按游戏模块与曲库路径分组，不增加设置 revision，也不写入 JSON 备份。
+首次没有曲库仍可编辑直播档案和其他设置；可在「游戏适配」填写曲库文件再保存别名。
+`tests/desktop.rs` 检查独立配置、手动卡号绑定、缓存、文件曲库、别名校验、并发更新和备份草稿。
+
+无窗口检查：`chart-requester-config.exe --config <测试路径.db> --hidden --frames 60`。
+使用单独的测试数据库；此模式同样不连接直播间。
+`py -3 scripts/check-desktop.py` 会启动隐藏窗口，检查标题／按钮命中、八个缩放方向、
+负坐标、多次改变大小后的绘制与关闭。`--exe` 可指定 Debug 等其他构建。
 
 ### 不启动游戏，交互调试面板
 

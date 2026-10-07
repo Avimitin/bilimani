@@ -23,6 +23,14 @@ fn main() -> anyhow::Result<()> {
         egui::vec2(1280.0, 800.0)
     };
     let mut view = support::fixture();
+    if std::env::args().any(|arg| arg == "--standalone") {
+        view = chart_requester::gui::View::new(Default::default());
+        view.standalone = true;
+        view.connection.text = "独立配置 · chart-requester.db".into();
+        view.catalog_status =
+            "尚无曲库缓存：请启动新版 DLL 并进入一次选曲，或在「游戏适配」填写 music_data.bin 路径"
+                .into();
+    }
     if std::env::args().any(|arg| arg == "--profiles") {
         use chart_requester::profiles::{CardId, StreamProfile};
         let card = CardId::parse("E0040123456789AB")?;
@@ -106,7 +114,7 @@ fn main() -> anyhow::Result<()> {
                         time: Some((index * 20 + frame) as f64 / 60.0),
                         ..Default::default()
                     },
-                    |root| ui.show(root.ctx(), &bridge),
+                    |root| ui.show(root, &bridge),
                 );
                 let meshes = context.tessellate(result.shapes, result.pixels_per_point);
                 device.Clear(

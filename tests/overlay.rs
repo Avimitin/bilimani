@@ -209,6 +209,7 @@ async fn serves_static_assets_live_snapshots_and_releases_port_on_shutdown() {
         ("/overlay.css", "text/css"),
         ("/overlay.js", "text/javascript"),
         ("/api/state", "application/json"),
+        ("/api/now-playing", "application/json"),
     ] {
         let response = client.get(format!("{root}{path}")).send().await.unwrap();
         assert_eq!(response.status(), 200);
@@ -241,8 +242,29 @@ async fn serves_static_assets_live_snapshots_and_releases_port_on_shutdown() {
             .status(),
         404
     );
-    let updated = snapshot(None, &connection("新连接状态"), 1, &History::default());
+    let mut updated = snapshot(None, &connection("新连接状态"), 1, &History::default());
+    // Game metadata remains available before the request-engine catalog exists.
+    updated["now_playing"] = serde_json::json!({
+        "phase": "playing", "song": {"id": 11040, "title": "AA", "artist": "D.J.Amuro"},
+        "players": [{"side": 2, "chart": {"mode": "SP", "id": "SPA"}}]
+    });
     server.publish(&updated);
+    let playing = client
+        .get(format!("{root}/api/now-playing"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        playing.json::<serde_json::Value>().await.unwrap(),
+        updated["now_playing"]
+    );
+    let head = client
+        .head(format!("{root}/api/now-playing"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(head.status(), 200);
+    assert!(head.text().await.unwrap().is_empty());
     assert_eq!(
         client
             .get(format!("{root}/api/state"))
@@ -253,6 +275,19 @@ async fn serves_static_assets_live_snapshots_and_releases_port_on_shutdown() {
             .await
             .unwrap(),
         updated
+    );
+    let idle = snapshot(None, &connection("新连接状态"), 2, &History::default());
+    server.publish(&idle);
+    assert_eq!(
+        client
+            .get(format!("{root}/api/now-playing"))
+            .send()
+            .await
+            .unwrap()
+            .json::<serde_json::Value>()
+            .await
+            .unwrap(),
+        serde_json::json!({"phase": "idle", "song": null, "players": []})
     );
     for private in [
         "chart-requester.toml",

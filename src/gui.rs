@@ -112,6 +112,8 @@ pub struct QueueRow {
 }
 #[derive(Clone)]
 pub struct View {
+    pub standalone: bool,
+    pub catalog_status: String,
     pub player_card: Option<crate::profiles::CardId>,
     pub active_profile: String,
     pub config: Config,
@@ -157,6 +159,8 @@ impl View {
     }
     pub fn new(config: Config) -> Self {
         Self {
+            standalone: false,
+            catalog_status: String::new(),
             player_card: None,
             active_profile: crate::profiles::GLOBAL.into(),
             config,
@@ -222,10 +226,15 @@ pub struct Command {
 }
 pub struct Bridge {
     pub visible: AtomicBool,
+    title_bar: RwLock<Option<TitleBar>>,
     view: RwLock<Arc<View>>,
     commands: SyncSender<Command>,
     pub fonts: egui::FontDefinitions,
     navigation: Mutex<VecDeque<Navigation>>,
+}
+struct TitleBar {
+    rect: egui::Rect,
+    controls: Vec<egui::Rect>,
 }
 impl Bridge {
     pub fn new(view: View, fonts: egui::FontDefinitions) -> (Arc<Self>, Receiver<Command>) {
@@ -233,6 +242,7 @@ impl Bridge {
         (
             Arc::new(Self {
                 visible: AtomicBool::new(false),
+                title_bar: RwLock::new(None),
                 view: RwLock::new(Arc::new(view)),
                 commands,
                 fonts,
@@ -246,6 +256,11 @@ impl Bridge {
     }
     pub fn snapshot(&self) -> Arc<View> {
         self.view.read().unwrap().clone()
+    }
+    pub fn is_title_bar(&self, point: egui::Pos2) -> bool {
+        self.title_bar.read().unwrap().as_ref().is_some_and(|bar| {
+            bar.rect.contains(point) && !bar.controls.iter().any(|r| r.contains(point))
+        })
     }
     pub fn toggle(&self) {
         self.visible.fetch_xor(true, Ordering::AcqRel);
@@ -433,7 +448,8 @@ impl Menu {
             self.feedback = "操作队列忙，请稍后再试".into();
         }
     }
-    pub fn show(&mut self, ctx: &egui::Context, bridge: &Bridge) {
+    pub fn show(&mut self, root: &mut Ui, bridge: &Bridge) {
+        let ctx = &root.ctx().clone();
         let view = bridge.snapshot();
         if self.observed_profile != view.active_profile {
             self.observed_profile = view.active_profile.clone();
@@ -461,9 +477,13 @@ impl Menu {
         let opening = !self.was_open;
         self.was_open = true;
         if opening {
-            self.page = Page::Live;
+            self.page = if view.standalone {
+                Page::Bilibili
+            } else {
+                Page::Live
+            };
         }
-        let mut focus_queue = opening;
+        let mut focus_queue = opening && !view.standalone;
         if std::mem::take(&mut self.back) {
             let focused = ctx.memory(|m| m.focused());
             if focused.is_some_and(|id| self.sidebar.contains(&id)) {
@@ -482,207 +502,280 @@ impl Menu {
             return;
         }
         let screen = ctx.content_rect();
-        let window_size = egui::vec2(
-            1000.0_f32.min(screen.width() - 64.0),
-            650.0_f32.min(screen.height() - 80.0),
-        );
+        let window_size = if view.standalone {
+            screen.size() - egui::vec2(32.0, 32.0)
+        } else {
+            egui::vec2(
+                1000.0_f32.min(screen.width() - 64.0),
+                650.0_f32.min(screen.height() - 80.0),
+            )
+        };
         self.sidebar.clear();
-        egui::Window::new("Chart Requester  /  直播控制台")
-            .id(egui::Id::new("requester-menu"))
-            .title_bar(false)
-            .fixed_size(window_size)
-            .resizable(false)
-            .collapsible(false)
-            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
-            .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    ui.vertical(|ui| {
-                        Heading::new("Chart Requester").h2().show(ui);
-                        Text::new("直播控制台").caption().muted().show(ui);
-                    });
-                    if view.player_card.is_some()
+        let contents = |ui: &mut Ui| {
+            let mut controls = Vec::new();
+            let header = ui.horizontal(|ui| {
+                ui.vertical(|ui| {
+                    Heading::new("Chart Requester").h2().show(ui);
+                    Text::new("直播控制台").caption().muted().show(ui);
+                });
+                if view.standalone
+                    || (view.player_card.is_some()
                         && crate::profiles::for_card(&self.draft, view.player_card.as_ref())
-                            .is_none()
-                        && ui
-                            .add_enabled(self.pending.is_none(), egui::Button::new("创建新直播间"))
-                            .clicked()
-                    {
+                            .is_none())
+                {
+                    let create =
+                        ui.add_enabled(self.pending.is_none(), egui::Button::new("创建新直播间"));
+                    controls.push(create.rect);
+                    if create.clicked() {
                         self.create_profile(&view);
                     }
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if Button::new("")
-                            .icon_left(icons::X)
-                            .icon_only()
-                            .ghost()
-                            .sm()
-                            .show(ui)
-                            .on_hover_text("关闭控制台")
-                            .clicked()
-                        {
-                            open = false;
+                }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let close = Button::new("")
+                        .icon_left(icons::X)
+                        .icon_only()
+                        .ghost()
+                        .sm()
+                        .show(ui)
+                        .on_hover_text("关闭控制台");
+                    controls.push(close.rect);
+                    if close.clicked() {
+                        open = false;
+                    }
+                    if view.standalone {
+                        let maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
+                        for (icon, label, command) in [
+                            (
+                                icons::SQUARE,
+                                if maximized {
+                                    "还原窗口"
+                                } else {
+                                    "最大化"
+                                },
+                                egui::ViewportCommand::Maximized(!maximized),
+                            ),
+                            (
+                                icons::MINUS,
+                                "最小化",
+                                egui::ViewportCommand::Minimized(true),
+                            ),
+                        ] {
+                            let button = Button::new("")
+                                .icon_left(icon)
+                                .icon_only()
+                                .ghost()
+                                .sm()
+                                .show(ui)
+                                .on_hover_text(label);
+                            controls.push(button.rect);
+                            if button.clicked() {
+                                ctx.send_viewport_cmd(command);
+                            }
                         }
-                        let badge = if view.connection.connected {
-                            Badge::new("弹幕已连接").success()
+                    }
+                    let badge = if view.standalone {
+                        Badge::new("独立配置").secondary()
+                    } else if view.connection.connected {
+                        Badge::new("弹幕已连接").success()
+                    } else {
+                        Badge::new("弹幕未连接").secondary()
+                    };
+                    badge
+                        .dot()
+                        .sm()
+                        .show(ui)
+                        .on_hover_text(&view.connection.text);
+                    if !view.ready {
+                        Badge::new(if view.standalone {
+                            "未载入曲库"
                         } else {
-                            Badge::new("弹幕未连接").secondary()
+                            "等待曲库"
+                        })
+                        .warning()
+                        .sm()
+                        .show(ui)
+                        .on_hover_text(&view.catalog_status);
+                    }
+                    if let Some(room) = &view.room {
+                        let name = if room.name.is_empty() {
+                            format!("直播间 {}", room.room_id)
+                        } else {
+                            room.name.clone()
                         };
-                        badge
-                            .dot()
-                            .sm()
-                            .show(ui)
-                            .on_hover_text(&view.connection.text);
-                        if !view.ready {
-                            Badge::new("等待曲库").warning().sm().show(ui);
-                        }
-                        if let Some(room) = &view.room {
-                            let name = if room.name.is_empty() {
-                                format!("直播间 {}", room.room_id)
+                        let title = if room.title.is_empty() {
+                            "标题暂不可用"
+                        } else {
+                            &room.title
+                        };
+                        let text = format!("{name} · {title}");
+                        ui.add(egui::Label::new(&text).truncate().selectable(false))
+                            .on_hover_text(format!("{text}\n直播间 {}", room.room_id));
+                    }
+                });
+            });
+            if view.standalone {
+                *bridge.title_bar.write().unwrap() = Some(TitleBar {
+                    rect: header.response.rect,
+                    controls,
+                });
+            }
+            ui.add_space(8.0);
+            ui.separator();
+            let body_height = (window_size.y
+                - if self.feedback.is_empty() {
+                    120.0
+                } else {
+                    152.0
+                })
+            .max(200.0);
+            ui.allocate_ui_with_layout(
+                egui::vec2(ui.available_width(), body_height),
+                egui::Layout::left_to_right(egui::Align::Min),
+                |ui| {
+                    ui.set_min_height(body_height);
+                    ui.vertical(|ui| {
+                        ui.set_width(130.0);
+                        ui.add_space(8.0);
+                        Text::new("工作台").caption().muted().show(ui);
+                        for (index, (page, label)) in PAGES.into_iter().enumerate() {
+                            if index == 2 {
+                                ui.add_space(12.0);
+                                Text::new("设置").caption().muted().show(ui);
+                            }
+                            let icon = [
+                                icons::CHATS,
+                                icons::TAG,
+                                icons::LIST_NUMBERS,
+                                icons::BROADCAST,
+                                icons::MONITOR,
+                                icons::GAME_CONTROLLER,
+                                icons::FILE_TEXT,
+                                icons::CUBE,
+                                icons::DATABASE,
+                            ][index];
+                            let button = Button::new(label).icon_left(icon).sm();
+                            let response = if self.page == page {
+                                button.secondary()
                             } else {
-                                room.name.clone()
-                            };
-                            let title = if room.title.is_empty() {
-                                "标题暂不可用"
-                            } else {
-                                &room.title
-                            };
-                            let text = format!("{name} · {title}");
-                            ui.add(egui::Label::new(&text).truncate().selectable(false))
-                                .on_hover_text(format!("{text}\n直播间 {}", room.room_id));
+                                button.ghost()
+                            }
+                            .show(ui);
+                            self.sidebar.push(response.id);
+                            if opening && self.page == page {
+                                response.request_focus();
+                            }
+                            if response.clicked() {
+                                self.page = page;
+                                focus_queue = page == Page::Live;
+                            }
                         }
                     });
-                });
-                ui.add_space(8.0);
-                ui.separator();
-                let body_height = (window_size.y
-                    - if self.feedback.is_empty() {
-                        120.0
-                    } else {
-                        152.0
-                    })
-                .max(200.0);
-                ui.allocate_ui_with_layout(
-                    egui::vec2(ui.available_width(), body_height),
-                    egui::Layout::left_to_right(egui::Align::Min),
-                    |ui| {
-                        ui.set_min_height(body_height);
-                        ui.vertical(|ui| {
-                            ui.set_width(130.0);
-                            ui.add_space(8.0);
-                            Text::new("工作台").caption().muted().show(ui);
-                            for (index, (page, label)) in PAGES.into_iter().enumerate() {
-                                if index == 2 {
-                                    ui.add_space(12.0);
-                                    Text::new("设置").caption().muted().show(ui);
-                                }
-                                let icon = [
-                                    icons::CHATS,
-                                    icons::TAG,
-                                    icons::LIST_NUMBERS,
-                                    icons::BROADCAST,
-                                    icons::MONITOR,
-                                    icons::GAME_CONTROLLER,
-                                    icons::FILE_TEXT,
-                                    icons::CUBE,
-                                    icons::DATABASE,
-                                ][index];
-                                let button = Button::new(label).icon_left(icon).sm();
-                                let response = if self.page == page {
-                                    button.secondary()
-                                } else {
-                                    button.ghost()
-                                }
-                                .show(ui);
-                                self.sidebar.push(response.id);
-                                if opening && self.page == page {
-                                    response.request_focus();
-                                }
-                                if response.clicked() {
-                                    self.page = page;
-                                    focus_queue = page == Page::Live;
-                                }
-                            }
-                        });
-                        ui.vertical(|ui| {
-                            ui.set_min_width((ui.available_width()).max(400.0));
-                            let height = body_height;
-                            ui.add_enabled_ui(self.pending.is_none(), |ui| {
-                                if self.page == Page::Live {
-                                    self.live(ui, bridge, &view, height, focus_queue);
-                                } else {
-                                    ScrollArea::vertical()
-                                        .id_salt("settings-page")
-                                        .max_height(height)
-                                        .show(ui, |ui| {
-                                            Card::new().sm().show(ui, |ui| {
-                                                ui.set_min_width((ui.available_width()).max(360.0));
-                                                self.settings(ui, &view, bridge);
-                                                // Keep keyboard/controller focus visible even in
-                                                // long profile lists and credential forms.
-                                                if let Some(response) = ui
-                                                    .memory(|m| m.focused())
-                                                    .and_then(|id| ui.ctx().read_response(id))
-                                                    .filter(|r| ui.min_rect().contains_rect(r.rect))
-                                                {
-                                                    response.scroll_to_me(None);
-                                                }
-                                            });
+                    ui.vertical(|ui| {
+                        ui.set_min_width((ui.available_width()).max(400.0));
+                        let height = body_height;
+                        ui.add_enabled_ui(self.pending.is_none(), |ui| {
+                            if self.page == Page::Live {
+                                self.live(ui, bridge, &view, height, focus_queue);
+                            } else {
+                                ScrollArea::vertical()
+                                    .id_salt("settings-page")
+                                    .max_height(height)
+                                    .show(ui, |ui| {
+                                        Card::new().sm().show(ui, |ui| {
+                                            ui.set_min_width((ui.available_width()).max(360.0));
+                                            self.settings(ui, &view, bridge);
+                                            // Keep keyboard/controller focus visible even in
+                                            // long profile lists and credential forms.
+                                            if let Some(response) = ui
+                                                .memory(|m| m.focused())
+                                                .and_then(|id| ui.ctx().read_response(id))
+                                                .filter(|r| ui.min_rect().contains_rect(r.rect))
+                                            {
+                                                response.scroll_to_me(None);
+                                            }
                                         });
-                                }
-                            });
-                        });
-                    },
-                );
-                ui.separator();
-                ui.add_enabled_ui(self.pending.is_none(), |ui| {
-                    ui.horizontal(|ui| {
-                        if Button::new("应用并保存")
-                            .icon_left(icons::CHECK)
-                            .sm()
-                            .show(ui)
-                            .clicked()
-                        {
-                            match alias_map(&self.aliases) {
-                                Ok(aliases) => {
-                                    self.draft.aliases = aliases;
-                                    self.send(
-                                        bridge,
-                                        Action::Apply {
-                                            config: Box::new(self.draft.clone()),
-                                            revision: self.revision,
-                                            bind_card: self.bind_card.clone(),
-                                        },
-                                    );
-                                }
-                                Err(e) => self.feedback = e,
-                            }
-                        }
-                        if Button::new("撤销修改").outline().sm().show(ui).clicked() {
-                            self.reset(&view);
-                            self.feedback = "已恢复当前配置".into();
-                        }
-                        if Button::new("刷新已保存设置")
-                            .ghost()
-                            .sm()
-                            .show(ui)
-                            .on_hover_text("放弃未保存修改，从数据库读取并应用设置")
-                            .clicked()
-                        {
-                            self.send(bridge, Action::Reload);
-                        }
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            Text::new("转盘 ← →").caption().muted().show(ui);
-                            for (key, label) in [("B7", "返回"), ("B6", "确认"), ("B1/2", "上下")]
-                            {
-                                Text::new(label).caption().muted().show(ui);
-                                Kbd::new(key).show(ui);
+                                    });
                             }
                         });
-                    })
-                });
-                if !self.feedback.is_empty() {
-                    ui.label(&self.feedback);
-                }
+                    });
+                },
+            );
+            ui.separator();
+            ui.add_enabled_ui(self.pending.is_none(), |ui| {
+                ui.horizontal(|ui| {
+                    if Button::new("应用并保存")
+                        .icon_left(icons::CHECK)
+                        .sm()
+                        .show(ui)
+                        .clicked()
+                    {
+                        match alias_map(&self.aliases) {
+                            Ok(aliases) => {
+                                self.draft.aliases = aliases;
+                                self.send(
+                                    bridge,
+                                    Action::Apply {
+                                        config: Box::new(self.draft.clone()),
+                                        revision: self.revision,
+                                        bind_card: self.bind_card.clone(),
+                                    },
+                                );
+                            }
+                            Err(e) => self.feedback = e,
+                        }
+                    }
+                    if Button::new("撤销修改").outline().sm().show(ui).clicked() {
+                        self.reset(&view);
+                        self.feedback = "已恢复当前配置".into();
+                    }
+                    if Button::new("刷新已保存设置")
+                        .ghost()
+                        .sm()
+                        .show(ui)
+                        .on_hover_text("放弃未保存修改，从数据库读取并应用设置")
+                        .clicked()
+                    {
+                        self.send(bridge, Action::Reload);
+                    }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if view.standalone {
+                            Text::new("Tab 切换 · Enter 确认 · Esc 关闭")
+                                .caption()
+                                .muted()
+                                .show(ui);
+                            return;
+                        }
+                        Text::new("转盘 ← →").caption().muted().show(ui);
+                        for (key, label) in [("B7", "返回"), ("B6", "确认"), ("B1/2", "上下")]
+                        {
+                            Text::new(label).caption().muted().show(ui);
+                            Kbd::new(key).show(ui);
+                        }
+                    });
+                })
             });
+            if !self.feedback.is_empty() {
+                ui.label(&self.feedback);
+            }
+        };
+        if view.standalone {
+            egui::CentralPanel::default()
+                .frame(
+                    egui::Frame::new()
+                        .fill(ctx.global_style().visuals.window_fill)
+                        .inner_margin(16),
+                )
+                .show_inside(root, contents);
+        } else {
+            egui::Window::new("Chart Requester  /  直播控制台")
+                .id(egui::Id::new("requester-menu"))
+                .title_bar(false)
+                .fixed_size(window_size)
+                .resizable(false)
+                .collapsible(false)
+                .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+                .show(ctx, contents);
+        }
         if !open {
             bridge.visible.store(false, Ordering::Release);
         }
@@ -692,6 +785,9 @@ impl Menu {
             Page::Live => {}
             Page::Aliases => {
                 Heading::new("歌曲别名").h2().show(ui);
+                if view.standalone {
+                    ui.weak(&view.catalog_status);
+                }
                 SearchField::new(&mut self.query)
                     .placeholder("搜索别名、曲名或歌曲 ID…")
                     .show(ui);
@@ -869,7 +965,14 @@ impl Menu {
                 Heading::new("游戏适配").h2().show(ui);
                 field(ui, "游戏模块", &mut self.draft.game.module, false);
                 path_field(ui, "曲库路径", &mut self.draft.game.database_path);
-                ui.weak("通常保持默认即可。曲库路径留空时自动读取；本页修改保存后在下次启动生效。");
+                if view.standalone {
+                    ui.weak("留空使用游戏上次保存的曲库缓存。首次使用可填写 IIDX 33 的 music_data.bin 完整路径，保存后即可校验别名；游戏在下次启动使用此路径。");
+                    ui.weak(&view.catalog_status);
+                } else {
+                    ui.weak(
+                        "通常保持默认即可。曲库路径留空时自动读取；本页修改保存后在下次启动生效。",
+                    );
+                }
             }
             Page::Data => {
                 Heading::new("备份与恢复").h2().show(ui);
@@ -1015,7 +1118,7 @@ mod controller_tests {
             ..Default::default()
         };
         menu.controller_input(ctx, &mut input, event);
-        let _ = ctx.run_ui(input, |root| menu.show(root.ctx(), bridge));
+        let _ = ctx.run_ui(input, |root| menu.show(root, bridge));
     }
     #[test]
     fn controller_can_choose_page_adjust_number_and_back_out_without_mouse() {

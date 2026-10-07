@@ -1,5 +1,6 @@
 pub mod catalog;
 pub mod config;
+pub mod desktop;
 pub mod engine;
 pub mod game;
 pub mod games;

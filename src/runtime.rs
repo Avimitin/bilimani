@@ -168,7 +168,11 @@ fn start(module: HMODULE) -> Result<()> {
                 let loaded = game.catalog(&config.game.database_path);
                 if !matches!(loaded, Ok(None)) {
                     let created = (|| -> Result<Engine> {
-                        let catalog = Catalog::new(loaded?.unwrap(), &config.aliases)?;
+                        let songs = loaded?.unwrap();
+                        if let Err(error) = store.cache_catalog(&songs) {
+                            logger.info("catalog", &format!("Cannot cache offline song titles: {error}"));
+                        }
+                        let catalog = Catalog::new(songs, &config.aliases)?;
                         logger.info("catalog", &format!("Loaded {} canonical songs", catalog.songs.len()));
                         Ok(Engine::new(config.clone(), catalog, game.rules()))
                     })();
@@ -426,7 +430,9 @@ fn start(module: HMODULE) -> Result<()> {
                 web = None;
             }
             if let Some(server) = &web {
-                server.publish(&overlay::snapshot(engine.as_ref(), &connection, now, &history));
+                let mut state = overlay::snapshot(engine.as_ref(), &connection, now, &history);
+                state["now_playing"] = serde_json::json!(update.now_playing);
+                server.publish(&state);
             }
             if !overlay_error.is_empty() { i.push_str(&format!("\n{overlay_error}\n")); }
             if now >= next_status {

@@ -146,7 +146,12 @@ extern "C" fn callback(event: u32, frame: *const Frame, _: *mut c_void) {
             renderer.menu.hidden();
             return;
         }
-        let scale = (frame.height as f32 / 900.0).clamp(0.8, 2.0);
+        let standalone = bridge.snapshot().standalone;
+        let scale = if standalone {
+            1.0
+        } else {
+            (frame.height as f32 / 900.0).clamp(0.8, 2.0)
+        };
         renderer.context.set_pixels_per_point(scale);
         let mut raw = input::take(
             HWND(frame.window),
@@ -155,14 +160,22 @@ extern "C" fn callback(event: u32, frame: *const Frame, _: *mut c_void) {
             scale,
             renderer.clock.elapsed().as_secs_f64(),
         );
+        if standalone {
+            raw.viewports
+                .entry(egui::ViewportId::ROOT)
+                .or_default()
+                .maximized = Some(unsafe {
+                windows::Win32::UI::WindowsAndMessaging::IsZoomed(HWND(frame.window)).as_bool()
+            });
+        }
         renderer
             .menu
             .controller_input(&renderer.context, &mut raw, bridge.take_navigation());
         let output = renderer.context.run_ui(raw, |ui| {
+            renderer.menu.show(ui, bridge);
             let ctx = ui.ctx();
-            renderer.menu.show(ctx, bridge);
             // Game windows often hide the OS cursor. Paint a cursor in the same target.
-            if let Some(pos) = ctx.pointer_hover_pos() {
+            if !standalone && let Some(pos) = ctx.pointer_hover_pos() {
                 ctx.layer_painter(egui::LayerId::new(
                     egui::Order::Tooltip,
                     egui::Id::new("menu-cursor"),
@@ -178,6 +191,9 @@ extern "C" fn callback(event: u32, frame: *const Frame, _: *mut c_void) {
                 ));
             }
         });
+        if standalone {
+            crate::host::desktop::viewport_commands(HWND(frame.window), &output);
+        }
         for command in &output.platform_output.commands {
             if let egui::OutputCommand::CopyText(text) = command {
                 let _ = clipboard_win::set_clipboard_string(text);

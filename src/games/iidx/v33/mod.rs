@@ -7,6 +7,7 @@ mod native;
 pub mod player;
 #[cfg(windows)]
 mod search_index;
+pub mod song_info;
 pub const SUPPORTED_SHA256: &str =
     "c61b6dcb8894062e56d60da8ca90053b27f129e1a8e8da5e54457aa42602397d";
 
@@ -86,6 +87,7 @@ impl crate::game::GameAdapter for Adapter {
         GameUpdate {
             player_card: native::player_card(),
             snapshot: m.snapshot,
+            now_playing: m.now_playing.clone(),
             plays: m.plays,
             selection_result: m.ack.take(),
             skip: None,

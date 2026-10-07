@@ -135,6 +135,63 @@ with sync_playwright() as p:
     expect(page.locator('.current-idle')).to_be_visible()
     page.screenshot(path=str(shots / 'frame-idle.png'), omit_background=True)
     transparent()
+
+    # Actual game selection must render independently of the request queue.
+    live_chart = dict(chart=dict(mode='SP', id='SPA'), difficulty='ANOTHER', level='12', style='red',
+                      bpm=dict(min=100, max=200), note_count=2000,
+                      radar=dict(notes=180.25, peak=145.50, scratch=65.75, soflan=120, charge=0, chord=150.01))
+    game_song = dict(id=11040, title='手动选曲 · Manual selection', artist='テスト Artist', genre='TEST GENRE',
+                     game_version=11, charts=[live_chart])
+    game = dict(phase='selecting', song=game_song, players=[dict(side=2, chart=live_chart['chart'])])
+    payload['now_playing'] = copy.deepcopy(game)
+    expect(page.locator('.current-title')).to_have_text(game_song['title'])
+    expect(page.locator('.current-label')).to_have_text('正在选曲')
+    expect(page.locator('.game-chart .chart')).to_have_text('2P SPA 12')
+    expect(page.locator('.song-bpm')).to_have_text('BPM 100–200')
+    expect(page.locator('.song-credits')).to_have_text('TEST GENRE / テスト Artist')
+    expect(page.locator('.song-notes')).to_contain_text('2000 NOTES')
+    expect(page.locator('.radar-axis')).to_have_count(6)
+    expect(page.locator('.song-radar svg')).to_have_count(1)
+    def metadata_bounded():
+        bounded()
+        outer = page.locator('.frame-current').bounding_box()
+        for selector in ['.game-identity', '.game-charts', '.song-radar']:
+            box = page.locator(selector).bounding_box()
+            assert box['x'] >= outer['x'] and box['x'] + box['width'] <= outer['x'] + outer['width'], selector
+            assert box['y'] >= outer['y'] and box['y'] + box['height'] <= outer['y'] + outer['height'], selector
+        boxes = [page.locator(s).bounding_box() for s in ['.game-identity', '.game-charts', '.song-radar']]
+        assert all(a['x'] + a['width'] <= b['x'] for a, b in zip(boxes, boxes[1:]))
+    metadata_bounded()
+    (shots / 'frame-game-song.png').write_bytes(transparent())
+    payload['now_playing']['song']['title'] = injection + '长曲名' * 40
+    payload['now_playing']['song']['artist'] = injection + '长作者' * 40
+    expect(page.locator('.current-title')).to_have_text(payload['now_playing']['song']['title'])
+    assert page.locator('img').count() == 0
+    metadata_bounded()
+    payload['now_playing']['phase'] = 'playing'
+    expect(page.locator('.current-label')).to_have_text('正在演奏')
+    # Battle can have distinct difficulties on the two participating sides.
+    other_chart = copy.deepcopy(live_chart)
+    other_chart.update(chart=dict(mode='SP', id='SPH'), difficulty='HYPER', level='10', style='amber')
+    payload['now_playing']['song']['charts'].append(other_chart)
+    payload['now_playing']['players'].append(dict(side=1, chart=other_chart['chart']))
+    expect(page.locator('.game-chart')).to_have_count(2)
+    metadata_bounded()
+    payload['now_playing'] = copy.deepcopy(game)
+    payload['now_playing']['song']['charts'][0].update(bpm=None, note_count=None, radar=None)
+    expect(page.locator('.game-chart')).to_have_count(1)
+    expect(page.locator('.song-bpm')).to_have_text('BPM —')
+    expect(page.locator('.song-radar svg')).to_have_count(0)
+    expect(page.locator('.radar-axis b').first).to_have_text('—')
+    metadata_bounded()
+    fail = True
+    expect(page.locator('.current-title')).to_have_count(0, timeout=6000)
+    fail = False
+    payload['now_playing'] = copy.deepcopy(game)
+    expect(page.locator('.current-title')).to_have_text(game_song['title'])
+    payload['now_playing'] = dict(phase='idle', song=None, players=[])
+    expect(page.locator('.current-idle')).to_be_visible()
+    expect(page.locator('.song-radar')).to_have_count(0)
     assert not errors, errors
     browser.close()
 print('PASS: frame geometry, transparent aperture, live data, bounded history, 1–20 choices, rotation, escaping, offline recovery, scaling, and empty states.')

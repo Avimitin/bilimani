@@ -96,6 +96,7 @@ impl GameAdapter for FakeGame {
         GameUpdate {
             player_card: None,
             snapshot: s.snapshot,
+            now_playing: Default::default(),
             plays: s.plays,
             selection_result: s.result.take(),
             skip: s.skip.take(),

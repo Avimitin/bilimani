@@ -3,7 +3,9 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 use crate::{
     config::Controls,
-    game::{Mode, Navigation, Phase, Selection, SelectionResult as Ack, Snapshot},
+    game::{
+        Mode, Navigation, NowPlaying, Phase, Selection, SelectionResult as Ack, Snapshot, SongPhase,
+    },
     games::iidx::{
         self,
         controls::{DoubleTap, Target, opposite_start, single_side},
@@ -116,6 +118,8 @@ fn try_capture_database() {
 #[derive(Default)]
 pub struct Mailbox {
     pub snapshot: Snapshot,
+    pub now_playing: NowPlaying,
+    song_sample_at: Option<Instant>,
     pub plays: u64,
     pub command: Option<Selection>,
     pub ack: Option<Ack>,
@@ -131,6 +135,12 @@ pub static MAILBOX: Mutex<Mailbox> = Mutex::new(Mailbox {
         epoch: 0,
         can_skip: false,
     },
+    now_playing: NowPlaying {
+        phase: SongPhase::Idle,
+        song: None,
+        players: Vec::new(),
+    },
+    song_sample_at: None,
     plays: 0,
     command: None,
     ack: None,
@@ -159,6 +169,10 @@ pub fn install(image: ModuleImage) -> Result<()> {
         (0x5c4480, "833d614caf00007411833d5c4caf0000"),
         (0x5ad900, "48895c240848896c2410488974241857"),
         (0x5ad8a0, "4883ec28e8d76b010085c075484863c9"),
+        // Read-only stage context and per-player difficulty evidence.
+        (0x90f990, "488d0589c6290ac3cccccccccccccccc"),
+        (0x949430, "4863c1488d0d6ee5380a8b0481c3cccc"),
+        (0x9493a0, "8b05fee5380ac3cccccccccccccccccc"),
     ] {
         let observed = read_memory(base + rva, 16)?;
         ensure!(
@@ -185,11 +199,17 @@ pub fn install(image: ModuleImage) -> Result<()> {
     for (table, slots) in std::iter::once((SELECT_VTABLE, &[13usize, 14, 15][..]))
         .chain(std::iter::once((TITLE_DICTIONARY_VTABLE, &[1usize][..])))
         .chain(std::iter::once((INPUT_VTABLE, &[3usize][..])))
-        .chain(STAGES.iter().map(|&r| (r, &[13usize][..])))
+        .chain(STAGES.iter().map(|&r| (r, &[13usize, 14][..])))
     {
         for &slot in slots {
             let bytes = read_memory(base + table + slot * 8, 8)?;
             let original = usize::from_le_bytes(bytes.try_into().unwrap());
+            if STAGES.contains(&table) && slot == 14 {
+                ensure!(
+                    original == base + 0x933640,
+                    "Unexpected stage cleanup entry"
+                );
+            }
             if table == INPUT_VTABLE {
                 ensure!(
                     original == base + super::input_hook::RVA,
@@ -226,6 +246,8 @@ pub fn install(image: ModuleImage) -> Result<()> {
             title_dictionary_load as *const () as usize
         } else if hook.table == base + INPUT_VTABLE {
             input_poll as *const () as usize
+        } else if hook.slot == 14 {
+            stage_exit as *const () as usize
         } else {
             stage_init as *const () as usize
         };
@@ -450,6 +472,11 @@ unsafe extern "system" fn select_init(this: usize, a2: usize, a3: usize, a4: usi
         }
         let mut m = MAILBOX.lock().unwrap();
         m.snapshot.epoch += 1;
+        m.now_playing = NowPlaying {
+            phase: SongPhase::Selecting,
+            ..Default::default()
+        };
+        m.song_sample_at = None;
         reset_input(&mut m);
         m.snapshot.mode = get_mode();
         m.snapshot.phase = Phase::Other;
@@ -521,6 +548,8 @@ unsafe extern "system" fn select_exit(this: usize, a2: usize, a3: usize, a4: usi
         ACTIVE_SCENE.store(0, Ordering::Release);
         let mut m = MAILBOX.lock().unwrap();
         m.snapshot.phase = Phase::Other;
+        m.now_playing = NowPlaying::default();
+        m.song_sample_at = None;
         cancel_command(&mut m);
         reset_input(&mut m);
     });
@@ -532,10 +561,104 @@ unsafe extern "system" fn stage_init(this: usize, a2: usize, a3: usize, a4: usiz
         let mut m = MAILBOX.lock().unwrap();
         m.plays += 1;
         m.snapshot.phase = Phase::Playing;
+        m.now_playing = NowPlaying::default();
         cancel_command(&mut m);
         reset_input(&mut m);
     });
-    original(this, 13)(this, a2, a3, a4)
+    let result = original(this, 13)(this, a2, a3, a4);
+    guard(|| {
+        // CStageMain::Prepare sets its record before Init; read the actual stage
+        // record, including stages entered through courses/special selectors.
+        let base = ADAPTER.get().unwrap().base;
+        let captured = (|| -> Result<NowPlaying> {
+            let pointer = read_memory(base + 0xabac028, 8)?;
+            let music = usize::from_le_bytes(pointer.try_into().unwrap());
+            let raw = read_memory(base + 0xacd79a8, 8)?;
+            let mut difficulties = [None; 2];
+            let joined: unsafe extern "system" fn(u32) -> u8 = std::mem::transmute(base + 0x9493e0);
+            for side in 0..2 {
+                if joined(side as u32) != 0 {
+                    difficulties[side] = Some(u32::from_le_bytes(
+                        raw[side * 4..side * 4 + 4].try_into().unwrap(),
+                    ));
+                }
+            }
+            decode_song(music, difficulties, SongPhase::Playing)
+        })();
+        MAILBOX.lock().unwrap().now_playing = captured.unwrap_or(NowPlaying {
+            phase: SongPhase::Playing,
+            ..Default::default()
+        });
+    });
+    result
+}
+
+unsafe extern "system" fn stage_exit(this: usize, a2: usize, a3: usize, a4: usize) -> usize {
+    guard(|| {
+        let mut m = MAILBOX.lock().unwrap();
+        m.now_playing = NowPlaying::default();
+        m.snapshot.phase = Phase::Other;
+        m.snapshot.can_skip = false;
+    });
+    original(this, 14)(this, a2, a3, a4)
+}
+
+unsafe fn decode_song(
+    music: usize,
+    difficulties: [Option<u32>; 2],
+    phase: SongPhase,
+) -> Result<NowPlaying> {
+    ensure!(music != 0, "No current music record");
+    let layout = get_mode().context("No current play mode")?;
+    // The reservation/layout query also reports DP for two SP players. Chart
+    // indices use the play-style flag; DP battle resolves to SP chart data.
+    let raw = read_memory(ADAPTER.get().unwrap().base + 0xacd79a4, 4)?;
+    let double_play = u32::from_le_bytes(raw.try_into().unwrap()) != 0;
+    let mode = if double_play && layout == iidx::DP {
+        iidx::DP
+    } else {
+        iidx::SP
+    };
+    super::song_info::decode(
+        &read_memory(music, super::song_info::RECORD_SIZE)?,
+        mode,
+        difficulties,
+        phase,
+    )
+}
+
+unsafe fn sample_selected_song(this: usize) {
+    // Called only on an eligible native selection frame, after original update.
+    // Bound copies/parsing to 4 Hz; the HTTP thread never touches game pointers.
+    let now = Instant::now();
+    {
+        let mut m = MAILBOX.lock().unwrap();
+        if m.song_sample_at
+            .is_some_and(|last| now.duration_since(last) < Duration::from_millis(250))
+        {
+            return;
+        }
+        m.song_sample_at = Some(now);
+    }
+    let base = ADAPTER.get().unwrap().base;
+    let bar_type: unsafe extern "system" fn(usize) -> u32 = std::mem::transmute(base + 0x606e60);
+    let captured = if bar_type(this + 408) == 1 {
+        let selected: unsafe extern "system" fn(usize) -> usize =
+            std::mem::transmute(base + 0x606fd0);
+        let difficulty: unsafe extern "system" fn(usize, u32) -> u32 =
+            std::mem::transmute(base + 0x607030);
+        let joined: unsafe extern "system" fn(u32) -> u8 = std::mem::transmute(base + 0x9493e0);
+        let difficulties = std::array::from_fn(|side| {
+            (joined(side as u32) != 0).then(|| difficulty(this + 408, side as u32))
+        });
+        decode_song(selected(this + 408), difficulties, SongPhase::Selecting).ok()
+    } else {
+        None
+    };
+    MAILBOX.lock().unwrap().now_playing = captured.unwrap_or(NowPlaying {
+        phase: SongPhase::Selecting,
+        ..Default::default()
+    });
 }
 unsafe extern "system" fn select_update(this: usize, a2: usize, a3: usize, a4: usize) -> usize {
     SELECT_UPDATES.fetch_add(1, Ordering::Relaxed);
@@ -621,6 +744,9 @@ unsafe extern "system" fn select_update(this: usize, a2: usize, a3: usize, a4: u
             mailbox.snapshot.phase = Phase::Other;
         }
         drop(mailbox);
+        if is_ready && ACTIVE_SCENE.load(Ordering::Acquire) == this {
+            sample_selected_song(this);
+        }
         if let Some(j) = executing {
             let outcome = if let Some(e) = error {
                 Some(Err(e))
