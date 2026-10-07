@@ -40,6 +40,11 @@ web/
 
 ## 验证
 
+交互开发可先运行 `py scripts/preview-overlay.py --style mecha`，打开
+`http://127.0.0.1:32134/queue`。模拟歌曲、弹幕、队列和候选每 42 秒循环重播，修改页面后
+刷新即可查看效果；无需 Rust、游戏或直播账号。时间表及速度设置见
+[循环预览指南](development.md#循环时间轴预览前端开发)。
+
 运行 `cargo run --example overlay_preview -- web/mecha` 启动机甲样式预览服务，再运行：
 
 ```sh

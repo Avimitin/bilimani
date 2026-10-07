@@ -1,0 +1,380 @@
+{
+  "description": "循环预览：连接、手动选曲、BPM/难度/雷达、点歌队列、9 个候选、演奏、历史溢出、清空与重连；所有曲目参数均为模拟值",
+  "duration": 42,
+  "feed_limit": 10,
+  "steps": [
+    {
+      "at": 0,
+      "set": {
+        "connected": false,
+        "ready": false,
+        "status": "预览：等待直播间连接"
+      }
+    },
+    {
+      "at": 2,
+      "feed": [
+        {
+          "kind": "chat",
+          "name": "小雨",
+          "text": "晚上好，今天也来听歌！"
+        }
+      ],
+      "set": {
+        "connected": true,
+        "ready": true,
+        "status": "预览：直播间已连接"
+      }
+    },
+    {
+      "at": 4,
+      "feed": [
+        {
+          "kind": "event",
+          "text": "直播间已连接，可以开始点歌"
+        }
+      ],
+      "set": {
+        "now_playing": {
+          "phase": "selecting",
+          "song": {
+            "id": 33001,
+            "title": "Preview Orbit / 循环演示曲",
+            "artist": "Preview Artist",
+            "genre": "DEMO TRANCE",
+            "game_version": 33,
+            "charts": [
+              {
+                "chart": {
+                  "mode": "SP",
+                  "id": "SPA"
+                },
+                "difficulty": "ANOTHER",
+                "level": "12",
+                "style": "red",
+                "bpm": {
+                  "min": 150,
+                  "max": 180
+                },
+                "note_count": 1800,
+                "radar": {
+                  "notes": 145.5,
+                  "peak": 165.25,
+                  "scratch": 55.75,
+                  "soflan": 80,
+                  "charge": 42.5,
+                  "chord": 125
+                }
+              }
+            ]
+          },
+          "players": [
+            {
+              "side": 1,
+              "chart": {
+                "mode": "SP",
+                "id": "SPA"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "at": 6,
+      "feed": [
+        {
+          "kind": "chat",
+          "name": "阿青",
+          "text": "今天的弹幕看起来清楚多了"
+        }
+      ]
+    },
+    {
+      "at": 8,
+      "feed": [
+        {
+          "kind": "chat",
+          "name": "小雨",
+          "text": "点歌 冥 SPA"
+        },
+        {
+          "kind": "event",
+          "text": "已定位：冥 [SPA] — 小雨"
+        }
+      ],
+      "set": {
+        "current": {
+          "token": 1,
+          "title": "冥",
+          "requester": "小雨",
+          "mode": "SP",
+          "chart": "SPA",
+          "chart_style": "red",
+          "remaining": 600,
+          "duration": 600
+        }
+      }
+    },
+    {
+      "at": 10,
+      "feed": [
+        {
+          "kind": "event",
+          "text": "已加入队列：V [SPH] — 星河"
+        }
+      ],
+      "set": {
+        "queue": [
+          {
+            "token": 2,
+            "title": "V",
+            "requester": "星河",
+            "mode": "SP",
+            "chart": "SPH",
+            "chart_style": "amber"
+          }
+        ]
+      }
+    },
+    {
+      "at": 12,
+      "feed": [
+        {
+          "kind": "chat",
+          "name": "阿青",
+          "text": "点歌 A SPA"
+        }
+      ],
+      "set": {
+        "pending": [
+          {
+            "requester": "阿青",
+            "mode": "SP",
+            "chart": "SPA",
+            "chart_style": "red",
+            "remaining": 30,
+            "duration": 30,
+            "candidates": [
+              {
+                "title": "A",
+                "available": true
+              },
+              {
+                "title": "AA",
+                "available": true
+              },
+              {
+                "title": "AA -rebuild-",
+                "available": true
+              },
+              {
+                "title": "ABSOLUTE",
+                "available": true
+              },
+              {
+                "title": "ALBIDA",
+                "available": true
+              },
+              {
+                "title": "ANDROMEDA",
+                "available": true
+              },
+              {
+                "title": "ARTCORE",
+                "available": true
+              },
+              {
+                "title": "Anisakis",
+                "available": true
+              },
+              {
+                "title": "Anthem Landing",
+                "available": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "at": 17,
+      "feed": [
+        {
+          "kind": "chat",
+          "name": "阿青",
+          "text": "2"
+        },
+        {
+          "kind": "event",
+          "text": "已加入队列：AA [SPA] — 阿青"
+        }
+      ],
+      "set": {
+        "pending": [],
+        "queue": [
+          {
+            "token": 2,
+            "title": "V",
+            "requester": "星河",
+            "mode": "SP",
+            "chart": "SPH",
+            "chart_style": "amber"
+          },
+          {
+            "token": 3,
+            "title": "AA",
+            "requester": "阿青",
+            "mode": "SP",
+            "chart": "SPA",
+            "chart_style": "red"
+          }
+        ]
+      }
+    },
+    {
+      "at": 18,
+      "set": {
+        "now_playing": {
+          "phase": "playing",
+          "song": {
+            "id": 33001,
+            "title": "Preview Orbit / 循环演示曲",
+            "artist": "Preview Artist",
+            "genre": "DEMO TRANCE",
+            "game_version": 33,
+            "charts": [
+              {
+                "chart": {
+                  "mode": "SP",
+                  "id": "SPA"
+                },
+                "difficulty": "ANOTHER",
+                "level": "12",
+                "style": "red",
+                "bpm": {
+                  "min": 150,
+                  "max": 180
+                },
+                "note_count": 1800,
+                "radar": {
+                  "notes": 145.5,
+                  "peak": 165.25,
+                  "scratch": 55.75,
+                  "soflan": 80,
+                  "charge": 42.5,
+                  "chord": 125
+                }
+              }
+            ]
+          },
+          "players": [
+            {
+              "side": 1,
+              "chart": {
+                "mode": "SP",
+                "id": "SPA"
+              }
+            }
+          ]
+        },
+        "current": null
+      },
+      "feed": [
+        {
+          "kind": "event",
+          "text": "演示曲开始演奏，底部显示实际歌曲信息"
+        }
+      ]
+    },
+    {
+      "at": 19,
+      "feed": [
+        {
+          "kind": "chat",
+          "name": "星河",
+          "text": "这两首都很喜欢！"
+        }
+      ]
+    },
+    {
+      "at": 21,
+      "feed": [
+        {
+          "kind": "chat",
+          "name": "路过的观众",
+          "text": "第十一条来了，最早一条会移出画面"
+        }
+      ]
+    },
+    {
+      "at": 23,
+      "feed": [
+        {
+          "kind": "event",
+          "text": "已清空等待队列"
+        }
+      ],
+      "set": {
+        "queue": []
+      }
+    },
+    {
+      "at": 25,
+      "set": {
+        "current": null
+      }
+    },
+    {
+      "at": 28,
+      "clear_feed": true,
+      "set": {
+        "now_playing": {
+          "phase": "idle",
+          "song": null,
+          "players": []
+        }
+      }
+    },
+    {
+      "at": 30,
+      "feed": [
+        {
+          "kind": "chat",
+          "name": "小雨",
+          "text": "清空后，新消息又把面板展开了"
+        }
+      ]
+    },
+    {
+      "at": 32,
+      "feed": [
+        {
+          "kind": "event",
+          "text": "一条弹幕，一条事件：两种卡片高度"
+        }
+      ]
+    },
+    {
+      "at": 34,
+      "set": {
+        "connected": false,
+        "status": "预览：直播间断开，等待下一轮连接"
+      }
+    },
+    {
+      "at": 38,
+      "clear_feed": true,
+      "set": {
+        "current": null,
+        "queue": [],
+        "pending": [],
+        "now_playing": {
+          "phase": "idle",
+          "song": null,
+          "players": []
+        }
+      }
+    }
+  ]
+}

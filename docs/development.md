@@ -49,7 +49,60 @@ URL 解码后拒绝路径穿越、隐藏文件及 Windows 特殊路径；解析�
 启动失败会记录日志并保留文本
 输出；关闭时中止监听及连接任务。`[overlay]` 设置兼容旧配置，默认开启。
 
-无需游戏即可预览源码中的实际页面（默认读取 `web/card/`，也可在 Cargo 的 `--` 后传入其他静态目录）：
+### 循环时间轴预览（前端开发）
+
+只需 Python 3.10 或更新版本，无第三方依赖、Rust、DLL 或游戏。在仓库根目录运行：
+
+```powershell
+py scripts/preview-overlay.py --style mecha
+# 卡片版：py scripts/preview-overlay.py --style card
+```
+
+打开 **http://127.0.0.1:32134/queue**。预览服务同时提供实际页面与模拟 `/api/state`、
+`/api/now-playing`，现有前端无需添加演示逻辑。Mecha 按 1920×1080 设计，Card 建议使用
+480×800 视口；也可在 OBS 浏览器来源中填写此地址，查看合成效果。
+
+默认时间表位于 `scripts/fixtures/overlay-loop.json`，每 **42 秒**循环一次：等待连接 →
+弹幕出现 → 实际选曲与 BPM／难度／雷达 → 点歌与队列 → 9 个候选 → 确认入队 →
+开始演奏 → 历史超过 10 条 → 清空收起 → 再次出现消息 → 断开与下一轮。
+歌曲参数全部为模拟值。每轮从初始状态重新构建，消息 ID 跨轮递增；多个浏览器标签共享
+同一时间轴，刷新页面不会重置播放，也不会重复插入消息。
+
+```powershell
+# 两倍速；实际每 21 秒循环一次
+py scripts/preview-overlay.py --style mecha --speed 2
+# 选择另一份时间表及端口；也兼容原有录制时间表
+py scripts/preview-overlay.py --style card --scenario scripts/fixtures/overlay-demo.json --port 32135
+```
+
+修改 `web/<样式>/` 的 HTML、CSS、JS 后刷新浏览器即可生效。新主题也可放在
+`web/my-theme/`，然后传入 `--style my-theme`。修改时间表后重启脚本；Ctrl+C 停止。
+
+时间表沿用录制脚本的格式，`at` 是每轮开始后的秒数：
+
+```json
+{
+  "duration": 8,
+  "feed_limit": 10,
+  "steps": [
+    {"at": 1, "feed": [{"kind": "chat", "name": "观众甲", "text": "晚上好！"}]},
+    {"at": 3, "feed": [{"kind": "event", "text": "收到一条测试事件"}]},
+    {"at": 6, "clear_feed": true, "set": {"current": null, "queue": [], "pending": []}}
+  ]
+}
+```
+
+`feed` 追加消息，`clear_feed` 清空消息，`set` 替换指定的顶层 API 字段（例如 `queue`、
+`pending`、`now_playing`，不做嵌套合并）。`current` 和 `pending` 的 `remaining` 从该字段
+最近一次设置时开始倒数；状态何时结束由后续步骤决定。步骤需按时间排序，且 `at < duration`。
+完整歌曲信息结构见下方 API 文档。开发服务不写入游戏或配置数据库，也不随 Release 打包。
+
+运行 `py scripts/test-preview-overlay.py` 检查循环边界、倒计时、消息上限、API 和静态文件刷新。
+
+### Rust HTTP 服务预览与浏览器检查
+
+需要验证 DLL 所用的实际 HTTP 服务时，可启动 Rust 预览例程（默认读取 `web/card/`，
+也可在 Cargo 的 `--` 后传入其他静态目录）：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -Command "& ./scripts/build.ps1 -CargoArgs @('run','--example','overlay_preview')"
