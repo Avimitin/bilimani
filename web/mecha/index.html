@@ -87,6 +87,11 @@
           </g>
         </defs>
 
+        <!-- The recessed bezel defines an exact, unobstructed 16:9 opening.
+             OBS capture: x=40, y=48, width=1504, height=846; all crop values zero. -->
+        <path id="capture-bezel" d="M0 32H1584V940H0Z M40 48H1544V894H40Z" fill="url(#deck-housing)" fill-rule="evenodd"/>
+        <rect id="game-capture" x="40" y="48" width="1504" height="846" fill="none"/>
+
         <!-- Interaction backing: one armored slab behind the glass column. -->
         <g stroke-linejoin="round">
           <path d="M1584 40h308v890h-308Z" fill="url(#deck-housing)"/>
@@ -139,23 +144,23 @@
              the housing runs to the right edge, flush with the canvas bottom. -->
         <g stroke-linejoin="round">
           <g id="corner-module">
-            <path d="M0 920 12 908H180l12 12v160H0Z" fill="url(#deck-pod)" stroke="#14171a" stroke-width="1.5"/>
-            <path d="M13 910h167" fill="none" stroke="#9aa4ac" opacity=".8"/>
-            <use href="#turntable" x="96" y="994"/>
-            <use href="#deck-screw" x="20" y="916"/><use href="#deck-screw" x="20" y="1068"/>
+            <path d="M0 908 12 896H180l12 12v172H0Z" fill="url(#deck-pod)" stroke="#14171a" stroke-width="1.5"/>
+            <path d="M13 898h167" fill="none" stroke="#9aa4ac" opacity=".8"/>
+            <use href="#turntable" x="96" y="988"/>
+            <use href="#deck-screw" x="20" y="904"/><use href="#deck-screw" x="20" y="1068"/>
           </g>
-          <path d="M192 928h1716l12 12v140H180V940Z" fill="url(#deck-housing)" stroke="#14171a" stroke-width="1.5"/>
-          <path d="M196 930h1708" fill="none" stroke="#9aa4ac" opacity=".7"/>
-          <path d="M194 940h1712" fill="none" stroke="#101315" opacity=".8"/>
+          <path d="M192 904h1388v24h328l12 12v140H180V916Z" fill="url(#deck-housing)" stroke="#14171a" stroke-width="1.5"/>
+          <path d="M196 906h1380 M1588 930h316" fill="none" stroke="#9aa4ac" opacity=".7"/>
+          <path d="M194 916h1382 M1588 940h318" fill="none" stroke="#101315" opacity=".8"/>
           <!-- The angled connector block welds the pod to the display recess. -->
-          <path d="M192 928l40 10v138l-40 4Z" fill="#2e3337" stroke="#15181b"/>
-          <path d="M199 935v138" fill="none" stroke="#42484e"/>
+          <path d="M192 904l40 10v162l-40 4Z" fill="#2e3337" stroke="#15181b"/>
+          <path d="M199 911v162" fill="none" stroke="#42484e"/>
           <path d="M204 980h16 M204 990h16 M204 1000h16" stroke="#101315" stroke-width="2"/>
           <use href="#deck-screw" x="212" y="955"/><use href="#deck-screw" x="212" y="1053"/>
           <use href="#deck-screw" x="1898" y="950"/><use href="#deck-screw" x="1898" y="1050"/>
           <!-- Recessed glass channel; the live panel sits inside. -->
-          <path d="M244 934h1642l10 10v122l-10 10H244l-10-10V944Z" fill="#090c0b" stroke="#1f2426"/>
-          <path d="M248 936h1634" fill="none" stroke="#000000" opacity=".7"/>
+          <path d="M244 910h1332l24 24h286l10 10v122l-10 10H244l-10-10V920Z" fill="#090c0b" stroke="#1f2426"/>
+          <path d="M248 912h1326l24 24h284" fill="none" stroke="#000000" opacity=".7"/>
         </g>
 
         <!-- Each lamp has its own local glow, so empty corners stay empty. -->
@@ -190,11 +195,11 @@
       <code id="request-hint">点歌 &lt;曲名&gt; [难度]</code><span id="room-name" role="status">未连接</span>
     </header>
     <section class="current-panel frame-current vfd-display" aria-label="游戏歌曲信息">
-      <svg class="display-surface song-face" viewBox="0 0 1648 130" aria-hidden="true">
-        <path class="screen-bezel" d="M22 2h1624v106l-20 20H2V22Z"/>
-        <path class="screen-glass" d="M24 6h1618v100l-18 18H6V24Z"/>
-        <path class="screen-highlight" d="M9 26 26 9h1613 M1639 105l-16 16H9"/>
-        <path class="screen-lock" d="M106 0h60v7h-60Z M1031 123h73v7h-73Z"/>
+      <svg class="display-surface song-face" viewBox="0 0 1648 154" aria-hidden="true">
+        <path class="screen-bezel" d="M22 2h1308l24 24h292v106l-20 20H2V22Z"/>
+        <path class="screen-glass" d="M24 6h1304l24 24h290v100l-18 18H6V24Z"/>
+        <path class="screen-highlight" d="M9 26 26 9h1300l24 24h289 M1639 129l-16 16H9"/>
+        <path class="screen-lock" d="M106 0h60v7h-60Z M1031 147h73v7h-73Z"/>
       </svg>
       <div id="current-content"></div>
       <div class="time-track"><span id="current-progress"></span></div>

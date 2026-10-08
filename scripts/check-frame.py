@@ -6,6 +6,7 @@ Screenshots stay in analysis/stream-frame/.
 import argparse
 import copy
 import io
+import math
 import pathlib
 
 from PIL import Image, ImageChops, ImageDraw, ImageStat
@@ -92,7 +93,12 @@ with sync_playwright() as p:
     def bounded():
         assert page.evaluate('document.documentElement.scrollWidth <= innerWidth && document.documentElement.scrollHeight <= innerHeight')
         corner = page.locator('#corner-module').bounding_box()
-        assert abs(corner['width'] / corner['height'] - 192 / 172) < .01
+        assert abs(corner['width'] / corner['height'] - 192 / 184) < .01
+        capture = page.locator('#game-capture').bounding_box()
+        scale = min(page.viewport_size['width'] / 1920, page.viewport_size['height'] / 1080)
+        for key, expected in dict(x=40, y=48, width=1504, height=846).items():
+            assert abs(capture[key] - expected * scale) < .01, (key, capture)
+        assert abs(capture['width'] / capture['height'] - 16 / 9) < 1e-6
         for selector, container in [('.queue-row', '#queue-body'), ('.candidate', '#pending-list'),
                                     ('#activity-list .activity-row', '.feed-body'), ('#event-list .activity-row', '#event-list'),
                                     ('.current-title, .current-song .chart, .current-meta', '.frame-current')]:
@@ -105,17 +111,26 @@ with sync_playwright() as p:
                 assert box['x'] + box['width'] <= outer['x'] + outer['width'] + 1, selector
                 assert box['y'] + box['height'] <= outer['y'] + outer['height'] + 1, selector
 
+    def capture_clear(shot):
+        box = page.locator('#game-capture').bounding_box()
+        # Check every complete physical pixel, including the capture's four edges.
+        bounds = (math.ceil(box['x']), math.ceil(box['y']),
+                  math.floor(box['x'] + box['width']), math.floor(box['y'] + box['height']))
+        assert shot.crop(bounds).getchannel('A').getextrema() == (0, 0), 'Frame obscures the 16:9 capture'
+
     def transparent():
         png = page.screenshot(omit_background=True)
         shot = Image.open(io.BytesIO(png)).convert('RGBA')
-        # Only border parts are drawn. The center stays empty, while armor tips
-        # may naturally overlap the suggested OBS game placement.
-        assert shot.crop((48, 64, 1536, 880)).getchannel('A').getextrema() == (0, 0)
+        capture_clear(shot)
+        # All four sides meet the opening: the transparent area has no extra
+        # strips that would suggest stretching or cropping the game source.
+        alpha = shot.getchannel('A')
+        for edge in [(39, 48, 40, 894), (1544, 48, 1545, 894),
+                     (40, 47, 1544, 48), (40, 894, 1544, 895)]:
+            assert alpha.crop(edge).getextrema() == (255, 255), edge
         assert shot.getpixel((32, 44))[3] == 255
-        # Regressions: bare backing blocks used to protrude past these
-        # silhouettes; the top rail is now continuous, but the gaps beside the
-        # left rail, above the display housing and past the divider stay empty.
-        for region in [(50, 53, 66, 59), (1480, 896, 1512, 906), (1545, 397, 1554, 409)]:
+        # Armor/glow must stay outside even the capture's corner regions.
+        for region in [(40, 48, 66, 64), (1480, 878, 1544, 894), (40, 878, 66, 894)]:
             assert shot.crop(region).getchannel('A').getextrema() == (0, 0), f'Unexpected corner backing: {region}'
         assert shot.getpixel((1600, 500))[3] == 255
         # The drawn chassis metal carries a slight blue tint around cyan VFD
@@ -258,6 +273,7 @@ with sync_playwright() as p:
         expect(page.locator('.stream-frame')).to_have_css('transform', transform)
         bounded()
         scan_contained()
+        capture_clear(Image.open(io.BytesIO(page.screenshot(omit_background=True))).convert('RGBA'))
     page.set_viewport_size(dict(width=1920, height=1080))
     expect(page.locator('.stream-frame')).to_have_css('transform', 'matrix(1, 0, 0, 1, 0, 0)')
     payload['pending'][0]['remaining'] = 9
@@ -388,5 +404,5 @@ with sync_playwright() as p:
     expect(page.locator('.song-radar')).to_have_count(0)
     assert not errors, errors
     browser.close()
-print('PASS: baked metal chassis and cyan VFD, turntable corner pods, contained interlaced scan at three scales, compact expanding chat, pinned events, transparent center and unclipped armor, live metadata, candidate paging and reload, viewer rotation and focus, escaping, offline recovery, scaling, and empty states.')
+print('PASS: exact 1504x846 16:9 capture opening, fully transparent capture edges at three scales, taller bottom display, connected chassis, contained interlaced scan, compact expanding chat, pinned events, live metadata, candidate paging and reload, viewer rotation and focus, escaping, offline recovery, scaling, and empty states.')
 print(f'Screenshots: {shots}')
