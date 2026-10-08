@@ -12,7 +12,7 @@ use crate::{
     overlay,
     platforms::{self, Connection, Event},
 };
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result, ensure};
 use std::{
     ffi::c_void,
     path::Path,
@@ -112,17 +112,18 @@ fn start(module: HMODULE) -> Result<()> {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
+    let overlay_address = config.overlay.socket_addr()?;
     rt.block_on(async {
         let mut history = overlay::History::new(config.overlay.history_limit);
         let mut overlay_error = String::new();
         let mut web = if config.overlay.enabled {
-            match overlay::Server::start(config.overlay.port, &config.overlay.static_dir, &overlay::snapshot(None, &Connection::waiting(), None, 0, &history)).await {
+            match overlay::Server::start(overlay_address, &config.overlay.static_dir, &overlay::snapshot(None, &Connection::waiting(), None, 0, &history)).await {
                 Ok(server) => {
                     logger.info("overlay", &format!("Browser source: http://{}/queue", server.address));
                     Some(server)
                 }
                 Err(e) => {
-                    overlay_error = format!("网页界面启动失败（端口 {}）：{e}；请在「OBS 显示」页检查端口和网页静态目录并应用，文本点歌仍可使用", config.overlay.port);
+                    overlay_error = format!("网页界面启动失败（{overlay_address}）：{e}；请在「OBS 显示」页检查监听地址、端口和网页静态目录并应用，文本点歌仍可使用");
                     logger.info("overlay", &overlay_error);
                     None
                 }
@@ -308,18 +309,32 @@ fn start(module: HMODULE) -> Result<()> {
                             else { ensure!(prepared.raw.aliases == store.raw.aliases, "曲库尚未就绪，暂时不能验证新的别名"); }
                             let next = &prepared.resolved;
                             let replace_web = next.overlay.enabled != config.overlay.enabled
-                                || next.overlay.port != config.overlay.port
                                 || (next.overlay.enabled && web.is_none());
                             let replacement = if replace_web && next.overlay.enabled {
-                                Some(overlay::Server::start(next.overlay.port, &next.overlay.static_dir, &overlay::snapshot(engine.as_ref(), &connection, view.room.as_ref(), now, &history)).await?)
+                                Some(overlay::Server::start(next.overlay.socket_addr()?, &next.overlay.static_dir, &overlay::snapshot(engine.as_ref(), &connection, view.room.as_ref(), now, &history)).await?)
                             } else { None };
                             // Changing only the asset directory reuses the existing listener.
                             let static_files = if !replace_web && next.overlay.enabled
                                 && next.overlay.static_dir != config.overlay.static_dir {
                                 Some(overlay::StaticFiles::open(&next.overlay.static_dir).await?)
                             } else { None };
-                            // A failed atomic save drops the prepared web server, leaving old state intact.
-                            let next = store.commit(prepared)?;
+                            let previous_address = if next.overlay.enabled {
+                                if let Some(server) = web.as_mut() {
+                                    let previous = server.address;
+                                    server.rebind(next.overlay.socket_addr()?).await?;
+                                    Some(previous)
+                                } else { None }
+                            } else { None };
+                            // A failed atomic save rolls back the listener as well as settings.
+                            let next = match store.commit(prepared) {
+                                Ok(next) => next,
+                                Err(error) => {
+                                    if let (Some(server), Some(address)) = (web.as_mut(), previous_address) {
+                                        server.rebind(address).await.with_context(|| format!("配置保存失败（{error}），恢复监听地址失败"))?;
+                                    }
+                                    return Err(error);
+                                }
+                            };
                             if let Some(e) = engine.as_mut() {
                                 e.catalog.update_aliases(&next.aliases)?;
                                 e.config = next.clone().into();

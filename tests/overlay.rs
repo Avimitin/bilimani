@@ -250,7 +250,7 @@ fn public_room_tracks_the_connected_profile_even_before_catalog_is_ready() {
 async fn serves_static_assets_live_snapshots_and_releases_port_on_shutdown() {
     let files = StaticFixture::new();
     let mut server = Server::start(
-        0,
+        "127.0.0.1:0".parse().unwrap(),
         &files.public,
         &snapshot(
             None,
@@ -412,7 +412,7 @@ async fn serves_static_assets_live_snapshots_and_releases_port_on_shutdown() {
     assert_eq!(head.status(), 200);
     assert!(head.text().await.unwrap().is_empty());
     assert!(
-        Server::start(server.address.port(), &files.public, &updated)
+        Server::start(server.address, &files.public, &updated)
             .await
             .is_err()
     );
@@ -425,7 +425,9 @@ async fn serves_static_assets_live_snapshots_and_releases_port_on_shutdown() {
 async fn bundled_styles_switch_with_the_same_queue_url_and_live_state() {
     let web = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("web");
     let state = serde_json::json!({"status": "style-switch-test"});
-    let mut server = Server::start(0, &web.join("card"), &state).await.unwrap();
+    let mut server = Server::start("127.0.0.1:0".parse().unwrap(), &web.join("card"), &state)
+        .await
+        .unwrap();
     let root = format!("http://{}", server.address);
     let client = reqwest::Client::builder().no_proxy().build().unwrap();
     for style in ["card", "mecha", "card"] {
@@ -472,9 +474,13 @@ async fn editing_files_and_switching_directories_updates_pages_without_rebinding
     let alternate = files.root.join("custom-theme");
     std::fs::create_dir_all(&alternate).unwrap();
     std::fs::write(alternate.join("index.html"), "alternate page").unwrap();
-    let mut server = Server::start(0, &files.public, &serde_json::json!({"version": "test"}))
-        .await
-        .unwrap();
+    let mut server = Server::start(
+        "127.0.0.1:0".parse().unwrap(),
+        &files.public,
+        &serde_json::json!({"version": "test"}),
+    )
+    .await
+    .unwrap();
     let root = format!("http://{}", server.address);
     let client = reqwest::Client::builder().no_proxy().build().unwrap();
     std::fs::write(files.public.join("index.html"), "replacement 页面").unwrap();
@@ -576,9 +582,13 @@ async fn serves_nested_assets_but_blocks_traversal_hidden_files_and_escaping_lin
     std::fs::write(files.public.join("assets/icon.svg"), "<svg></svg>").unwrap();
     let large = std::fs::File::create(files.public.join("assets/large.bin")).unwrap();
     large.set_len(32 * 1024 * 1024 + 1).unwrap();
-    let mut server = Server::start(0, &files.public, &serde_json::json!({}))
-        .await
-        .unwrap();
+    let mut server = Server::start(
+        "127.0.0.1:0".parse().unwrap(),
+        &files.public,
+        &serde_json::json!({}),
+    )
+    .await
+    .unwrap();
     let root = format!("http://{}", server.address);
     let client = reqwest::Client::builder().no_proxy().build().unwrap();
     let name = percent_encoding::utf8_percent_encode(
@@ -667,6 +677,7 @@ fn old_configs_enable_overlay_and_invalid_ports_are_rejected() {
     let config: Config = toml::from_str("").unwrap();
     assert!(config.overlay.enabled);
     assert_eq!(config.overlay.port, 32133);
+    assert_eq!(config.overlay.bind_address, "127.0.0.1");
     assert_eq!(config.overlay.history_limit, 10);
     assert_eq!(
         config.overlay.static_dir,
@@ -675,6 +686,7 @@ fn old_configs_enable_overlay_and_invalid_ports_are_rejected() {
     let old: Config = toml::from_str("[overlay]\nenabled = true\nport = 32133").unwrap();
     assert_eq!(old.overlay.static_dir, config.overlay.static_dir);
     assert_eq!(old.overlay.history_limit, 10);
+    assert_eq!(old.overlay.bind_address, "127.0.0.1");
     let mut invalid = config;
     for limit in [0, 101] {
         invalid.overlay.history_limit = limit;
@@ -686,4 +698,171 @@ fn old_configs_enable_overlay_and_invalid_ports_are_rejected() {
     invalid.overlay.port = 32133;
     invalid.overlay.static_dir = PathBuf::new();
     assert!(invalid.validate().is_err());
+}
+
+#[test]
+fn bind_addresses_validate_and_generate_usable_ipv4_and_ipv6_urls() {
+    let mut config = Config::default();
+    for (ip, url) in [
+        ("127.0.0.1", "http://127.0.0.1:32133/queue"),
+        ("0.0.0.0", "http://127.0.0.1:32133/queue"),
+        ("192.168.1.10", "http://192.168.1.10:32133/queue"),
+        ("::1", "http://[::1]:32133/queue"),
+        ("::", "http://[::1]:32133/queue"),
+    ] {
+        config.overlay.bind_address = ip.into();
+        config.validate().unwrap();
+        assert_eq!(config.overlay.local_url().unwrap(), url);
+    }
+    for ip in [
+        "",
+        "localhost",
+        "http://127.0.0.1",
+        "127.0.0.1:32133",
+        "256.0.0.1",
+        "224.0.0.1",
+        "ff02::1",
+    ] {
+        config.overlay.bind_address = ip.into();
+        assert!(
+            config.validate().is_err(),
+            "accepted invalid bind address {ip}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn configured_ipv4_and_ipv6_listeners_accept_their_actual_host_and_origin() {
+    let files = StaticFixture::new();
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    for bind in ["127.0.0.2:0", "0.0.0.0:0", "[::1]:0", "[::]:0"] {
+        let mut server =
+            Server::start(bind.parse().unwrap(), &files.public, &serde_json::json!({}))
+                .await
+                .unwrap();
+        assert_eq!(
+            server.address.ip(),
+            bind.parse::<std::net::SocketAddr>().unwrap().ip()
+        );
+        let mut destination = server.address;
+        if destination.ip().is_unspecified() {
+            destination.set_ip(
+                if destination.is_ipv4() {
+                    "127.0.0.2"
+                } else {
+                    "::1"
+                }
+                .parse()
+                .unwrap(),
+            );
+        }
+        let origin = format!("http://{destination}");
+        let url = format!("{origin}/api/state");
+        assert_eq!(
+            client
+                .get(&url)
+                .header("Origin", &origin)
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            200
+        );
+        assert_eq!(
+            client
+                .get(&url)
+                .header("Host", "external.example")
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            403
+        );
+        assert_eq!(
+            client
+                .get(&url)
+                .header("Host", format!("192.0.2.1:{}", destination.port()))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            403
+        );
+        assert_eq!(
+            client
+                .get(&url)
+                .header("Origin", "https://external.example")
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            403
+        );
+        server.stop().await;
+    }
+}
+
+#[tokio::test]
+async fn live_bind_changes_keep_state_and_restore_the_listener_on_failure() {
+    let files = StaticFixture::new();
+    let state = serde_json::json!({"status": "preserved"});
+    let mut server = Server::start("127.0.0.1:0".parse().unwrap(), &files.public, &state)
+        .await
+        .unwrap();
+    let original = server.address;
+    let wildcard = std::net::SocketAddr::new("0.0.0.0".parse().unwrap(), original.port());
+    server.rebind(wildcard).await.unwrap();
+    assert_eq!(server.address, wildcard);
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let url = format!("http://{original}/api/state");
+    assert_eq!(
+        client
+            .get(&url)
+            .send()
+            .await
+            .unwrap()
+            .json::<serde_json::Value>()
+            .await
+            .unwrap(),
+        state
+    );
+    server.rebind(original).await.unwrap();
+
+    // A second interface owns the same port: moving there must fail and restore loopback.
+    let blocker =
+        tokio::net::TcpListener::bind((std::net::Ipv4Addr::new(127, 0, 0, 2), original.port()))
+            .await
+            .unwrap();
+    assert!(server.rebind(blocker.local_addr().unwrap()).await.is_err());
+    assert_eq!(server.address, original);
+    assert_eq!(
+        client
+            .get(&url)
+            .send()
+            .await
+            .unwrap()
+            .json::<serde_json::Value>()
+            .await
+            .unwrap(),
+        state
+    );
+    drop(blocker);
+
+    let occupied = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    assert!(server.rebind(occupied.local_addr().unwrap()).await.is_err());
+    assert_eq!(client.get(&url).send().await.unwrap().status(), 200);
+    server.rebind("127.0.0.1:0".parse().unwrap()).await.unwrap();
+    assert_ne!(server.address.port(), original.port());
+    assert_eq!(
+        client
+            .get(format!("http://{}/api/state", server.address))
+            .send()
+            .await
+            .unwrap()
+            .json::<serde_json::Value>()
+            .await
+            .unwrap(),
+        state
+    );
+    server.stop().await;
 }

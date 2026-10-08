@@ -1,4 +1,4 @@
-//! Read-only loopback overlay. Network requests only access owned snapshots;
+//! Read-only overlay. Network requests only access owned snapshots;
 //! they never call the game or hold the engine's state across an await.
 mod history;
 use crate::{
@@ -18,7 +18,7 @@ use hyper_util::rt::TokioIo;
 use serde_json::{Value, json};
 use std::{
     convert::Infallible,
-    net::{Ipv4Addr, SocketAddr},
+    net::SocketAddr,
     path::{Path, PathBuf},
     sync::{Arc, RwLock},
     time::Duration,
@@ -208,19 +208,33 @@ impl Published {
     }
 }
 impl Server {
-    pub async fn start(port: u16, static_dir: &Path, initial: &Value) -> Result<Self> {
+    pub async fn start(address: SocketAddr, static_dir: &Path, initial: &Value) -> Result<Self> {
         let files = Arc::new(RwLock::new(StaticFiles::open(static_dir).await?));
-        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, port)).await?;
+        let listener = TcpListener::bind(address).await?;
         let address = listener.local_addr()?;
         let state = Arc::new(RwLock::new(Published::new(initial)?));
-        let shared = state.clone();
-        let shared_files = files.clone();
-        let task = tokio::spawn(async move {
+        let task = Self::serve(listener, state.clone(), files.clone());
+        Ok(Self {
+            address,
+            state,
+            files,
+            task,
+        })
+    }
+
+    fn serve(
+        listener: TcpListener,
+        shared: Arc<RwLock<Published>>,
+        shared_files: Arc<RwLock<StaticFiles>>,
+    ) -> JoinHandle<Result<()>> {
+        tokio::spawn(async move {
             let mut connections = JoinSet::new();
             loop {
                 tokio::select! {
                     accepted = listener.accept(), if connections.len() < 32 => {
                         let (stream, _) = accepted?;
+                        // A wildcard listener must accept the actual interface IP in Host/Origin.
+                        let address = stream.local_addr()?;
                         let state = shared.clone();
                         let files = shared_files.clone();
                         connections.spawn(async move {
@@ -228,7 +242,7 @@ impl Server {
                                 let state = state.clone();
                                 let files = files.read().unwrap().clone();
                                 async move {
-                                    Ok::<_, Infallible>(route(req, &state, address.port(), &files).await)
+                                    Ok::<_, Infallible>(route(req, &state, address, &files).await)
                                 }
                             });
                             // One bounded request per connection; this also limits slow clients.
@@ -241,13 +255,45 @@ impl Server {
                     _ = connections.join_next(), if !connections.is_empty() => {}
                 }
             }
-        });
-        Ok(Self {
-            address,
-            state,
-            files,
-            task,
         })
+    }
+
+    /// Preserve snapshots/assets and restore the old listener if a same-port switch fails.
+    pub async fn rebind(&mut self, address: SocketAddr) -> Result<()> {
+        if address == self.address {
+            return Ok(());
+        }
+        let listener = match TcpListener::bind(address).await {
+            Ok(listener) => {
+                self.stop().await;
+                listener
+            }
+            Err(error)
+                if error.kind() == std::io::ErrorKind::AddrInUse
+                    && address.port() == self.address.port() =>
+            {
+                // Loopback and wildcard bindings overlap, so release the old socket first.
+                self.stop().await;
+                match TcpListener::bind(address).await {
+                    Ok(listener) => listener,
+                    Err(error) => {
+                        let previous =
+                            TcpListener::bind(self.address).await.with_context(|| {
+                                format!(
+                                    "无法监听 {address}（{error}），且无法恢复 {}",
+                                    self.address
+                                )
+                            })?;
+                        self.task = Self::serve(previous, self.state.clone(), self.files.clone());
+                        return Err(error.into());
+                    }
+                }
+            }
+            Err(error) => return Err(error.into()),
+        };
+        self.address = listener.local_addr()?;
+        self.task = Self::serve(listener, self.state.clone(), self.files.clone());
+        Ok(())
     }
     pub fn publish(&self, value: &Value) {
         if let Ok(published) = Published::new(value) {
@@ -274,13 +320,24 @@ impl Drop for Server {
 async fn route(
     req: Request<Incoming>,
     state: &RwLock<Published>,
-    port: u16,
+    address: SocketAddr,
     files: &StaticFiles,
 ) -> Response<Full<Bytes>> {
-    let mut hosts = vec![format!("127.0.0.1:{port}"), format!("localhost:{port}")];
+    let address = SocketAddr::new(address.ip().to_canonical(), address.port());
+    let port = address.port();
+    let mut hosts = vec![address.to_string()];
+    if address.ip().is_loopback() {
+        hosts.push(format!("localhost:{port}"));
+    }
     // Browsers omit the default HTTP port from Host and Origin.
     if port == 80 {
-        hosts.extend(["127.0.0.1".into(), "localhost".into()]);
+        hosts.push(match address {
+            SocketAddr::V4(address) => address.ip().to_string(),
+            SocketAddr::V6(address) => format!("[{}]", address.ip()),
+        });
+        if address.ip().is_loopback() {
+            hosts.push("localhost".into());
+        }
     }
     let host = req
         .headers()
@@ -297,7 +354,7 @@ async fn route(
         (
             StatusCode::FORBIDDEN,
             "text/plain",
-            "Local OBS access only".into(),
+            "Invalid overlay host or origin".into(),
         )
     } else if req.method() != Method::GET && req.method() != Method::HEAD {
         (

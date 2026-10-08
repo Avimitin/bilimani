@@ -7,6 +7,7 @@
 ## 本地网页界面
 
 `src/overlay.rs` 使用 Hyper 提供只读 HTTP 服务，默认只监听 `127.0.0.1:32133`。
+`overlay.bind_address` 可配置 IPv4 或 IPv6 地址，旧配置缺少此字段时保持 `127.0.0.1`。设为 `0.0.0.0` 可监听全部 IPv4 网卡；远程 OBS 使用游戏电脑的实际 IP。地址和端口在 GUI 中应用后立即生效；同端口从本机改为通配地址时会短暂重建监听，绑定失败或保存失败会尝试恢复原地址。
 HTML、CSS 和 JavaScript 按样式存放于 `web/card/` 和 `web/mecha/`，每个目录都有完整的 `index.html` 及独立资源。
 `scripts/package.ps1` 将样式目录复制到 Release ZIP 的 `bilimani_web/`，其中仅包含 `card/` 和 `mecha/`，不生成根目录页面副本或许可证目录。页面不再嵌入 DLL，无前端构建步骤、CDN 或外部字体依赖。
 `overlay.static_dir` 默认为 `bilimani_web/card`；相对路径以 DLL 所在目录为准，也支持绝对路径。旧配置若仍指向 `bilimani_web`，请在设置中选择具体样式子目录。
@@ -54,7 +55,7 @@ Mecha 的候选使用单列分页，每页 5 首，背景显示隔行扫描动�
 Mecha 优先展示刚翻页的观众，然后恢复每 6 秒轮换。刷新页面从快照恢复页码。
 旧 DLL 缺少分页字段时按首页显示，但无法响应翻页命令；使用分页应同时升级 DLL。
 
-服务器仅允许 GET/HEAD，请求 Host/Origin 限制为本地地址，禁用缓存。
+服务器仅允许 GET/HEAD，请求 Host/Origin 限制为该连接实际访问的服务器 IP 与端口（回环连接也接受 `localhost`），禁用缓存。通配地址监听时按连接的实际网卡 IP 检查，不接受任意域名。服务无身份验证。
 URL 解码后拒绝路径穿越、隐藏文件及 Windows 特殊路径；解析符号链接和目录联接后仍需位于
 静态目录内。单个静态文件最大 32 MiB；每次连接只处理一个请求，上限 32 个并发连接、5 秒超时。
 启动失败会记录日志并保留文本
@@ -133,7 +134,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "& ./scripts/build.ps1 -C
 
 `GET /api/now-playing` 返回实际游戏歌曲快照，无需有观众点歌。同一对象也在
 `/api/state.now_playing` 中，页面一次轮询即可获得全部内容。已有的 `current` 字段继续表示
-观众的当前点歌请求。两个接口均支持 HEAD，沿用本地 Host/Origin 检查及 `no-store`。
+观众的当前点歌请求。两个接口均支持 HEAD，沿用监听地址对应的 Host/Origin 检查及 `no-store`。
 
 以下为字段示意，数值使用模拟数据；`song.charts` 实际包含该曲存在的全部谱面：
 

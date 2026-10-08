@@ -12,7 +12,7 @@ async fn main() -> anyhow::Result<()> {
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("web/card"));
     let server = Server::start(
-        32133,
+        "127.0.0.1:32133".parse()?,
         &static_dir,
         &snapshot(
             None,

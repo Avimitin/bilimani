@@ -890,6 +890,8 @@ impl Menu {
             Page::Output => {
                 Heading::new("OBS 显示").h2().show(ui);
                 toggle(ui, &mut self.draft.overlay.enabled, "启用浏览器来源");
+                field(ui, "监听地址", &mut self.draft.overlay.bind_address, false);
+                ui.weak("127.0.0.1 仅本机；0.0.0.0 允许通过所有 IPv4 网卡访问，也可指定网卡 IP 或 IPv6 地址。");
                 number(ui, "本机端口", &mut self.draft.overlay.port, 1..=65535);
                 number(
                     ui,
@@ -900,10 +902,10 @@ impl Menu {
                 ui.weak("按条数保留，超出后移除最早一条，不按时间消失。");
                 path_field(ui, "网页静态目录", &mut self.draft.overlay.static_dir);
                 ui.weak("目录中需有 index.html。相对路径以 DLL 目录为准，修改页面文件后刷新即可。");
-                ui.label(format!(
-                    "http://127.0.0.1:{}/queue",
-                    self.draft.overlay.port
-                ));
+                if let Ok(url) = self.draft.overlay.local_url() {
+                    ui.label(url);
+                }
+                ui.weak("其他电脑的 OBS 请使用运行游戏的电脑 IP 和相同端口。网页提供只读数据，无需登录。");
                 ui.separator();
                 path_field(ui, "队列文本文件", &mut self.draft.output.queue_path);
                 path_field(ui, "交互文本文件", &mut self.draft.output.interaction_path);

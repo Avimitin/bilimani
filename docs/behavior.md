@@ -61,7 +61,7 @@
 - Current request expires 600 seconds after a successful jump, configurable.
   Expiration can advance while still in song select; never jump during gameplay.
 - Separate UTF-8 OBS files for current/waiting requests and interactions.
-- Optional loopback HTTP service with a queue and persistent chat/event history,
+- Optional HTTP service, bound to loopback by default, with a queue and persistent chat/event history,
   enabled by default on port 32133. The canvas uses the fixed OBS source height;
   unused space stays transparent.
   History retains the latest 10 arrivals by default (configurable 1–100), evicts
@@ -87,5 +87,9 @@
   files per request so replacements take effect on refresh; `/api/state` retains
   live snapshots. Directory changes validate before save and reuse the listener.
   Existing text files remain available; web bind failures do not stop requests.
+  `overlay.bind_address` accepts an IPv4 or IPv6 address; `0.0.0.0` enables all
+  IPv4 interfaces. Address and port changes apply live, preserving snapshots and
+  restoring the previous listener if rebinding fails. Host/Origin checks match
+  the connection's server address, including for wildcard listeners.
 - Queue and pending selections are not persisted across game restarts.
 - Game share is read-only. Analysis uses local copies, excluded from git and releases.

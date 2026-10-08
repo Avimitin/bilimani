@@ -54,12 +54,17 @@ fn static_directory_defaults_for_old_settings_and_round_trips_relative_to_dll() 
         .as_object_mut()
         .unwrap()
         .remove("history_limit");
+    settings["overlay"]
+        .as_object_mut()
+        .unwrap()
+        .remove("bind_address");
     connection
         .execute("UPDATE settings SET settings = ?1", [settings.to_string()])
         .unwrap();
     drop(connection);
     let mut store = Store::open(&database).unwrap();
     assert_eq!(store.raw.overlay.history_limit, 10);
+    assert_eq!(store.raw.overlay.bind_address, "127.0.0.1");
     assert_eq!(
         store.raw.overlay.static_dir,
         PathBuf::from("bilimani_web/card")
@@ -69,10 +74,16 @@ fn static_directory_defaults_for_old_settings_and_round_trips_relative_to_dll() 
     let mut config = store.raw.clone();
     config.overlay.static_dir = "themes/custom".into();
     config.overlay.history_limit = 15;
+    config.overlay.bind_address = "0.0.0.0".into();
     let resolved = store
         .commit(store.prepare(config.clone(), store.revision, &dll).unwrap())
         .unwrap();
     assert_eq!(resolved.overlay.static_dir, f.0.join("themes/custom"));
+    assert_eq!(resolved.overlay.bind_address, "0.0.0.0");
+    assert_eq!(
+        Store::open(&database).unwrap().raw.overlay.bind_address,
+        "0.0.0.0"
+    );
     assert_eq!(
         Store::open(&database).unwrap().raw.overlay.history_limit,
         15

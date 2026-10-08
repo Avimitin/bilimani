@@ -2,6 +2,7 @@ use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
+    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
     path::{Path, PathBuf},
 };
 
@@ -59,6 +60,7 @@ impl Default for Controls {
 #[serde(default, deny_unknown_fields)]
 pub struct Overlay {
     pub enabled: bool,
+    pub bind_address: String,
     pub port: u16,
     pub static_dir: PathBuf,
     pub history_limit: usize,
@@ -67,10 +69,35 @@ impl Default for Overlay {
     fn default() -> Self {
         Self {
             enabled: true,
+            bind_address: "127.0.0.1".into(),
             port: 32133,
             static_dir: "bilimani_web/card".into(),
             history_limit: 10,
         }
+    }
+}
+
+impl Overlay {
+    pub fn socket_addr(&self) -> Result<SocketAddr> {
+        let ip: IpAddr = self
+            .bind_address
+            .trim()
+            .parse()
+            .context("监听地址必须是 IPv4 或 IPv6 地址，例如 127.0.0.1、0.0.0.0 或 ::1")?;
+        ensure!(!ip.is_multicast(), "监听地址不能是组播地址");
+        Ok(SocketAddr::new(ip, self.port))
+    }
+
+    pub fn local_url(&self) -> Result<String> {
+        let mut address = self.socket_addr()?;
+        if address.ip().is_unspecified() {
+            address.set_ip(if address.is_ipv4() {
+                Ipv4Addr::LOCALHOST.into()
+            } else {
+                Ipv6Addr::LOCALHOST.into()
+            });
+        }
+        Ok(format!("http://{address}/queue"))
     }
 }
 
@@ -248,6 +275,7 @@ impl Config {
             "controls.double_tap_ms must be 100..2000"
         );
         ensure!(self.overlay.port != 0, "overlay.port must be 1..65535");
+        self.overlay.socket_addr()?;
         ensure!(
             (1..=100).contains(&self.overlay.history_limit),
             "网页弹幕与事件保留条数应为 1–100"
