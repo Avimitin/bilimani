@@ -13,7 +13,7 @@
 5. 游戏采集来源建议放在 **X=24、Y=40**，大小 **1536 × 864**（1920 × 1080 画布上缩放为 80%）。这只是摆放参考，可在 OBS 自行调整游戏来源的位置和大小，无需给游戏添加蒙版。
 6. 刷新浏览器来源。页面中间没有绘制内容，游戏会从透明背景透出；装甲按自身轮廓覆盖边缘，不再被 16:9 矩形裁断。
 
-切回卡片版时，将「网页静态目录」恢复为 **`chart_request_static`**（兼容原有安装），或选择完整新版发布包中的 **`chart_request_static/card`**。浏览器来源改回 **480 × 800** 并刷新。两种样式的 OBS URL 都是 `/queue`，不需要覆盖任何样式文件。
+切回卡片版时，将「网页静态目录」设为 **`chart_request_static/card`**。浏览器来源改回 **480 × 800** 并刷新。两种样式的 OBS URL 都是 `/queue`，不需要覆盖任何样式文件。
 
 ## 从源码或完整发布包使用
 
@@ -25,7 +25,7 @@ web/
   mecha/      # 机甲框架（index.html、overlay.css、frame.css、overlay.js）
 ```
 
-完整 Windows 发布包包含 `chart_request_static/card` 和 `chart_request_static/mecha`；为兼容旧配置，打包时还会在 `chart_request_static` 根目录生成默认卡片文件。源码仅维护两个样式目录，根目录副本由打包脚本生成。独立机甲 ZIP 只包含 `mecha` 子目录，可添加到已有安装。
+完整 Windows 发布包的 `chart_request_static` 仅包含 `card` 和 `mecha` 两个样式目录，默认使用 `chart_request_static/card`。旧配置若仍指向根目录，请改为具体样式子目录。独立机甲 ZIP 只包含 `mecha` 子目录，可添加到已有安装。
 
 选择样式目录后统一访问 `http://127.0.0.1:32133/queue`，由服务提供所选目录的 `index.html`。页面通过 `/api/state` 获取实时数据。
 

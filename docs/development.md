@@ -8,8 +8,8 @@
 
 `src/overlay.rs` 使用 Hyper 提供只读 HTTP 服务，默认只监听 `127.0.0.1:32133`。
 HTML、CSS 和 JavaScript 按样式存放于 `web/card/` 和 `web/mecha/`，每个目录都有完整的 `index.html` 及独立资源。
-`scripts/package.ps1` 将样式目录复制到 Release ZIP 的 `chart_request_static/`，并在其根目录生成卡片版副本以兼容旧配置。页面不再嵌入 DLL，无前端构建步骤、CDN 或外部字体依赖。
-`overlay.static_dir` 默认为 `chart_request_static`；相对路径以 DLL 所在目录为准，也支持绝对路径。
+`scripts/package.ps1` 将样式目录复制到 Release ZIP 的 `chart_request_static/`，其中仅包含 `card/` 和 `mecha/`，不生成根目录页面副本或许可证目录。页面不再嵌入 DLL，无前端构建步骤、CDN 或外部字体依赖。
+`overlay.static_dir` 默认为 `chart_request_static/card`；相对路径以 DLL 所在目录为准，也支持绝对路径。旧配置若仍指向 `chart_request_static`，请在设置中选择具体样式子目录。
 可在「OBS 显示」页修改并保存。只切换目录时复用已有监听端口，验证目录及 `index.html`
 可读取后再提交配置；验证或保存失败保留原服务。旧数据库和 JSON/TOML 配置自动补入默认值。
 `/queue` 和 `/index.html` 读取该目录的 `index.html`；`/` 重定向到 `/queue`。
@@ -485,10 +485,10 @@ Developers can run `scripts/fetch-sdk.ps1` to populate that fallback.
 Game binaries, databases, IDA files, reference repositories, credentials and build
 artifacts are excluded from git. None are included in the release bundle.
 
-The release ZIP contains only `README.md`, `chart_requester.dll`, and
-`chart_request_static/` at its root. Project and dependency licenses are included
-under `chart_request_static/licenses/`; developer docs, showcase images, and
-recording tools stay in the repository.
+The release ZIP contains only `README.md`, `chart_requester.dll`,
+`chart-requester-config.exe`, and `chart_request_static/` at its root.
+The static directory contains only the `card/` and `mecha/` frontend styles.
+Licenses, developer docs, showcase images, and recording tools are not packaged.
 
 ## Automated releases
 

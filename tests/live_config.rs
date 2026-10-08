@@ -62,12 +62,12 @@ fn static_directory_defaults_for_old_settings_and_round_trips_relative_to_dll() 
     assert_eq!(store.raw.overlay.history_limit, 10);
     assert_eq!(
         store.raw.overlay.static_dir,
-        PathBuf::from("chart_request_static")
+        PathBuf::from("chart_request_static/card")
     );
     let resolved = store.commit(store.reload(&dll).unwrap()).unwrap();
     assert_eq!(
         resolved.overlay.static_dir,
-        f.0.join("chart_request_static")
+        f.0.join("chart_request_static/card")
     );
     let mut config = store.raw.clone();
     config.overlay.static_dir = "themes/custom".into();

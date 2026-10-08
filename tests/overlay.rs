@@ -670,7 +670,7 @@ fn old_configs_enable_overlay_and_invalid_ports_are_rejected() {
     assert_eq!(config.overlay.history_limit, 10);
     assert_eq!(
         config.overlay.static_dir,
-        PathBuf::from("chart_request_static")
+        PathBuf::from("chart_request_static/card")
     );
     let old: Config = toml::from_str("[overlay]\nenabled = true\nport = 32133").unwrap();
     assert_eq!(old.overlay.static_dir, config.overlay.static_dir);

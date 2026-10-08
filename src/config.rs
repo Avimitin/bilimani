@@ -68,7 +68,7 @@ impl Default for Overlay {
         Self {
             enabled: true,
             port: 32133,
-            static_dir: "chart_request_static".into(),
+            static_dir: "chart_request_static/card".into(),
             history_limit: 10,
         }
     }

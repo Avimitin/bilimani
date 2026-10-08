@@ -34,6 +34,6 @@
 2. 将 `chart_requester.dll` 与 `chart_request_static/` 一起替换到原插件目录。保留现有 `chart-requester.db`；从旧 TOML 版本升级时保留 `chart-requester.toml`，首次启动自动迁移。
 3. 重启游戏并刷新 OBS 浏览器来源。地址仍为 `http://127.0.0.1:32133/queue`，建议尺寸 **480 × 800**。
 
-ZIP 顶层仅包含 `README.md`、DLL 和前端目录；许可证位于 `chart_request_static/licenses/`。开发文档、展示图和录制工具保留在仓库。
+ZIP 顶层仅包含 `README.md`、DLL、独立配置 EXE 和前端目录；`chart_request_static` 仅包含 `card` 与 `mecha` 样式子目录，不附带许可证或根目录页面副本。旧配置若仍指向 `chart_request_static`，请将「网页静态目录」改为 `chart_request_static/card`。开发文档、展示图和录制工具保留在仓库。
 
 如果设置过其他网页静态目录，请同步更新该目录中的页面文件；有自定义样式时先保留自己的修改。
