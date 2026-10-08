@@ -82,7 +82,7 @@
   Cards shrink when needed and truncate text to the available complete lines.
   At capacity, new records replace the oldest; the source height stays fixed.
   HTML/CSS/JS ship next to the
-  DLL in `chart_request_static/` inside the release ZIP. `overlay.static_dir` can
+  DLL in `bilimani_web/` inside the release ZIP. `overlay.static_dir` can
   select another public asset directory, relative to the DLL or absolute. Read
   files per request so replacements take effect on refresh; `/api/state` retains
   live snapshots. Directory changes validate before save and reuse the listener.

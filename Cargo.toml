@@ -1,12 +1,12 @@
 [package]
-name = "chart-requester"
+name = "bilimani"
 version = "0.2.0"
 edition = "2024"
 license = "MIT"
 description = "Bilibili chart requests for beatmania IIDX"
 
 [lib]
-name = "chart_requester"
+name = "bilimani"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]

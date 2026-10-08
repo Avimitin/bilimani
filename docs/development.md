@@ -8,8 +8,8 @@
 
 `src/overlay.rs` 使用 Hyper 提供只读 HTTP 服务，默认只监听 `127.0.0.1:32133`。
 HTML、CSS 和 JavaScript 按样式存放于 `web/card/` 和 `web/mecha/`，每个目录都有完整的 `index.html` 及独立资源。
-`scripts/package.ps1` 将样式目录复制到 Release ZIP 的 `chart_request_static/`，其中仅包含 `card/` 和 `mecha/`，不生成根目录页面副本或许可证目录。页面不再嵌入 DLL，无前端构建步骤、CDN 或外部字体依赖。
-`overlay.static_dir` 默认为 `chart_request_static/card`；相对路径以 DLL 所在目录为准，也支持绝对路径。旧配置若仍指向 `chart_request_static`，请在设置中选择具体样式子目录。
+`scripts/package.ps1` 将样式目录复制到 Release ZIP 的 `bilimani_web/`，其中仅包含 `card/` 和 `mecha/`，不生成根目录页面副本或许可证目录。页面不再嵌入 DLL，无前端构建步骤、CDN 或外部字体依赖。
+`overlay.static_dir` 默认为 `bilimani_web/card`；相对路径以 DLL 所在目录为准，也支持绝对路径。旧配置若仍指向 `bilimani_web`，请在设置中选择具体样式子目录。
 可在「OBS 显示」页修改并保存。只切换目录时复用已有监听端口，验证目录及 `index.html`
 可读取后再提交配置；验证或保存失败保留原服务。旧数据库和 JSON/TOML 配置自动补入默认值。
 `/queue` 和 `/index.html` 读取该目录的 `index.html`；`/` 重定向到 `/queue`。
@@ -283,9 +283,9 @@ mouse input, Start gestures and compatibility with other overlays.
 
 ### 独立配置 EXE
 
-`cargo build --release --locked` 同时构建 DLL 和 `chart-requester-config.exe`，发布 ZIP 包含两者。
+`cargo build --release --locked` 同时构建 DLL 和 `bilimani-config.exe`，发布 ZIP 包含两者。
 EXE 复用游戏内 egui 页面、Win32 输入和 D3D9 渲染，默认打开自身目录下的
-`chart-requester.db`，不依赖当前工作目录，不建立直播连接或 OBS 服务。启动失败通过
+`bilimani.db`，不依赖当前工作目录，不建立直播连接或 OBS 服务。启动失败通过
 Windows 对话框显示错误。关闭控制台或按 Esc 会退出 EXE。
 
 独立配置使用自有 Win32 窗口类承载无边框 egui `CentralPanel`。`WM_NCHITTEST` 根据 egui
@@ -294,7 +294,7 @@ Windows 对话框显示错误。关闭控制台或按 Esc 会退出 EXE。
 游戏内仍使用居中的 egui 浮窗及原有缩放策略。
 
 ```powershell
-./target/release/chart-requester-config.exe --config 'D:/IIDX/modules/chart-requester.db'
+./target/release/bilimani-config.exe --config 'D:/IIDX/modules/bilimani.db'
 ```
 
 离线别名校验读取明确指定的 `game.database_path` 或 DLL 在 `song_catalog` 表中缓存的
@@ -302,7 +302,7 @@ Windows 对话框显示错误。关闭控制台或按 Esc 会退出 EXE。
 首次没有曲库仍可编辑直播档案和其他设置；可在「游戏适配」填写曲库文件再保存别名。
 `tests/desktop.rs` 检查独立配置、手动卡号绑定、缓存、文件曲库、别名校验、并发更新和备份草稿。
 
-无窗口检查：`chart-requester-config.exe --config <测试路径.db> --hidden --frames 60`。
+无窗口检查：`bilimani-config.exe --config <测试路径.db> --hidden --frames 60`。
 使用单独的测试数据库；此模式同样不连接直播间。
 `py -3 scripts/check-desktop.py` 会启动隐藏窗口，检查标题／按钮命中、八个缩放方向、
 负坐标、多次改变大小后的绘制与关闭。`--exe` 可指定 Debug 等其他构建。
@@ -321,7 +321,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/preview-menu.ps1
 点击「应用并保存」即可连接。后续运行沿用该配置。也可以直接指定已有配置和曲库：
 
 ```powershell
-./scripts/preview-menu.ps1 -ConfigPath 'D:/IIDX/chart-requester.db' -DatabasePath 'D:/IIDX/data/info/music_data.bin' -Mode SP
+./scripts/preview-menu.ps1 -ConfigPath 'D:/IIDX/bilimani.db' -DatabasePath 'D:/IIDX/data/info/music_data.bin' -Mode SP
 ```
 
 保存会写入实际使用的 SQLite 数据库，启动终端会打印其路径。相对路径以数据库目录为准。
@@ -343,7 +343,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/preview-menu.ps1
 入队、等待观众选择、拒绝原因或忽略原因。主播控制台不显示观众侧的候选列表。
 独立模式不会执行跳歌，歌曲保留在等待队列，可
 手动删除；不启动 OBS 服务或写入 OBS 文本。连接、匹配、别名校验、冷却和候选超时
-使用正式逻辑。日志位于 `analysis/menu-preview/chart-requester.log`，凭据会脱敏。
+使用正式逻辑。日志位于 `analysis/menu-preview/bilimani.log`，凭据会脱敏。
 
 修改 Rust 页面后关闭窗口，重新运行同一命令即可增量编译，无需重启游戏。退出时会
 关闭直播会话。游戏内的原生搜索词典、解锁状态、按键 Hook 和跳歌只能在游戏中验证；
@@ -485,8 +485,8 @@ Developers can run `scripts/fetch-sdk.ps1` to populate that fallback.
 Game binaries, databases, IDA files, reference repositories, credentials and build
 artifacts are excluded from git. None are included in the release bundle.
 
-The release ZIP contains only `README.md`, `chart_requester.dll`,
-`chart-requester-config.exe`, and `chart_request_static/` at its root.
+The release ZIP contains only `README.md`, `bilimani.dll`,
+`bilimani-config.exe`, and `bilimani_web/` at its root.
 The static directory contains only the `card/` and `mecha/` frontend styles.
 Licenses, developer docs, showcase images, and recording tools are not packaged.
 
@@ -498,7 +498,7 @@ The ZIP is kept as an Actions artifact and uploaded to the GitHub Release for th
 tag. An existing release receives the rebuilt asset when the workflow is rerun.
 
 The archive name follows the package version in `Cargo.toml`, for example
-`chart-requester-0.2.0.zip`. Update the package version and `Cargo.lock` before
+`bilimani-0.2.0.zip`. Update the package version and `Cargo.lock` before
 tagging a new version, then push the tag:
 
 ```powershell
@@ -514,7 +514,7 @@ and [release CLI documentation](https://cli.github.com/manual/gh_release_create)
 
 ## Diagnostic logging
 
-`chart-requester.log` beside the DLL now records timestamps in local time. Existing
+`bilimani.log` beside the DLL now records timestamps in local time. Existing
 configs automatically get the new defaults: `level = "debug"`, `danmu = true`,
 10 MiB per file, three rotated backups (`.log.1` through `.log.3`), and a status
 summary every 30 seconds. Adjust them on the GUI logging page.

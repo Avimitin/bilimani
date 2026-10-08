@@ -1,4 +1,4 @@
-use chart_requester::{
+use bilimani::{
     catalog::Catalog,
     config::Config,
     engine::{Chat, Engine, Phase, Snapshot},
@@ -85,7 +85,7 @@ fn picking_a_queued_song_preserves_order_until_ack_and_replaces_current_on_succe
 
 #[test]
 fn stream_switch_clears_requests_candidates_cooldowns_and_ignores_late_native_results() {
-    use chart_requester::{
+    use bilimani::{
         gui::{View, record_chat, record_processing},
         profiles::{ActiveStream, CardId, StreamProfile},
     };
@@ -638,7 +638,7 @@ fn database_ignores_unused_lookup_entries_pointing_at_record_zero() {
 
 #[test]
 fn invalid_configuration_does_not_expose_secret_values() {
-    let path = std::env::temp_dir().join(format!("chart-requester-{}.toml", uuid::Uuid::new_v4()));
+    let path = std::env::temp_dir().join(format!("bilimani-{}.toml", uuid::Uuid::new_v4()));
     std::fs::write(&path, "[bilibili]\nauth_code = 12345678901234\n").unwrap();
     let error = format!("{:#}", Config::load(&path).unwrap_err());
     assert!(!error.contains("12345678901234"));

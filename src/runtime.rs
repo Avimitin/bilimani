@@ -57,7 +57,7 @@ fn start(module: HMODULE) -> Result<()> {
         } != 0,
         "Cannot pin hook DLL"
     );
-    let config_path = root.join("chart-requester.db");
+    let config_path = root.join("bilimani.db");
     let mut store = Store::open(&config_path)?;
     let mut config = store.raw.clone().resolve(&config_path)?;
     let mut logger = Logger::new(root, &config);
@@ -68,7 +68,7 @@ fn start(module: HMODULE) -> Result<()> {
     logger.info(
         "startup",
         &format!(
-            "chart-requester {} started; logging={:?} danmu={} status_interval={}s",
+            "bilimani {} started; logging={:?} danmu={} status_interval={}s",
             env!("CARGO_PKG_VERSION"),
             config.logging.level,
             config.logging.danmu,
@@ -95,7 +95,7 @@ fn start(module: HMODULE) -> Result<()> {
     let mut queue = TextFile::new(queue_path);
     let mut interaction = TextFile::new(interaction_path);
     queue.write("当前点歌\n暂无\n\n等待队列\n暂无\n")?;
-    interaction.write("正在初始化 chart-requester…\n")?;
+    interaction.write("正在初始化 bilimani…\n")?;
     let game = match games::attach(&config.game, &config.controls) {
         Ok(game) => game,
         Err(e) => {
@@ -510,7 +510,7 @@ pub unsafe extern "system" fn DllMain(module: HMODULE, reason: u32, _reserved: *
     1
 }
 #[unsafe(no_mangle)]
-pub extern "C" fn chart_requester_shutdown() {
+pub extern "C" fn bilimani_shutdown() {
     STOP.store(true, Ordering::Release);
     if let Some(game) = GAME.get() {
         game.stop();
@@ -519,7 +519,7 @@ pub extern "C" fn chart_requester_shutdown() {
     menu::stop();
 }
 extern "C" fn spice_destroy() {
-    chart_requester_shutdown();
+    bilimani_shutdown();
     let worker = WORKER.swap(0, Ordering::AcqRel);
     if worker != 0 {
         unsafe {

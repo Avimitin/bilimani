@@ -866,10 +866,10 @@ mod tests {
 
     /// Opt-in live validation: secrets are supplied only through the process environment.
     #[tokio::test]
-    #[ignore = "requires CHART_REQUESTER_AUTH_CODE and a live Open Live session"]
+    #[ignore = "requires BILIMANI_AUTH_CODE and a live Open Live session"]
     async fn live_open_live_authentication_and_heartbeats() {
         let cfg = Bilibili {
-            auth_code: std::env::var("CHART_REQUESTER_AUTH_CODE")
+            auth_code: std::env::var("BILIMANI_AUTH_CODE")
                 .expect("Set identity code in environment"),
             // Exercise compatibility with configurations written by the first release.
             relay_url: "https://blive.chat".into(),

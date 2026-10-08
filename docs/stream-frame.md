@@ -6,14 +6,14 @@
 
 ## 安装独立静态包
 
-1. 解压 `chart-requester-green-room.zip`，将包内的 **`chart_request_static/mecha` 子目录**复制到 DLL 旁的 `chart_request_static` 中。实际选曲信息需要支持 `/api/now-playing` 的新版 DLL；旧 DLL 下页面继续显示当前点歌。升级歌曲信息功能时同时更新 DLL 和 Mecha 静态文件。
-2. 在游戏控制台「OBS 显示」中，将「网页静态目录」设为 **`chart_request_static/mecha`**，点击应用并保存。
+1. 解压 `bilimani-green-room.zip`，将包内的 **`bilimani_web/mecha` 子目录**复制到 DLL 旁的 `bilimani_web` 中。实际选曲信息需要支持 `/api/now-playing` 的新版 DLL；旧 DLL 下页面继续显示当前点歌。升级歌曲信息功能时同时更新 DLL 和 Mecha 静态文件。
+2. 在游戏控制台「OBS 显示」中，将「网页静态目录」设为 **`bilimani_web/mecha`**，点击应用并保存。
 3. 在 OBS 添加浏览器来源，地址填 `http://127.0.0.1:32133/queue`，宽 **1920**、高 **1080**。游戏和插件须先启动；自定义端口时替换 `32133`。
 4. 浏览器来源位置设为 **(0, 0)**，放在游戏采集来源的上方。移除以前为卡片添加的自定义 CSS；OBS 默认透明背景 CSS 可以保留。
 5. 游戏采集来源建议放在 **X=24、Y=40**，大小 **1536 × 864**（1920 × 1080 画布上缩放为 80%）。这只是摆放参考，可在 OBS 自行调整游戏来源的位置和大小，无需给游戏添加蒙版。
 6. 刷新浏览器来源。页面中间没有绘制内容，游戏会从透明背景透出；装甲按自身轮廓覆盖边缘，不再被 16:9 矩形裁断。
 
-切回卡片版时，将「网页静态目录」设为 **`chart_request_static/card`**。浏览器来源改回 **480 × 800** 并刷新。两种样式的 OBS URL 都是 `/queue`，不需要覆盖任何样式文件。
+切回卡片版时，将「网页静态目录」设为 **`bilimani_web/card`**。浏览器来源改回 **480 × 800** 并刷新。两种样式的 OBS URL 都是 `/queue`，不需要覆盖任何样式文件。
 
 ## 从源码或完整发布包使用
 
@@ -25,11 +25,11 @@ web/
   mecha/      # 机甲框架（index.html、overlay.css、frame.css、overlay.js）
 ```
 
-完整 Windows 发布包的 `chart_request_static` 仅包含 `card` 和 `mecha` 两个样式目录，默认使用 `chart_request_static/card`。旧配置若仍指向根目录，请改为具体样式子目录。独立机甲 ZIP 只包含 `mecha` 子目录，可添加到已有安装。
+完整 Windows 发布包的 `bilimani_web` 仅包含 `card` 和 `mecha` 两个样式目录，默认使用 `bilimani_web/card`。旧配置若仍指向根目录，请改为具体样式子目录。独立机甲 ZIP 只包含 `mecha` 子目录，可添加到已有安装。
 
 选择样式目录后统一访问 `http://127.0.0.1:32133/queue`，由服务提供所选目录的 `index.html`。页面通过 `/api/state` 获取实时数据。
 
-源码打包：`python scripts/package-frame.py`，生成 `dist/chart-requester-green-room.zip`。
+源码打包：`python scripts/package-frame.py`，生成 `dist/bilimani-green-room.zip`。
 
 ## 显示行为
 

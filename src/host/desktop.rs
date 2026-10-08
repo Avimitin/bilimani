@@ -275,7 +275,7 @@ pub fn run(
             lpfnWndProc: Some(window_proc),
             hInstance: instance,
             hCursor: LoadCursorW(None, IDC_ARROW)?,
-            lpszClassName: w!("ChartRequesterDesktop"),
+            lpszClassName: w!("BilimaniDesktop"),
             ..Default::default()
         };
         ensure!(
@@ -286,7 +286,7 @@ pub fn run(
         let window = CreateWindowExW(
             WINDOW_EX_STYLE(0),
             class.lpszClassName,
-            w!("Chart Requester"),
+            w!("bilimani"),
             WS_OVERLAPPEDWINDOW,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
@@ -313,7 +313,7 @@ pub fn run(
                     if IsWindow(Some(self.window)).as_bool() {
                         let _ = DestroyWindow(self.window);
                     }
-                    let _ = UnregisterClassW(w!("ChartRequesterDesktop"), Some(self.instance));
+                    let _ = UnregisterClassW(w!("BilimaniDesktop"), Some(self.instance));
                 }
             }
         }

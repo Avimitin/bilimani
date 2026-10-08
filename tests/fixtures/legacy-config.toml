@@ -1,4 +1,4 @@
-# 设置由 GUI 管理，首次启动会自动创建 chart-requester.toml，用于持久化保存。
+# 设置由 GUI 管理，首次启动会自动创建 bilimani.toml，用于持久化保存。
 # 游戏内双击对侧 Start 打开控制台，修改后点击「应用并保存」即时生效。
 # 本示例仅供高级配置与恢复参考，日常使用无需手动编辑文件。
 [requests]
@@ -75,13 +75,13 @@ enabled = true
 port = 32133
 
 [logging]
-# 日志位于 DLL 旁的 chart-requester.log，时间为本机时间。
+# 日志位于 DLL 旁的 bilimani.log，时间为本机时间。
 # debug：详细日志；info：连接、点歌结果和游戏状态；off：关闭常规日志。
 level = "debug"
 # 在 debug 级别记录收到的弹幕正文、用户名和用户标识。
 # false 仅关闭逐条弹幕内容；点歌结果仍会包含曲名和请求者。
 danmu = true
-# 单个日志的大小上限（MiB）及轮转备份数量，例如 chart-requester.log.1。
+# 单个日志的大小上限（MiB）及轮转备份数量，例如 bilimani.log.1。
 max_file_mb = 10
 backups = 3
 # 定期输出当前连接、弹幕计数、队列与游戏 hook 状态，单位为秒。

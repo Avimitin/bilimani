@@ -31,9 +31,9 @@ startup_rejected = reject or bad_input_detour
 assert not (reject and input_detour), "Detour checks require the supported game image"
 work = root / "analysis" / ("smoke-" + uuid.uuid4().hex)
 work.mkdir(parents=True)
-dll_path = work / "chart_requester.dll"
-shutil.copy2(root / "target/release/chart_requester.dll", dll_path)
-shutil.copytree(root / "web/card", work / "chart_request_static")
+dll_path = work / "bilimani.dll"
+shutil.copy2(root / "target/release/bilimani.dll", dll_path)
+shutil.copytree(root / "web/card", work / "bilimani_web/card")
 config = (root / "tests/fixtures/legacy-config.toml").read_text(encoding="utf-8")
 config = config.replace("enabled = true", "enabled = false", 1)
 port_blocker = socket.socket()
@@ -51,7 +51,7 @@ if profiles:
     assert not startup_rejected
     for profile_id, cards in zip(profile_ids, [["E004012345678901", "E004012345678902"], ["E004012345678903"]]):
         config += f'\n[[profiles]]\nid = "{profile_id}"\nname = "Smoke profile"\ncards = {json.dumps(cards)}\n[profiles.bilibili]\nenabled = false\nauth_code = "smoke-only-disabled"\n'
-(work / "chart-requester.toml").write_text(config, encoding="utf-8")
+(work / "bilimani.toml").write_text(config, encoding="utf-8")
 
 kernel = ctypes.WinDLL("kernel32", use_last_error=True)
 kernel.LoadLibraryExW.argtypes = [ctypes.c_wchar_p, ctypes.c_void_p, ctypes.c_uint32]
@@ -95,11 +95,11 @@ if input_detour:
     patch(input_relay, relay_code)
     patch(input_entry, patched_entry)
 plugin = ctypes.CDLL(str(dll_path))
-plugin.chart_requester_shutdown.argtypes = []
-plugin.chart_requester_shutdown.restype = None
+plugin.bilimani_shutdown.argtypes = []
+plugin.bilimani_shutdown.restype = None
 
 deadline = time.monotonic() + 20
-logfile = work / "chart-requester.log"
+logfile = work / "bilimani.log"
 while time.monotonic() < deadline:
     text = logfile.read_text(encoding="utf-8") if logfile.exists() else ""
     if "Startup failed" in text or ("Native hooks installed" in text and "[status]" in text):
@@ -107,7 +107,7 @@ while time.monotonic() < deadline:
     time.sleep(0.05)
 else:
     raise AssertionError("DLL worker did not initialize within 20 seconds")
-with sqlite3.connect(work / "chart-requester.db") as database:
+with sqlite3.connect(work / "bilimani.db") as database:
     assert database.execute("PRAGMA user_version").fetchone()[0] == 2
     settings = json.loads(database.execute("SELECT settings FROM settings").fetchone()[0])
     profile = json.loads(database.execute("SELECT p.settings FROM stream_profiles p JOIN settings s ON p.id = s.default_profile").fetchone()[0])
@@ -115,7 +115,7 @@ with sqlite3.connect(work / "chart-requester.db") as database:
     assert "bilibili" not in settings and profile["enabled"] is False
     if profiles:
         assert database.execute("SELECT count(*) FROM stream_cards").fetchone()[0] == 3
-assert (work / "chart-requester.toml").read_text(encoding="utf-8") == config
+assert (work / "bilimani.toml").read_text(encoding="utf-8") == config
 if startup_rejected:
     reason = "Unsupported bm2dx.dll build" if reject else "Input poll at RVA a7a2f0 is incompatible"
     assert reason in text, text

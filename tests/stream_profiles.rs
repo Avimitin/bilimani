@@ -1,4 +1,4 @@
-use chart_requester::{
+use bilimani::{
     config::Config,
     gui::View,
     live_config::Store,
@@ -9,8 +9,7 @@ use std::path::{Path, PathBuf};
 struct Fixture(PathBuf);
 impl Fixture {
     fn new() -> Self {
-        let path =
-            std::env::temp_dir().join(format!("requester-profiles-{}", uuid::Uuid::new_v4()));
+        let path = std::env::temp_dir().join(format!("bilimani-profiles-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&path).unwrap();
         std::fs::write(path.join("plugin.dll"), "fixture").unwrap();
         Self(path)
@@ -184,7 +183,7 @@ fn selection_uses_global_fallback_and_shared_cards_do_not_clear_or_reconnect() {
     config.profiles = vec![first, profile(3)];
     let mut active = ActiveStream::new(&config);
     let mut view = View::new(config.clone());
-    let room = chart_requester::platforms::RoomInfo {
+    let room = bilimani::platforms::RoomInfo {
         room_id: 123,
         name: "主播".into(),
         title: "今晚点歌".into(),
@@ -237,7 +236,11 @@ fn version_one_backup_import_keeps_global_connection() {
     let f = Fixture::new();
     let store = Store::open(&f.db()).unwrap();
     let backup = f.0.join("old.json");
-    std::fs::write(&backup, r#"{"format":"chart-requester","version":1,"config":{"bilibili":{"auth_code":"legacy-backup"}}}"#).unwrap();
+    std::fs::write(
+        &backup,
+        r#"{"format":"bilimani","version":1,"config":{"bilibili":{"auth_code":"legacy-backup"}}}"#,
+    )
+    .unwrap();
     let draft = store.import_json(&backup).unwrap();
     assert!(draft.profiles.is_empty());
     assert_eq!(draft.bilibili.auth_code, "legacy-backup");

@@ -30,7 +30,7 @@ double_tap_ms = 400 # 双击间隔，支持 100–2000 毫秒
 
 ## 升级方法
 
-退出游戏，解压 `chart-requester-0.1.1.zip` 并替换 DLL，保留自己的 `chart-requester.toml`，然后重启游戏。旧配置自动使用新增设置的默认值。
+退出游戏，解压 `bilimani-0.1.1.zip` 并替换 DLL，保留自己的 `bilimani.toml`，然后重启游戏。旧配置自动使用新增设置的默认值。
 
 如果之前试用版中添加过独立 `/interaction` 浏览器来源，请删除或隐藏它，只保留 `/queue`。
 

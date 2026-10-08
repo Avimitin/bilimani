@@ -2,6 +2,10 @@
 /dist/
 /analysis/
 /reference/
+/bilimani.toml
+/bilimani.db*
+/bilimani-backup*.json
+# Keep private files from installations before the rename ignored.
 /chart-requester.toml
 /chart-requester.db*
 /chart-requester-backup*.json

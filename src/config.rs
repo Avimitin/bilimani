@@ -68,7 +68,7 @@ impl Default for Overlay {
         Self {
             enabled: true,
             port: 32133,
-            static_dir: "chart_request_static/card".into(),
+            static_dir: "bilimani_web/card".into(),
             history_limit: 10,
         }
     }

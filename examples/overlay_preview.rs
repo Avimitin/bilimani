@@ -1,6 +1,6 @@
 //! Developer preview of the real static files/server, without loading the game.
 //! Run `cargo run --example overlay_preview`, then open the printed URL.
-use chart_requester::{
+use bilimani::{
     overlay::{History, Server, snapshot},
     platforms::Connection,
 };

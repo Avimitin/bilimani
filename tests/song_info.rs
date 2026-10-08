@@ -1,4 +1,4 @@
-use chart_requester::{
+use bilimani::{
     game::SongPhase,
     games::iidx::{self, v33::song_info},
 };

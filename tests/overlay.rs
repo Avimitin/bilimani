@@ -1,5 +1,5 @@
-use chart_requester::platforms::{Connection, RoomInfo};
-use chart_requester::{
+use bilimani::platforms::{Connection, RoomInfo};
+use bilimani::{
     catalog::Catalog,
     config::Config,
     engine::{Chat, Engine, Phase, Snapshot},
@@ -14,8 +14,8 @@ struct StaticFixture {
 }
 impl StaticFixture {
     fn new() -> Self {
-        let root = std::env::temp_dir().join(format!("requester-static-{}", uuid::Uuid::new_v4()));
-        let public = root.join("chart_request_static");
+        let root = std::env::temp_dir().join(format!("bilimani-static-{}", uuid::Uuid::new_v4()));
+        let public = root.join("bilimani_web");
         std::fs::create_dir_all(&public).unwrap();
         for name in ["index.html", "overlay.css", "overlay.js"] {
             std::fs::copy(
@@ -364,10 +364,10 @@ async fn serves_static_assets_live_snapshots_and_releases_port_on_shutdown() {
         serde_json::json!({"phase": "idle", "song": null, "players": []})
     );
     for private in [
-        "chart-requester.toml",
-        "chart-requester.db",
-        "chart-requester.db-journal",
-        "chart-requester-backup.json",
+        "bilimani.toml",
+        "bilimani.db",
+        "bilimani.db-journal",
+        "bilimani-backup.json",
     ] {
         assert_eq!(
             client
@@ -670,7 +670,7 @@ fn old_configs_enable_overlay_and_invalid_ports_are_rejected() {
     assert_eq!(config.overlay.history_limit, 10);
     assert_eq!(
         config.overlay.static_dir,
-        PathBuf::from("chart_request_static/card")
+        PathBuf::from("bilimani_web/card")
     );
     let old: Config = toml::from_str("[overlay]\nenabled = true\nport = 32133").unwrap();
     assert_eq!(old.overlay.static_dir, config.overlay.static_dir);

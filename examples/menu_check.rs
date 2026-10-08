@@ -3,7 +3,7 @@
 mod support;
 #[cfg(windows)]
 fn main() -> anyhow::Result<()> {
-    use chart_requester::{
+    use bilimani::{
         gui::{Bridge, Menu, Page},
         host::menu,
     };
@@ -24,15 +24,15 @@ fn main() -> anyhow::Result<()> {
     };
     let mut view = support::fixture();
     if std::env::args().any(|arg| arg == "--standalone") {
-        view = chart_requester::gui::View::new(Default::default());
+        view = bilimani::gui::View::new(Default::default());
         view.standalone = true;
-        view.connection.text = "独立配置 · chart-requester.db".into();
+        view.connection.text = "独立配置 · bilimani.db".into();
         view.catalog_status =
             "尚无曲库缓存：请启动新版 DLL 并进入一次选曲，或在「游戏适配」填写 music_data.bin 路径"
                 .into();
     }
     if std::env::args().any(|arg| arg == "--profiles") {
-        use chart_requester::profiles::{CardId, StreamProfile};
+        use bilimani::profiles::{CardId, StreamProfile};
         let card = CardId::parse("E0040123456789AB")?;
         let mut profile = StreamProfile::new(card.clone());
         profile.name = "主播的直播间".into();
@@ -43,7 +43,7 @@ fn main() -> anyhow::Result<()> {
         view.config.profiles.push(profile);
         if std::env::args().any(|arg| arg == "--unbound") {
             view.player_card = Some(CardId::parse("E0040123456789EF")?);
-            view.active_profile = chart_requester::profiles::GLOBAL.into();
+            view.active_profile = bilimani::profiles::GLOBAL.into();
         }
     }
     let fonts = menu::fonts();
@@ -58,7 +58,7 @@ fn main() -> anyhow::Result<()> {
         let window = CreateWindowExW(
             WINDOW_EX_STYLE(0),
             w!("STATIC"),
-            w!("Chart Requester rendering check"),
+            w!("bilimani rendering check"),
             WS_OVERLAPPEDWINDOW,
             0,
             0,

@@ -44,7 +44,7 @@ impl Logger {
         secrets.sort_by_key(|s| std::cmp::Reverse(s.len()));
         secrets.dedup();
         Self {
-            path: root.join("chart-requester.log"),
+            path: root.join("bilimani.log"),
             options: config.logging.clone(),
             secrets,
         }
@@ -74,7 +74,7 @@ impl Logger {
         if fs::metadata(&self.path)
             .is_ok_and(|m| m.len() + line.len() as u64 > self.options.max_file_mb * 1024 * 1024)
         {
-            let backup = |n| self.path.with_file_name(format!("chart-requester.log.{n}"));
+            let backup = |n| self.path.with_file_name(format!("bilimani.log.{n}"));
             let oldest = backup(self.options.backups);
             if oldest.exists() {
                 fs::remove_file(oldest)?;
@@ -138,7 +138,7 @@ mod tests {
     use super::*;
     #[test]
     fn logging_redacts_credentials_escapes_lines_and_rotates() {
-        let root = std::env::temp_dir().join(format!("requester-log-{}", uuid::Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("bilimani-log-{}", uuid::Uuid::new_v4()));
         fs::create_dir(&root).unwrap();
         let mut cfg = Config::default();
         cfg.bilibili.auth_code = "private-identity-code".into();
@@ -165,7 +165,7 @@ mod tests {
     }
     #[test]
     fn logging_options_suppress_chat_content_and_debug_output() {
-        let root = std::env::temp_dir().join(format!("requester-log-{}", uuid::Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("bilimani-log-{}", uuid::Uuid::new_v4()));
         fs::create_dir(&root).unwrap();
         let mut cfg = Config::default();
         cfg.logging.danmu = false;

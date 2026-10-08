@@ -1,7 +1,7 @@
-use chart_requester::output::{TextFile, resolved_output};
+use bilimani::output::{TextFile, resolved_output};
 #[test]
 fn unicode_replacement_is_complete_and_leaves_no_temporary_files() {
-    let root = std::env::temp_dir().join(format!("chart-requester-test-{}", uuid::Uuid::new_v4()));
+    let root = std::env::temp_dir().join(format!("bilimani-test-{}", uuid::Uuid::new_v4()));
     let path = root.join("obs/queue.txt");
     let path = resolved_output(&path).unwrap();
     let mut file = TextFile::new(path.clone());

@@ -36,7 +36,7 @@ impl Backend {
     pub fn open(executable: &Path, config_path: Option<&Path>) -> Result<Self> {
         let executable = std::path::absolute(executable)?;
         let config_path = std::path::absolute(config_path.map_or_else(
-            || executable.parent().unwrap().join("chart-requester.db"),
+            || executable.parent().unwrap().join("bilimani.db"),
             Path::to_path_buf,
         ))?;
         let store = Store::open(&config_path)?;

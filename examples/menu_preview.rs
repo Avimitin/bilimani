@@ -4,7 +4,7 @@ mod preview_live;
 
 #[cfg(windows)]
 fn main() -> anyhow::Result<()> {
-    use chart_requester::{
+    use bilimani::{
         gui::Bridge,
         host::{desktop, menu},
     };

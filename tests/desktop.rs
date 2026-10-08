@@ -1,4 +1,4 @@
-use chart_requester::{
+use bilimani::{
     config::{Config, Game},
     desktop::Backend,
     game::Song,
@@ -11,16 +11,16 @@ use std::path::PathBuf;
 struct Fixture(PathBuf);
 impl Fixture {
     fn new() -> Self {
-        let root = std::env::temp_dir().join(format!("requester-desktop-{}", uuid::Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("bilimani-desktop-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&root).unwrap();
-        std::fs::write(root.join("chart-requester.exe"), "fixture").unwrap();
+        std::fs::write(root.join("bilimani.exe"), "fixture").unwrap();
         Self(root)
     }
     fn exe(&self) -> PathBuf {
-        self.0.join("chart-requester.exe")
+        self.0.join("bilimani.exe")
     }
     fn db(&self) -> PathBuf {
-        self.0.join("chart-requester.db")
+        self.0.join("bilimani.db")
     }
     fn backend(&self) -> Backend {
         Backend::open(&self.exe(), None).unwrap()
@@ -79,7 +79,7 @@ fn double_click_uses_exe_directory_and_offline_profiles_round_trip_to_dll_store(
     );
     assert!(!f.0.join("obs/queue.txt").exists());
     assert!(!f.0.join("obs/interaction.txt").exists());
-    assert!(!f.0.join("chart-requester.log").exists());
+    assert!(!f.0.join("bilimani.log").exists());
 }
 
 #[test]

@@ -4,11 +4,11 @@ $root = Split-Path $PSScriptRoot
 $destination = Join-Path $root 'dist'
 New-Item -ItemType Directory -Force -Path $destination | Out-Null
 Copy-Item -LiteralPath (Join-Path $root 'README.md') -Destination $destination
-Copy-Item -LiteralPath (Join-Path $root 'target\release\chart_requester.dll') -Destination $destination
-Copy-Item -LiteralPath (Join-Path $root 'target\release\chart-requester-config.exe') -Destination $destination
+Copy-Item -LiteralPath (Join-Path $root 'target\release\bilimani.dll') -Destination $destination
+Copy-Item -LiteralPath (Join-Path $root 'target\release\bilimani-config.exe') -Destination $destination
 # Stage current assets afresh so deleted source files cannot linger in the ZIP.
-$staticRoot = [IO.Path]::GetFullPath((Join-Path $destination 'chart_request_static'))
-$expectedStaticRoot = [IO.Path]::GetFullPath((Join-Path $root 'dist\chart_request_static'))
+$staticRoot = [IO.Path]::GetFullPath((Join-Path $destination 'bilimani_web'))
+$expectedStaticRoot = [IO.Path]::GetFullPath((Join-Path $root 'dist\bilimani_web'))
 if ($staticRoot -ne $expectedStaticRoot) { throw 'Unexpected static staging path' }
 if (Test-Path -LiteralPath $staticRoot) {
     if ((Get-Item -LiteralPath $staticRoot).Attributes -band [IO.FileAttributes]::ReparsePoint) {
@@ -28,8 +28,8 @@ try {
 } finally { Pop-Location }
 $project = $metadata.packages | Where-Object { $_.manifest_path -eq (Join-Path $root 'Cargo.toml') }
 if (-not $project) { throw 'Cannot find root package version' }
-$archiveFiles = @('chart_requester.dll','chart-requester-config.exe','chart_request_static','README.md') | ForEach-Object { Join-Path $destination $_ }
-$archive = Join-Path $destination "chart-requester-$($project.version).zip"
+$archiveFiles = @('bilimani.dll','bilimani-config.exe','bilimani_web','README.md') | ForEach-Object { Join-Path $destination $_ }
+$archive = Join-Path $destination "bilimani-$($project.version).zip"
 Compress-Archive -LiteralPath $archiveFiles -DestinationPath $archive -Force
 if ($env:GITHUB_OUTPUT) {
     "archive=$archive" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append

@@ -13,7 +13,7 @@ import uuid
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--exe", type=Path, default=Path("target/release/chart-requester-config.exe"))
+    parser.add_argument("--exe", type=Path, default=Path("target/release/bilimani-config.exe"))
     args = parser.parse_args()
     user = c.WinDLL("user32", use_last_error=True)
     enum_proc = c.WINFUNCTYPE(w.BOOL, w.HWND, w.LPARAM)
@@ -41,7 +41,7 @@ def main():
             name = c.create_unicode_buffer(256)
             user.GetWindowThreadProcessId(window, c.byref(pid))
             user.GetClassNameW(window, name, len(name))
-            if pid.value == process.pid and name.value == "ChartRequesterDesktop":
+            if pid.value == process.pid and name.value == "BilimaniDesktop":
                 handles.append(window)
             return True
 
@@ -66,7 +66,7 @@ def main():
         while hit(40, 30) != 2 and time.monotonic() < deadline:
             time.sleep(0.02)  # Wait for egui to publish title/button geometry.
         assert hit(40, 30) == 2, "Title must be HTCAPTION (native drag/double click)"
-        assert hit(220, 35) == 1, "Create-room button must remain HTCLIENT"
+        assert hit(160, 35) == 1, "Create-room button must remain HTCLIENT"
         assert hit(400, 250) == 1, "Form must remain HTCLIENT"
         for width, height in [(1120, 780), (1000, 680), (1480, 920)]:
             # Negative coordinates also exercise monitors left of the primary.

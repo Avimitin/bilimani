@@ -1,4 +1,4 @@
-use chart_requester::{
+use bilimani::{
     config::Config,
     gui::{QueueRow, View, record_chat, record_processing},
     platforms::Chat,
@@ -9,7 +9,7 @@ pub fn fixture() -> View {
     view.config.bilibili.enabled = false;
     view.connection.connected = true;
     view.connection.text = "预览模式 · 模拟弹幕，不连接直播间".into();
-    view.room = Some(chart_requester::platforms::RoomInfo {
+    view.room = Some(bilimani::platforms::RoomInfo {
         room_id: 123456,
         name: "示例主播".into(),
         title: "IIDX 点歌练习 · 今晚继续挑战未通过的曲目，欢迎大家来点歌".into(),

@@ -11,6 +11,7 @@ use std::{
 };
 
 const SCHEMA: i64 = 2;
+// Keep the database identity stable so renamed databases remain readable.
 const APPLICATION_ID: i64 = 0x43525153;
 const MAX_IMPORT_BYTES: u64 = 4 * 1024 * 1024;
 
@@ -63,7 +64,7 @@ impl Store {
             )?;
             ensure!(
                 tables == 0 && application == 0,
-                "该文件不是 chart-requester 配置数据库"
+                "该文件不是 bilimani 配置数据库"
             );
             let legacy = path.with_extension("toml");
             let raw = if legacy.exists() {
@@ -97,7 +98,7 @@ impl Store {
         } else {
             ensure!(
                 application == APPLICATION_ID,
-                "该文件不是 chart-requester 配置数据库"
+                "该文件不是 bilimani 配置数据库"
             );
         }
         if version < 2 {
@@ -294,7 +295,8 @@ impl Store {
             )
         })?;
         ensure!(
-            backup.format == "chart-requester" && matches!(backup.version, 1 | 2),
+            matches!(backup.format.as_str(), "bilimani" | "chart-requester")
+                && matches!(backup.version, 1 | 2),
             "不支持的 JSON 备份格式或版本"
         );
         backup.config.validate()?;
@@ -306,7 +308,7 @@ impl Store {
         let path = self.json_path(path)?;
         let (config, _) = read(&self.connection)?;
         let bytes = serde_json::to_vec_pretty(&Backup {
-            format: "chart-requester".into(),
+            format: "bilimani".into(),
             version: 2,
             config,
         })?;

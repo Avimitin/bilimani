@@ -1,6 +1,6 @@
 //! Standalone live-chat worker: real transport, database and request engine.
 use anyhow::{Context, Result, ensure};
-use chart_requester::{
+use bilimani::{
     catalog::Catalog,
     engine::{Engine, Phase, Snapshot},
     games::iidx,
@@ -22,7 +22,7 @@ use std::{
 
 pub struct Backend {
     store: Store,
-    config: chart_requester::config::Config,
+    config: bilimani::config::Config,
     engine: Engine,
     pub config_path: PathBuf,
 }
@@ -167,7 +167,7 @@ impl Backend {
                                 revision,
                                 bind_card,
                             } => {
-                                chart_requester::profiles::check_login(
+                                bilimani::profiles::check_login(
                                     bind_card.as_ref(),
                                     view.player_card.as_ref(),
                                 )?;

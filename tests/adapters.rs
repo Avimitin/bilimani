@@ -1,6 +1,6 @@
 //! Exercise the same core using a deliberately non-IIDX vocabulary and layout.
 use anyhow::Result;
-use chart_requester::{
+use bilimani::{
     catalog::Catalog,
     config::EngineConfig,
     engine::Engine,
@@ -182,7 +182,7 @@ async fn non_iidx_adapter_and_non_bilibili_source_drive_the_same_engine() {
         panic!("missing connection");
     };
     assert!(
-        overlay::snapshot(None, &connection, 0, &overlay::History::default())["connected"]
+        overlay::snapshot(None, &connection, None, 0, &overlay::History::default())["connected"]
             .as_bool()
             .unwrap()
     );
@@ -220,7 +220,13 @@ async fn non_iidx_adapter_and_non_bilibili_source_drive_the_same_engine() {
     assert_eq!(engine.queue.len(), 1);
     game.set_skip_target(Some(token));
     assert_eq!(shared.lock().unwrap().target, Some(token));
-    let view = overlay::snapshot(Some(&engine), &connection, 2, &overlay::History::default());
+    let view = overlay::snapshot(
+        Some(&engine),
+        &connection,
+        None,
+        2,
+        &overlay::History::default(),
+    );
     assert_eq!(view["current"]["mode"], "KEYS");
     assert_eq!(view["current"]["chart"], "EXPERT+");
     assert_eq!(view["current"]["chart_style"], "purple");
@@ -280,7 +286,7 @@ fn vocabulary_and_skip_eligibility_come_from_the_adapter() {
 
 #[test]
 fn registry_selects_only_verified_profiles() {
-    use chart_requester::games::{Profile, iidx::v33::SUPPORTED_SHA256, resolve};
+    use bilimani::games::{Profile, iidx::v33::SUPPORTED_SHA256, resolve};
     assert_eq!(resolve(SUPPORTED_SHA256), Some(Profile::Iidx33));
     for unknown in [
         "",

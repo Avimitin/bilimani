@@ -415,7 +415,7 @@ impl Menu {
             chat_offset: 0.0,
             processing_offset: 0.0,
             follow_processing: true,
-            backup_path: "chart-requester-backup.json".into(),
+            backup_path: "bilimani-backup.json".into(),
         };
         menu.reset(view);
         menu
@@ -517,7 +517,7 @@ impl Menu {
             let mut controls = Vec::new();
             let header = ui.horizontal(|ui| {
                 ui.vertical(|ui| {
-                    Heading::new("Chart Requester").h2().show(ui);
+                    Heading::new("bilimani").h2().show(ui);
                     Text::new("直播控制台").caption().muted().show(ui);
                 });
                 if view.standalone
@@ -769,8 +769,8 @@ impl Menu {
                 )
                 .show_inside(root, contents);
         } else {
-            egui::Window::new("Chart Requester  /  直播控制台")
-                .id(egui::Id::new("requester-menu"))
+            egui::Window::new("bilimani  /  直播控制台")
+                .id(egui::Id::new("bilimani-menu"))
                 .title_bar(false)
                 .fixed_size(window_size)
                 .resizable(false)

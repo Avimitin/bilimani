@@ -4,24 +4,19 @@
 fn main() {
     if let Err(error) = run() {
         if std::env::args_os().any(|arg| arg == "--hidden") {
-            eprintln!("无法打开 Chart Requester：{error:#}");
+            eprintln!("无法打开 bilimani：{error:#}");
             std::process::exit(1);
         }
         use windows::{
             Win32::UI::WindowsAndMessaging::{MB_ICONERROR, MessageBoxW},
             core::{PCWSTR, w},
         };
-        let text: Vec<u16> = format!("无法打开 Chart Requester：\n{error:#}")
+        let text: Vec<u16> = format!("无法打开 bilimani：\n{error:#}")
             .encode_utf16()
             .chain(Some(0))
             .collect();
         unsafe {
-            MessageBoxW(
-                None,
-                PCWSTR(text.as_ptr()),
-                w!("Chart Requester"),
-                MB_ICONERROR,
-            );
+            MessageBoxW(None, PCWSTR(text.as_ptr()), w!("bilimani"), MB_ICONERROR);
         }
         std::process::exit(1);
     }
@@ -29,7 +24,7 @@ fn main() {
 
 #[cfg(windows)]
 fn run() -> anyhow::Result<()> {
-    use chart_requester::{
+    use bilimani::{
         desktop::Backend,
         gui::Bridge,
         host::{desktop, menu},
@@ -66,5 +61,5 @@ fn run() -> anyhow::Result<()> {
 
 #[cfg(not(windows))]
 fn main() {
-    eprintln!("Chart Requester 配置窗口需要 Windows");
+    eprintln!("bilimani 配置窗口需要 Windows");
 }

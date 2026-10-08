@@ -1,4 +1,4 @@
-# chart-requester：IIDX 弹幕点歌
+# bilimani：IIDX 弹幕点歌
 
 让观众在哔哩哔哩直播间发送 `点歌 曲名`，主播的游戏就会在选曲界面自动定位到对应歌曲。多首点歌按顺序排队；由主播决定是否开始游玩。
 
@@ -25,10 +25,10 @@ https://github.com/user-attachments/assets/9fb34c0f-e38e-40ef-945a-ef7c055b9534
 ### 1. 下载并解压
 
 1. 打开 [下载页面](https://github.com/Avimitin/chart-requester/releases)。
-2. 展开对应版本的 **Assets**，下载 `chart-requester-版本号.zip`，例如 `chart-requester-0.2.0.zip`。`Source code` 是源代码，安装时不需要下载。
+2. 展开对应版本的 **Assets**，下载 `bilimani-版本号.zip`，例如 `bilimani-0.2.0.zip`。`Source code` 是源代码，安装时不需要下载。
 3. 将 ZIP 解压到本机一个可以保存文件的文件夹。
 
-解压后有四项：`chart_requester.dll`、`chart-requester-config.exe` 独立配置程序、`chart_request_static` 网页目录和 `README.md` 使用说明。DLL 由游戏启动器加载；EXE 可双击打开现有控制台，无需先启动游戏或准备配置文件。
+解压后有四项：`bilimani.dll`、`bilimani-config.exe` 独立配置程序、`bilimani_web` 网页目录和 `README.md` 使用说明。DLL 由游戏启动器加载；EXE 可双击打开现有控制台，无需先启动游戏或准备配置文件。
 
 ### 2. 准备主播身份码
 
@@ -39,20 +39,20 @@ https://github.com/user-attachments/assets/9fb34c0f-e38e-40ef-945a-ef7c055b9534
 
 ### 3. 让启动器加载插件
 
-确定游戏还没有启动，把 DLL、EXE 和 `chart_request_static` 目录一起放进游戏根目录的 modules 目录下，然后在 bat 或者 spicecfg 里引入这个 DLL 文件。请使用支持 SDK v0.4 D3D9 绘制回调的 Spice2x，以便打开游戏内配置界面。
+确定游戏还没有启动，把 DLL、EXE 和 `bilimani_web` 目录一起放进游戏根目录的 modules 目录下，然后在 bat 或者 spicecfg 里引入这个 DLL 文件。请使用支持 SDK v0.4 D3D9 绘制回调的 Spice2x，以便打开游戏内配置界面。
 
 ```bat
-spice64.exe -k chart_requester.dll
+spice64.exe -k bilimani.dll
 ```
 
 - **用 `.bat` 文件启动：** 右键该文件，选择编辑，找到运行 `spice64.exe` 的那一行，在该行末尾加一个空格，再加上面的参数。
-- **用 spicecfg 启动：** 启动 spicecfg, 选择 options 选项卡，在 inject dll hook 选项填入 `chart_requester.dll`。
+- **用 spicecfg 启动：** 启动 spicecfg, 选择 options 选项卡，在 inject dll hook 选项填入 `bilimani.dll`。
 
 如果解压到了其他位置，把路径改成你自己的 DLL 完整路径。无需替换游戏的 `bm2dx.dll`。
 
 ### 4. 在控制台设置直播连接
 
-**启动游戏前配置：** 双击 DLL 旁边的 `chart-requester-config.exe`，直接使用与游戏内相同的控制台。在「直播连接」填写身份码、管理直播档案与卡号，点击 **「应用并保存」**，然后按原来的方式启动游戏。EXE 与 DLL 共用所在目录的 `chart-requester.db`；请将两者放在同一个目录。
+**启动游戏前配置：** 双击 DLL 旁边的 `bilimani-config.exe`，直接使用与游戏内相同的控制台。在「直播连接」填写身份码、管理直播档案与卡号，点击 **「应用并保存」**，然后按原来的方式启动游戏。EXE 与 DLL 共用所在目录的 `bilimani.db`；请将两者放在同一个目录。
 
 独立窗口由 egui 界面铺满，没有额外背景或系统标题栏。拖动顶部标题或空白区域移动窗口，拖动边缘或四角调整大小；双击标题区可最大化／还原，右上角也提供最小化、最大化和关闭按钮。
 
@@ -73,10 +73,10 @@ spice64.exe -k chart_requester.dll
 
 | 文件 | 用途 |
 | --- | --- |
-| `chart-requester.db` | 自动创建的设置数据库，无需手动编辑 |
+| `bilimani.db` | 自动创建的设置数据库，无需手动编辑 |
 | `obs/queue.txt` | 当前点歌和等待队列 |
 | `obs/interaction.txt` | 候选歌曲、选择提示、连接状态和错误提示 |
-| `chart-requester.log` | 出问题时用于排查的日志 |
+| `bilimani.log` | 出问题时用于排查的日志 |
 
 如果文件没有生成，或出现错误，先看下方的 [常见问题](#常见问题)。
 
@@ -88,7 +88,7 @@ spice64.exe -k chart_requester.dll
 2. 不勾选「本地文件」，在 URL 中填写 `http://127.0.0.1:32133/queue`，宽度设为 **480**、高度设为 **800**。
 3. 将来源摆放到直播画面的合适位置。上方显示点歌和候选，下方显示弹幕与事件；内容限制在来源高度内，未使用的空间保持透明。
 
-**全屏直播框架：** GREEN ROOM 极简机甲框架；在「OBS 显示」中将「网页静态目录」设为 `chart_request_static/mecha`，继续使用 `http://127.0.0.1:32133/queue`，浏览器来源设为 **1920 × 1080**。游戏采集置于框架下方，位置 **(24, 40)**、大小 **1536 × 864**；底部跟随游戏实际选曲／演奏，显示曲名、作者、曲风、难度、BPM、音符数和雷达，右侧显示队列、弹幕与事件。安装及详细说明见 [直播框架指南](docs/stream-frame.md)，自定义页面可使用 [歌曲信息 API](docs/development.md#当前选曲游玩歌曲-api)。
+**全屏直播框架：** GREEN ROOM 极简机甲框架；在「OBS 显示」中将「网页静态目录」设为 `bilimani_web/mecha`，继续使用 `http://127.0.0.1:32133/queue`，浏览器来源设为 **1920 × 1080**。游戏采集置于框架下方，位置 **(24, 40)**、大小 **1536 × 864**；底部跟随游戏实际选曲／演奏，显示曲名、作者、曲风、难度、BPM、音符数和雷达，右侧显示队列、弹幕与事件。安装及详细说明见 [直播框架指南](docs/stream-frame.md)，自定义页面可使用 [歌曲信息 API](docs/development.md#当前选曲游玩歌曲-api)。
 
 有待选歌曲时，上方暂时隐藏当前点歌和队列，完整展示这位观众的所有候选，并反转为主题色背景、深色文字，醒目提示 **「请在弹幕发送编号选歌」**。较多候选使用两列，编号不分页；多人同时待选时每 6 秒轮换一位观众。全部选择完成或超时后自动恢复队列及原配色，下方弹幕区域始终保留。
 
@@ -192,7 +192,7 @@ Mecha 样式每页展示 5 首候选。超过 5 首时，点歌本人发送 `n` 
 
 ## 常用设置
 
-在游戏内控制台选择相应页面，修改后点击「应用并保存」即可生效。设置会自动写入 DLL 旁的 `chart-requester.db`，下次启动自动恢复。首次使用采用内置默认设置，所有配置都在 GUI 中操作，不需要安装数据库软件。
+在游戏内控制台选择相应页面，修改后点击「应用并保存」即可生效。设置会自动写入 DLL 旁的 `bilimani.db`，下次启动自动恢复。首次使用采用内置默认设置，所有配置都在 GUI 中操作，不需要安装数据库软件。
 
 同一档案内修改设置不会清空队列、候选或已有倒计时；新规则用于后续请求。切换到另一直播档案时会清空点歌、候选和弹幕历史。配置无效、别名无法确定歌曲或新端口被占用时，本次修改不会应用。若另一个窗口已保存设置，点击「刷新已保存设置」后再编辑。
 
@@ -248,9 +248,9 @@ JSON 是程序生成的备份，无需手动编辑。它包含所有直播档案
 
 网页记录条数默认 10，可设为 1–100。减少条数会立即移除最早的记录，之后增加不会恢复已移除的内容。「文本提示保留（秒）」和「文本提示条数」只影响交互文本文件。候选歌曲在上方完整展示，多人同时待选时每 6 秒轮换一位观众；队列根据可用空间显示最多 6 首。
 
-完整发布包按样式分目录：`chart_request_static/card` 是原始卡片版（默认），`chart_request_static/mecha` 是 1920 × 1080 机甲框架。选择相应「网页静态目录」并刷新 OBS 即可切换，地址始终是 `/queue`。根目录仅包含样式子目录；旧配置若仍指向 `chart_request_static`，请改为 `chart_request_static/card`。安装独立机甲包时只需添加 `mecha` 子目录，无需替换卡片文件。
+完整发布包按样式分目录：`bilimani_web/card` 是原始卡片版（默认），`bilimani_web/mecha` 是 1920 × 1080 机甲框架。选择相应「网页静态目录」并刷新 OBS 即可切换，地址始终是 `/queue`。根目录仅包含样式子目录；旧配置若仍指向 `bilimani_web`，请改为 `bilimani_web/card`。安装独立机甲包时只需添加 `mecha` 子目录，无需替换卡片文件。
 
-网页文件默认从 **DLL 同目录下的 `chart_request_static`** 读取，`index.html` 是入口，CSS、JS、图片和字体也放在这个目录或其子目录中。可以直接替换这些文件，然后刷新 OBS 浏览器来源，无需重新编译 DLL 或重启游戏。需要使用其他目录时，在「OBS 显示」页修改「网页静态目录」并应用；支持绝对路径，相对路径以 DLL 所在目录为准。更换目录后 OBS 地址仍为 `/queue`；自定义页面可通过 `/api/state` 获取实时点歌数据。
+网页文件默认从 **DLL 同目录下的 `bilimani_web/card`** 读取，`index.html` 是入口，CSS、JS、图片和字体也放在这个目录或其子目录中。可以直接替换这些文件，然后刷新 OBS 浏览器来源，无需重新编译 DLL 或重启游戏。需要使用其他目录时，在「OBS 显示」页修改「网页静态目录」并应用；支持绝对路径，相对路径以 DLL 所在目录为准。更换目录后 OBS 地址仍为 `/queue`；自定义页面可通过 `/api/state` 获取实时点歌数据。
 
 要调整网页样式，可在 OBS 浏览器来源的「自定义 CSS」末尾添加，例如：
 
@@ -269,7 +269,7 @@ JSON 是程序生成的备份，无需手动编辑。它包含所有直播档案
 
 ### 启动提示 `Native function at RVA a7a2f0 was changed`？
 
-这是输入轮询函数的入口校验失败。2dxtra 会在同一位置安装 MinHook；当前版本可识别并保留这种调用链。退出游戏后替换新版 `chart_requester.dll`，再启动并查看日志中的 `Input poll chain: MinHook -> 2dxtra.dll`。
+这是输入轮询函数的入口校验失败。2dxtra 会在同一位置安装 MinHook；当前版本可识别并保留这种调用链。退出游戏后替换新版 `bilimani.dll`，再启动并查看日志中的 `Input poll chain: MinHook -> 2dxtra.dll`。
 
 如果仍提示 `Input poll ... is incompatible`，请提供该行完整错误和插件列表；其他未知修改仍会阻止插件启动。
 
@@ -307,7 +307,7 @@ JSON 是程序生成的备份，无需手动编辑。它包含所有直播档案
 - 普通浏览器能打开：核对 OBS URL 和端口，不要勾选「本地文件」，并点击来源属性中的「刷新当前页面缓存」。如果 OBS 早于游戏启动，也可以这样刷新。
 - 普通浏览器打不开：检查 DLL 是否已加载、「OBS 显示」页是否启用了浏览器来源，以及日志中是否有「网页界面启动失败」。
 - 提示端口被占用：在「OBS 显示」页把本机端口改为其他端口，例如 `32134`，应用后同时更新 OBS 地址。网页启动失败不会阻止原有文本点歌。
-- 提示静态目录或 `index.html` 无法读取：确认 `chart_request_static` 已和 DLL 一起复制，或在「OBS 显示」页选择包含 `index.html` 的目录并应用。运行中删除网页文件会返回 404，恢复文件后刷新即可。
+- 提示静态目录或 `index.html` 无法读取：确认 `bilimani_web` 已和 DLL 一起复制，或在「OBS 显示」页选择包含 `index.html` 的目录并应用。运行中删除网页文件会返回 404，恢复文件后刷新即可。
 
 ### OBS 文本来源没有文字，或者文字不更新？
 
@@ -339,15 +339,17 @@ JSON 是程序生成的备份，无需手动编辑。它包含所有直播档案
 
 ### 怎么更新、关闭或移除插件？
 
-更新前可在「备份与恢复」页导出 JSON，或退出游戏和独立预览后备份 `chart-requester.db`。解压新版本并替换 DLL 和 `chart_request_static`，保留数据库即可继续使用原来的设置；新增选项会使用默认值。自己修改过网页时，请先备份页面，或将自定义页面放在单独目录并配置「网页静态目录」。
+从原名 chart-requester 升级到 bilimani：先退出游戏和配置程序，备份后将 `chart-requester.db` 改名为 `bilimani.db`（只有旧 TOML 时，将 `chart-requester.toml` 改名为 `bilimani.toml`）。数据库格式不变，旧 JSON 备份也可导入。安装 `bilimani.dll`、`bilimani-config.exe` 和 `bilimani_web`，将启动参数改为 `-k bilimani.dll`，并在配置程序中把「网页静态目录」改为 `bilimani_web/card` 或 `bilimani_web/mecha`；自定义目录按实际位置填写。升级时停用旧 DLL，避免同时加载两份插件。
 
-从旧版升级时，如果 DLL 旁只有 `chart-requester.toml`，首次启动会自动导入到数据库，保留旧文件不动。迁移成功后程序只读取数据库，修改旧 TOML 不再生效；可以将旧文件移走备份。新安装不会生成 TOML。
+更新前可在「备份与恢复」页导出 JSON，或退出游戏和独立预览后备份 `bilimani.db`。解压新版本并替换 DLL 和 `bilimani_web`，保留数据库即可继续使用原来的设置；新增选项会使用默认值。自己修改过网页时，请先备份页面，或将自定义页面放在单独目录并配置「网页静态目录」。
 
-暂时停止接收点歌，可在「直播连接」页取消启用并应用。完全移除时，退出游戏，删除启动命令中对应的 `-k "…\chart_requester.dll"` 参数，再删除插件文件夹即可。
+从旧版升级时，如果 DLL 旁只有 `bilimani.toml`，首次启动会自动导入到数据库，保留旧文件不动。迁移成功后程序只读取数据库，修改旧 TOML 不再生效；可以将旧文件移走备份。新安装不会生成 TOML。
+
+暂时停止接收点歌，可在「直播连接」页取消启用并应用。完全移除时，退出游戏，删除启动命令中对应的 `-k "…\bilimani.dll"` 参数，再删除插件文件夹即可。
 
 ### 遇到问题，应该提供什么？
 
-在 [问题反馈页面](https://github.com/Avimitin/chart-requester/issues) 说明插件版本、游戏版本、当时所在界面、发送的点歌命令，以及实际看到的提示。附上 DLL 旁 `chart-requester.log` 中出问题时间附近的内容；较早的日志可能在 `.log.1` 等文件中。
+在 [问题反馈页面](https://github.com/Avimitin/chart-requester/issues) 说明插件版本、游戏版本、当时所在界面、发送的点歌命令，以及实际看到的提示。附上 DLL 旁 `bilimani.log` 中出问题时间附近的内容；较早的日志可能在 `.log.1` 等文件中。
 
 日志默认记录收到的弹幕及处理结果。分享前检查其中的用户名、弹幕等个人信息，**不要上传自己的配置数据库、JSON 备份、旧 TOML 或身份码**。想减少日常日志，可在「日志」页改为普通级别并应用；排错时改回详细级别。
 

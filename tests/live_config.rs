@@ -1,4 +1,4 @@
-use chart_requester::{
+use bilimani::{
     config::Config,
     gui::{self, Bridge, Menu, Page, View},
     live_config::Store,
@@ -8,7 +8,7 @@ use std::{collections::VecDeque, path::PathBuf, sync::atomic::Ordering};
 struct Fixture(PathBuf);
 impl Fixture {
     fn new() -> Self {
-        let root = std::env::temp_dir().join(format!("requester-live-{}", uuid::Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("bilimani-live-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(root.join("plugin.dll"), "fixture").unwrap();
         Self(root)
@@ -22,11 +22,11 @@ impl Drop for Fixture {
 #[test]
 fn fresh_install_uses_defaults_without_creating_toml() {
     let f = Fixture::new();
-    let path = f.0.join("chart-requester.db");
+    let path = f.0.join("bilimani.db");
     let store = Store::open(&path).unwrap();
     assert_eq!(store.raw, Config::default());
     assert_eq!(store.revision, 0);
-    assert!(!f.0.join("chart-requester.toml").exists());
+    assert!(!f.0.join("bilimani.toml").exists());
     assert!(
         std::fs::read(&path)
             .unwrap()
@@ -37,7 +37,7 @@ fn fresh_install_uses_defaults_without_creating_toml() {
 #[test]
 fn static_directory_defaults_for_old_settings_and_round_trips_relative_to_dll() {
     let f = Fixture::new();
-    let database = f.0.join("settings/chart-requester.db");
+    let database = f.0.join("settings/bilimani.db");
     let dll = f.0.join("plugin.dll");
     let store = Store::open(&database).unwrap();
     drop(store);
@@ -62,13 +62,10 @@ fn static_directory_defaults_for_old_settings_and_round_trips_relative_to_dll() 
     assert_eq!(store.raw.overlay.history_limit, 10);
     assert_eq!(
         store.raw.overlay.static_dir,
-        PathBuf::from("chart_request_static/card")
+        PathBuf::from("bilimani_web/card")
     );
     let resolved = store.commit(store.reload(&dll).unwrap()).unwrap();
-    assert_eq!(
-        resolved.overlay.static_dir,
-        f.0.join("chart_request_static/card")
-    );
+    assert_eq!(resolved.overlay.static_dir, f.0.join("bilimani_web/card"));
     let mut config = store.raw.clone();
     config.overlay.static_dir = "themes/custom".into();
     config.overlay.history_limit = 15;
@@ -113,7 +110,7 @@ fn static_directory_defaults_for_old_settings_and_round_trips_relative_to_dll() 
 #[test]
 fn legacy_config_migrates_once_with_credentials_aliases_and_relative_paths() {
     let f = Fixture::new();
-    let path = f.0.join("chart-requester.db");
+    let path = f.0.join("bilimani.db");
     let legacy = path.with_extension("toml");
     let text = include_str!("fixtures/legacy-config.toml").replace("menu_enabled", "skip_enabled");
     std::fs::write(&legacy, &text).unwrap();
@@ -148,7 +145,7 @@ fn legacy_config_migrates_once_with_credentials_aliases_and_relative_paths() {
 #[test]
 fn concurrent_windows_detect_stale_prepares_commits_and_reloads() {
     let f = Fixture::new();
-    let path = f.0.join("chart-requester.db");
+    let path = f.0.join("bilimani.db");
     let dll = f.0.join("plugin.dll");
     let mut a = Store::open(&path).unwrap();
     let mut b = Store::open(&path).unwrap();
@@ -172,7 +169,7 @@ fn concurrent_windows_detect_stale_prepares_commits_and_reloads() {
 #[test]
 fn transaction_failure_rolls_back_profile_and_global_settings() {
     let f = Fixture::new();
-    let path = f.0.join("chart-requester.db");
+    let path = f.0.join("bilimani.db");
     let mut store = Store::open(&path).unwrap();
     let db = rusqlite::Connection::open(&path).unwrap();
     db.execute_batch("CREATE TRIGGER reject_save BEFORE UPDATE ON settings BEGIN SELECT RAISE(ABORT, 'test failure'); END;").unwrap();
@@ -189,7 +186,7 @@ fn transaction_failure_rolls_back_profile_and_global_settings() {
 #[test]
 fn invalid_settings_leave_database_unchanged_and_game_changes_wait_for_restart() {
     let f = Fixture::new();
-    let path = f.0.join("chart-requester.db");
+    let path = f.0.join("bilimani.db");
     let dll = f.0.join("plugin.dll");
     let mut store = Store::open(&path).unwrap();
     for kind in 0..4 {
@@ -218,7 +215,7 @@ fn invalid_settings_leave_database_unchanged_and_game_changes_wait_for_restart()
 #[test]
 fn json_round_trip_stages_a_draft_and_never_overwrites_backups() {
     let f = Fixture::new();
-    let path = f.0.join("chart-requester.db");
+    let path = f.0.join("bilimani.db");
     let dll = f.0.join("plugin.dll");
     let mut store = Store::open(&path).unwrap();
     let mut config = store.raw.clone();
@@ -233,6 +230,12 @@ fn json_round_trip_stages_a_draft_and_never_overwrites_backups() {
         .unwrap();
     assert!(store.export_json(&exported).is_err());
     let before = std::fs::read(&exported).unwrap();
+    let mut legacy: serde_json::Value = serde_json::from_slice(&before).unwrap();
+    assert_eq!(legacy["format"], "bilimani");
+    legacy["format"] = "chart-requester".into();
+    let legacy_path = f.0.join("legacy-backup.json");
+    std::fs::write(&legacy_path, serde_json::to_vec(&legacy).unwrap()).unwrap();
+    assert_eq!(store.import_json(&legacy_path).unwrap(), config);
     assert!(store.export_json(&path).is_err());
     let changed = Config::default();
     store
@@ -252,14 +255,14 @@ fn json_round_trip_stages_a_draft_and_never_overwrites_backups() {
 #[test]
 fn bad_imports_do_not_leak_values_or_modify_settings() {
     let f = Fixture::new();
-    let store = Store::open(&f.0.join("chart-requester.db")).unwrap();
+    let store = Store::open(&f.0.join("bilimani.db")).unwrap();
     let path = f.0.join("bad.json");
     for json in [
-        r#"{"format":"chart-requester","version":99,"config":{}}"#,
+        r#"{"format":"bilimani","version":99,"config":{}}"#,
         r#"{"format":"other-app","version":1,"config":{}}"#,
-        r#"{"format":"chart-requester","version":1,"config":{"requests":{"queue_capacity":0}}}"#,
-        r#"{"format":"chart-requester","version":1,"config":{"bilibili":{"auth_code":12345678901234}}}"#,
-        r#"{"format":"chart-requester","version":1,"config":{"secret-value-here":true}}"#,
+        r#"{"format":"bilimani","version":1,"config":{"requests":{"queue_capacity":0}}}"#,
+        r#"{"format":"bilimani","version":1,"config":{"bilibili":{"auth_code":12345678901234}}}"#,
+        r#"{"format":"bilimani","version":1,"config":{"secret-value-here":true}}"#,
     ] {
         std::fs::write(&path, json).unwrap();
         let error = format!("{:#}", store.import_json(&path).unwrap_err());
@@ -296,7 +299,7 @@ fn future_foreign_and_corrupt_databases_are_not_reset() {
 #[test]
 fn failed_legacy_migration_can_be_retried_without_losing_original() {
     let f = Fixture::new();
-    let path = f.0.join("chart-requester.db");
+    let path = f.0.join("bilimani.db");
     let legacy = path.with_extension("toml");
     let invalid = "[bilibili]\nauth_code = 12345678901234\n";
     std::fs::write(&legacy, invalid).unwrap();

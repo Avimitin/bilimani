@@ -1,4 +1,4 @@
-use chart_requester::{catalog::Catalog, games::iidx::v33::catalog::parse_database};
+use bilimani::{catalog::Catalog, games::iidx::v33::catalog::parse_database};
 fn main() -> anyhow::Result<()> {
     let path = std::env::args().nth(1).ok_or_else(|| {
         anyhow::anyhow!("usage: cargo run --example catalog_check -- <music_data.bin> [query]")

@@ -38,7 +38,7 @@ pub fn resolved_output(path: &Path) -> Result<PathBuf> {
 pub fn atomic_write(path: &Path, contents: &[u8]) -> Result<()> {
     let parent = path.parent().context("Output path has no parent")?;
     std::fs::create_dir_all(parent)?;
-    let temp = parent.join(format!(".chart-requester-{}.tmp", uuid::Uuid::new_v4()));
+    let temp = parent.join(format!(".bilimani-{}.tmp", uuid::Uuid::new_v4()));
     let result = (|| -> Result<()> {
         let mut file = std::fs::OpenOptions::new()
             .write(true)

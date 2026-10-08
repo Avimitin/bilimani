@@ -5,7 +5,7 @@
 - 双击另一侧 Start 现在用于打开／关闭控制台。单人 SP 普通选曲时可用，需要支持 SDK v0.4 D3D9 绘制回调的 Spice2x。
 - 集中管理点歌队列、实时弹幕、处理日志、歌曲别名、点歌规则、直播连接和 OBS 设置。
 - 队列支持鼠标和手台选择歌曲立即定位。打开控制台自动聚焦队列，按一次 B6 即可选中第一首；B1/B2 移动，B7 返回，转盘调整数值。
-- 设置保存到 `chart-requester.db`，支持 JSON 导入／导出；旧 TOML 在首次启动时自动迁移。
+- 设置保存到 `bilimani.db`，支持 JSON 导入／导出；旧 TOML 在首次启动时自动迁移。
 
 ## 多直播间档案
 
@@ -19,7 +19,7 @@
 - 普通弹幕与点歌事件共同保留，默认最近 10 条，超出后移除最早一条，不再按时间消失。
 - 弹幕采用较高卡片与 16px 字号，事件使用窄卡片与 12px 字号。空队列和空弹幕区自动收起，背景随内容平滑展开。
 - 有待选歌曲时暂时隐藏当前歌曲与队列，完整展示这位观众的所有候选，并反转为主题色背景提醒回复编号；多人同时待选时每 6 秒轮换一位观众。
-- HTML、CSS 和 JavaScript 独立放在 `chart_request_static/`，可直接替换并刷新 OBS；静态目录可在设置中更换。
+- HTML、CSS 和 JavaScript 独立放在 `bilimani_web/`，可直接替换并刷新 OBS；静态目录可在设置中更换。
 - 仓库提供按 JSON 时间表插入模拟消息并录制 MP4 的开发工具，README 新增视频和游戏内截图展示。
 
 ## 兼容性修复
@@ -30,10 +30,10 @@
 
 ## 升级方法
 
-1. 退出游戏，下载并解压 `chart-requester-0.2.0.zip`。
-2. 将 `chart_requester.dll` 与 `chart_request_static/` 一起替换到原插件目录。保留现有 `chart-requester.db`；从旧 TOML 版本升级时保留 `chart-requester.toml`，首次启动自动迁移。
+1. 退出游戏，下载并解压 `bilimani-0.2.0.zip`。
+2. 将 `bilimani.dll` 与 `bilimani_web/` 一起替换到原插件目录。保留现有 `bilimani.db`；从旧 TOML 版本升级时保留 `bilimani.toml`，首次启动自动迁移。
 3. 重启游戏并刷新 OBS 浏览器来源。地址仍为 `http://127.0.0.1:32133/queue`，建议尺寸 **480 × 800**。
 
-ZIP 顶层仅包含 `README.md`、DLL、独立配置 EXE 和前端目录；`chart_request_static` 仅包含 `card` 与 `mecha` 样式子目录，不附带许可证或根目录页面副本。旧配置若仍指向 `chart_request_static`，请将「网页静态目录」改为 `chart_request_static/card`。开发文档、展示图和录制工具保留在仓库。
+ZIP 顶层仅包含 `README.md`、DLL、独立配置 EXE 和前端目录；`bilimani_web` 仅包含 `card` 与 `mecha` 样式子目录，不附带许可证或根目录页面副本。旧配置若仍指向 `bilimani_web`，请将「网页静态目录」改为 `bilimani_web/card`。开发文档、展示图和录制工具保留在仓库。
 
 如果设置过其他网页静态目录，请同步更新该目录中的页面文件；有自定义样式时先保留自己的修改。
