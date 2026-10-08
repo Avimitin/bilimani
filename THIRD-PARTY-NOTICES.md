@@ -47,6 +47,10 @@ Rust crate versions are pinned in `Cargo.lock`; see each crate's accompanying
 license. Release packaging collects dependency license files under `chart_request_static/licenses/`.
 No proprietary game code, data or IDA database is distributed.
 
+The mecha stream frame was visually inspired by a user-supplied IIDX-style skin
+atlas (local folder name `ECFN`, play frame `SP/Default/main.png`). The frame is
+drawn entirely in CSS/SVG; no atlas artwork is incorporated or distributed.
+
 Configuration persistence uses [rusqlite](https://github.com/rusqlite/rusqlite),
 MIT, with bundled [SQLite](https://sqlite.org/), public domain. The database engine
 is linked into the DLL; users do not need a separate SQLite installation.

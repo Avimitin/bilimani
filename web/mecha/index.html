@@ -10,196 +10,200 @@
 </head>
 <body data-layout="frame">
   <main class="stream-frame overlay" data-queue-state="collapsed" aria-label="直播框架">
-    <!-- Armor mounted to continuous perimeter rails; the center remains unpainted. -->
-    <svg class="chassis" viewBox="0 0 1920 1080" aria-hidden="true">
-      <defs>
-        <linearGradient id="ceramic-armor" x2=".2" y2="1"><stop stop-color="#b3b3b3"/><stop offset=".55" stop-color="#929292"/><stop offset="1" stop-color="#707070"/></linearGradient>
-        <linearGradient id="armor-shadow" x2="0" y2="1"><stop stop-color="#646464"/><stop offset="1" stop-color="#3c3c3c"/></linearGradient>
-        <linearGradient id="dark-armor" x2="1" y2="1"><stop stop-color="#343434"/><stop offset="1" stop-color="#1b1b1b"/></linearGradient>
-        <linearGradient id="housing-metal" x2="0" y2="1"><stop stop-color="#606060"/><stop offset=".5" stop-color="#444444"/><stop offset="1" stop-color="#333333"/></linearGradient>
-        <pattern id="vfd-glass" width="4" height="3" patternUnits="userSpaceOnUse"><rect width="4" height="3" fill="#020807"/><path d="M0 .5H4" stroke="#66eac5" stroke-opacity=".012"/></pattern>
-        <!-- Local light bounds avoid a frame-sized filter surface across empty space. -->
-        <filter id="glow" filterUnits="userSpaceOnUse" x="-24" y="-24" width="180" height="160">
-          <feGaussianBlur stdDeviation="4" result="halo"/>
-          <feGaussianBlur in="SourceGraphic" stdDeviation="1.2" result="core"/>
-          <feMerge><feMergeNode in="halo"/><feMergeNode in="core"/></feMerge>
-        </filter>
-        <!-- Long weapon casing: one broad face, recessed spine and tapered tip. -->
-        <g id="weapon-guard" stroke-linejoin="round">
-          <path d="M2 0h14l9 16v237l-6 29-13 34H1V21Z" fill="url(#dark-armor)" stroke="#101010" stroke-width="2"/>
-          <path d="M4 6h8l7 14v231l-9 35H4Z" fill="url(#ceramic-armor)"/>
-          <path d="M19 20h3v231l-6 27-6 8 9-35Z" fill="#626262"/>
-          <path d="M7 29v177" fill="none" stroke="#494949"/>
-          <path d="M7 213v36l-2 8" fill="none" stroke="#555555"/>
-          <path d="M2 21h21v9H2Z" fill="#3c3c3c" stroke="#171717"/>
-          <path d="M6 23h11v2H6Z M5 271h8v2H5Z" fill="#a6a6a6"/>
+    <!-- Fully vector mecha chassis: layered top bar, side columns, interaction
+         backing and the bottom bar share one armor language of beveled plates,
+         seams, screws and cyan lamps. The center stays unpainted. -->
+    <div class="chassis" aria-hidden="true">
+      <svg class="chassis-deck" viewBox="0 0 1920 1080">
+        <defs>
+          <pattern id="vfd-glass" width="4" height="3" patternUnits="userSpaceOnUse"><rect width="4" height="3" fill="#020807"/><path d="M0 .5H4" stroke="#66eac5" stroke-opacity=".012"/></pattern>
+          <!-- Local light bounds avoid a frame-sized filter surface across empty space. -->
+          <filter id="glow" filterUnits="userSpaceOnUse" x="-24" y="-24" width="180" height="160">
+            <feGaussianBlur stdDeviation="4" result="halo"/>
+            <feGaussianBlur in="SourceGraphic" stdDeviation="1.2" result="core"/>
+            <feMerge><feMergeNode in="halo"/><feMergeNode in="core"/></feMerge>
+          </filter>
+          <filter id="glow-tt" filterUnits="userSpaceOnUse" x="-90" y="-90" width="180" height="180">
+            <feGaussianBlur stdDeviation="3.5" result="halo"/>
+            <feGaussianBlur in="SourceGraphic" stdDeviation="1" result="core"/>
+            <feMerge><feMergeNode in="halo"/><feMergeNode in="core"/></feMerge>
+          </filter>
+          <linearGradient id="deck-housing" x2="0" y2="1">
+            <stop stop-color="#484e54"/><stop offset=".1" stop-color="#383e43"/><stop offset=".5" stop-color="#2a2f33"/><stop offset="1" stop-color="#1d2024"/>
+          </linearGradient>
+          <linearGradient id="deck-pod" x2="0" y2="1">
+            <stop stop-color="#52585f"/><stop offset=".12" stop-color="#41474d"/><stop offset=".55" stop-color="#2e3338"/><stop offset="1" stop-color="#22262a"/>
+          </linearGradient>
+          <linearGradient id="deck-rail" x2="1" y2="0">
+            <stop stop-color="#3a4045"/><stop offset=".45" stop-color="#2b3034"/><stop offset="1" stop-color="#1e2125"/>
+          </linearGradient>
+          <linearGradient id="tt-bezel" x2="0" y2="1">
+            <stop stop-color="#d3dbe2"/><stop offset=".4" stop-color="#8d959d"/><stop offset=".75" stop-color="#454b51"/><stop offset="1" stop-color="#2b2f33"/>
+          </linearGradient>
+          <radialGradient id="tt-dome" cx=".5" cy=".42" r=".75">
+            <stop stop-color="#484e53"/><stop offset=".55" stop-color="#262a2e"/><stop offset="1" stop-color="#15181b"/>
+          </radialGradient>
+          <radialGradient id="tt-hub"><stop stop-color="#24282c"/><stop offset="1" stop-color="#050607"/></radialGradient>
+          <radialGradient id="tt-label" cx=".5" cy=".4" r=".8"><stop stop-color="#2c3438"/><stop offset="1" stop-color="#0d1113"/></radialGradient>
+          <radialGradient id="deck-screw" cx=".35" cy=".3" r=".9">
+            <stop stop-color="#868e96"/><stop offset=".55" stop-color="#494f55"/><stop offset="1" stop-color="#23262a"/>
+          </radialGradient>
+          <filter id="tt-brush" filterUnits="userSpaceOnUse" x="-80" y="-80" width="160" height="160">
+            <feTurbulence type="fractalNoise" baseFrequency=".9 .02" numOctaves="2" result="grain"/>
+            <feColorMatrix in="grain" type="matrix" values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .05 0"/>
+          </filter>
+          <!-- DJ platter: matte machined disc with fine grooves and a strobe-dash
+               ring, brushed silver bezel, neon cue ring, center label and spindle. -->
+          <g id="turntable">
+            <circle r="80" fill="#0a0b0c"/>
+            <circle r="78" fill="url(#tt-bezel)"/>
+            <circle r="72.5" fill="none" stroke="#15181b" stroke-width="2"/>
+            <circle r="71" fill="url(#tt-dome)"/>
+            <circle r="71" fill="#ffffff" filter="url(#tt-brush)"/>
+            <g fill="none" stroke="#17191c"><circle r="40"/><circle r="44"/><circle r="48"/><circle r="52"/></g>
+            <g fill="none" stroke="#363c41" stroke-width=".8"><circle r="42"/><circle r="46"/><circle r="50"/></g>
+            <circle id="tt-neon" r="67.5" fill="none" stroke="#bfe6ff" stroke-width="2"/>
+            <use href="#tt-neon" filter="url(#glow-tt)"/>
+            <ellipse cy="44" rx="40" ry="9" fill="#9fd4ff" opacity=".05"/>
+            <circle r="34" fill="url(#tt-label)" stroke="#484f55" stroke-width="1.5"/>
+            <circle r="24" fill="none" stroke="#70f5d7" stroke-width="1.2" opacity=".55"/>
+            <circle r="5" fill="url(#deck-screw)" stroke="#101214"/>
+          </g>
+          <g id="deck-screw">
+            <circle r="4.5" fill="url(#deck-screw)" stroke="#101214"/>
+            <path d="M-2.5 0H2.5" stroke="#141619" stroke-width="1.2"/>
+          </g>
+          <!-- One armor column: inset groove, panel seams and mounting screws. -->
+          <g id="armor-rail">
+            <path d="M0 40h34v900H0Z" fill="url(#deck-rail)"/>
+            <path d="M33 44v892" fill="none" stroke="#4a5157"/>
+            <path d="M1 44v892" fill="none" stroke="#101315"/>
+            <path d="M12 92h9v798h-9Z" fill="#14171a"/>
+            <path d="M21 92v798" fill="none" stroke="#31363b"/>
+            <path d="M0 220h34 M0 460h34 M0 700h34" fill="none" stroke="#101315" stroke-width="2"/>
+            <path d="M0 222h34 M0 462h34 M0 702h34" fill="none" stroke="#3a4045" stroke-width="1"/>
+            <use href="#deck-screw" x="17" y="130"/><use href="#deck-screw" x="17" y="335"/>
+            <use href="#deck-screw" x="17" y="575"/><use href="#deck-screw" x="17" y="815"/>
+          </g>
+        </defs>
+
+        <!-- Interaction backing: one armored slab behind the glass column. -->
+        <g stroke-linejoin="round">
+          <path d="M1584 40h308v890h-308Z" fill="url(#deck-housing)"/>
+          <path d="M1585 44v882 M1891 44v882" fill="none" stroke="#101315"/>
+          <path d="M1587 44v882" fill="none" stroke="#3a4045"/>
+          <path d="M1584 300h308 M1584 620h308" fill="none" stroke="#101315" stroke-width="2"/>
+          <path d="M1584 302h308 M1584 622h308" fill="none" stroke="#3a4045" stroke-width="1"/>
+          <use href="#deck-screw" x="1596" y="52"/><use href="#deck-screw" x="1880" y="52"/>
+          <use href="#deck-screw" x="1596" y="918"/><use href="#deck-screw" x="1880" y="918"/>
         </g>
-        <g id="armor-joint">
-          <path d="M1 5 12 0h18l10 12v20l-9 8H1Z" fill="url(#dark-armor)" stroke="#111111" stroke-width="2"/>
-          <path d="M4 7 13 3h15l8 10v5H28L20 9H4Z" fill="url(#ceramic-armor)"/>
-          <circle cx="22" cy="25" r="9" fill="#181818" stroke="#757575" stroke-width="1.5"/>
-          <circle cx="22" cy="25" r="4" fill="#414141"/>
-          <path d="M4 31v5h22" fill="none" stroke="#555555"/>
+
+        <!-- Side columns; the right pair mirrors the left. -->
+        <use href="#armor-rail"/>
+        <use href="#armor-rail" transform="translate(1920 0) scale(-1 1)"/>
+        <g transform="translate(1554 0)">
+          <path d="M0 40h30v900H0Z" fill="url(#deck-rail)"/>
+          <path d="M29 44v892" fill="none" stroke="#4a5157"/>
+          <path d="M1 44v892" fill="none" stroke="#101315"/>
+          <path d="M11 92h8v798h-8Z" fill="#14171a"/>
+          <path d="M0 220h30 M0 460h30 M0 700h30" fill="none" stroke="#101315" stroke-width="2"/>
+          <path d="M0 222h30 M0 462h30 M0 702h30" fill="none" stroke="#3a4045" stroke-width="1"/>
+          <use href="#deck-screw" x="15" y="130"/><use href="#deck-screw" x="15" y="815"/>
         </g>
-        <!-- One shared load-bearing perimeter beneath the armor, with no filled center. -->
-        <path id="frame-spine" d="M12 32 28 40H69l29-19h1430l43 26v847l-34 28H37L9 900V64l9-20Z"/>
-        <path id="pod-spine" d="M1571 47 1598 15h272l37 25v862l-27 30h-337 M37 923v42 M36 1045l19 19h1823l29-24V902"/>
-      </defs>
 
-      <!-- Broad shared casing, like a monitor enclosure. Its inner edges follow
-           the armor silhouette; there is no rectangle painted over the game. -->
-      <g id="chassis-housing" fill="url(#housing-metal)">
-        <path d="M0 0H1920V36h-22l-31-13h-273l-23 24-43-24H100L71 48H21L0 35Z"/>
-        <path d="M0 31 18 44l-4 20v813l17 29 31 18H0Z"/>
-        <path d="M1571 44h29v874l-23 27h-61l42-43V89Z"/>
-        <path d="M1896 29l24 12v1039h-57l33-38Z"/>
-        <path d="M0 909h28l10 15h1497l35-30h26v-2h324v188H0Z"/>
-      </g>
-      <g fill="none" stroke="#8e8e8e" stroke-width="1" opacity=".55">
-        <path d="M142 3h1364 M1621 3h241 M2 101v767 M1900 113v779 M118 1077h1746"/>
-      </g>
-      <!-- Continuous narrow rails join the casings, corners and both display housings. -->
-      <g fill="none" stroke-linejoin="round" stroke-linecap="round">
-        <g stroke="#151515" stroke-width="16"><use href="#frame-spine"/><use href="#pod-spine"/></g>
-        <g stroke="#505050" stroke-width="10"><use href="#frame-spine"/><use href="#pod-spine"/></g>
-        <g stroke="#686868" stroke-width="1"><use href="#frame-spine"/><use href="#pod-spine"/></g>
-      </g>
-      <!-- Recessed sidewalls carry the long guards and let the glass sit inside the assembly. -->
-      <g fill="url(#dark-armor)" stroke="#191919" stroke-width="1">
-        <path d="M1570 82h26v823l-34 29h-23l32-36V103Z"/>
-        <path d="M1884 82h24v820l-28 32h-340v-9h330l25-27V98Z"/>
-        <path d="M35 921h1506l-13 20H142l-25 24H27v-27Z"/>
-        <path d="M83 988h44v25H84Z M84 1032h44v28H65Z"/>
-      </g>
-      <!-- Header, interaction glass and lower glass share adjoining chassis walls. -->
-      <path d="M1606 23h260l29 20v36l-12 13h-296V42Z" fill="url(#dark-armor)" stroke="#101010" stroke-width="2"/>
-      <path d="M1606 82h273l14 13v803l-22 29h-284V102Z" fill="url(#dark-armor)" stroke="#101010" stroke-width="2"/>
-      <path d="M146 934h1754v116l-26 28H118V958Z" fill="url(#dark-armor)" stroke="#101010" stroke-width="2"/>
+        <!-- Layered top bar: overlapping armor plates, vent banks and the right
+             display module holding the request hint and room name. -->
+        <g stroke-linejoin="round">
+          <path d="M914 0h650l12 12v28H906V12Z" fill="url(#deck-pod)" stroke="#14171a" stroke-width="1.5"/>
+          <path d="M918 2h642" fill="none" stroke="#9aa4ac" opacity=".8"/>
+          <path d="M0 0h920l14 12v28H0Z" fill="url(#deck-housing)" stroke="#14171a" stroke-width="1.5"/>
+          <path d="M2 2h914" fill="none" stroke="#9aa4ac" opacity=".8"/>
+          <path d="M1552 0h368v44h-356l-12-12Z" fill="url(#deck-housing)" stroke="#14171a" stroke-width="1.5"/>
+          <path d="M1556 2h360" fill="none" stroke="#9aa4ac" opacity=".8"/>
+          <g fill="#101315">
+            <path d="M96 15h56v4H96Z M164 15h56v4h-56Z M232 15h56v4h-56Z"/>
+            <path d="M990 15h120v3h-120Z M990 22h120v3h-120Z M990 29h120v3h-120Z"/>
+          </g>
+          <g fill="none" stroke="#42484e">
+            <path d="M96 19h56 M164 19h56 M232 19h56"/>
+            <path d="M990 18h120 M990 25h120 M990 32h120" stroke="#2c3136"/>
+          </g>
+          <path d="M480 12h300 M840 12h60" fill="none" stroke="#101315" stroke-width="2"/>
+          <path d="M480 14h300 M840 14h60" fill="none" stroke="#3a4045" stroke-width="1"/>
+          <use href="#deck-screw" x="34" y="22"/><use href="#deck-screw" x="890" y="22"/>
+          <use href="#deck-screw" x="960" y="22"/><use href="#deck-screw" x="1536" y="22"/>
+          <use href="#deck-screw" x="1898" y="30"/>
+        </g>
 
-      <!-- Short mounting saddles overlap both the exposed rail and its armor cover. -->
-      <g fill="#606060" stroke="#262626" stroke-width="1">
-        <path d="M1 59h16v26H1Z M1 449h16v25H1Z M1 827h16v35H1Z"/>
-        <path d="M1563 93h18v23h-18Z M1563 426h18v31h-18Z M1563 787h18v68h-18Z"/>
-        <path d="M1898 91h18v24h-18Z M1898 450h18v38h-18Z M1898 829h18v65h-18Z"/>
-        <path d="M96 997h28v8H96Z M35 934h23v23H35Z"/>
-      </g>
+        <!-- One continuous bottom bar; the raised pod carries the turntable and
+             the housing runs to the right edge, flush with the canvas bottom. -->
+        <g stroke-linejoin="round">
+          <g id="corner-module">
+            <path d="M0 920 12 908H180l12 12v160H0Z" fill="url(#deck-pod)" stroke="#14171a" stroke-width="1.5"/>
+            <path d="M13 910h167" fill="none" stroke="#9aa4ac" opacity=".8"/>
+            <use href="#turntable" x="96" y="994"/>
+            <use href="#deck-screw" x="20" y="916"/><use href="#deck-screw" x="20" y="1068"/>
+          </g>
+          <path d="M192 928h1716l12 12v140H180V940Z" fill="url(#deck-housing)" stroke="#14171a" stroke-width="1.5"/>
+          <path d="M196 930h1708" fill="none" stroke="#9aa4ac" opacity=".7"/>
+          <path d="M194 940h1712" fill="none" stroke="#101315" opacity=".8"/>
+          <!-- The angled connector block welds the pod to the display recess. -->
+          <path d="M192 928l40 10v138l-40 4Z" fill="#2e3337" stroke="#15181b"/>
+          <path d="M199 935v138" fill="none" stroke="#42484e"/>
+          <path d="M204 980h16 M204 990h16 M204 1000h16" stroke="#101315" stroke-width="2"/>
+          <use href="#deck-screw" x="212" y="955"/><use href="#deck-screw" x="212" y="1053"/>
+          <use href="#deck-screw" x="1898" y="950"/><use href="#deck-screw" x="1898" y="1050"/>
+          <!-- Recessed glass channel; the live panel sits inside. -->
+          <path d="M244 934h1642l10 10v122l-10 10H244l-10-10V944Z" fill="#090c0b" stroke="#1f2426"/>
+          <path d="M248 936h1634" fill="none" stroke="#000000" opacity=".7"/>
+        </g>
 
-      <!-- Upper rail: a compact receiver, slender barrel and an offset end fitting. -->
-      <g stroke="#161616" stroke-width="1.5" stroke-linejoin="round">
-        <path d="M4 5h114l21 9h201l20 14H99L72 51H22L4 35Z" fill="url(#dark-armor)"/>
-        <path d="M6 7h109l22 10h199l9 6H98L70 45H23L6 32Z" fill="url(#ceramic-armor)" stroke-width=".8"/>
-        <path d="M25 9h66L66 29H20Z" fill="#414141" stroke-width=".8"/>
-        <path d="M96 25h246l-9 4H101L74 51H24l-4-6h50Z" fill="#484848" stroke="none"/>
-        <path d="M354 13h880l18 6-20 8H354Z" fill="url(#dark-armor)"/>
-        <path d="M372 15h841l17 5H372Z" fill="#929292" stroke="none"/>
-        <path d="M387 23h817" fill="none" stroke="#555555" stroke-width="1"/>
-        <path d="M361 11h12v19h-12Z M1208 12h11v17h-11Z" fill="#5b5b5b"/>
-
-        <!-- The upper corner has a sloped instep and a thin sole, not a square underlay. -->
-        <path d="M1240 8h291l50 36v55l-17-15V51l-39-23h-265Z" fill="url(#dark-armor)"/>
-        <path d="M1244 9h285l42 31-10 8-37-25h-267Z" fill="url(#ceramic-armor)" stroke-width=".8"/>
-        <path d="M1571 40l9 7v44l-13-12V51l-6-3Z" fill="url(#armor-shadow)" stroke-width=".8"/>
-        <path d="M1472 11h48l17 13h-48Z" fill="#3c3c3c" stroke-width=".8"/>
-        <path d="M1501 13h15l6 5h-15Z" fill="#929292" stroke="none"/>
-
-        <!-- A shallow bridge and one outer cheek surround the station header. -->
-        <path d="M1606 7h266l41 30v47l-15-9V43l-31-20h-274Z" fill="url(#ceramic-armor)"/>
-        <path d="M1602 18h266l30 20v5l-31-20h-274Z" fill="#525252" stroke="none"/>
-        <path d="M1898 43l15-6v47l-15-9Z" fill="url(#armor-shadow)" stroke-width=".8"/>
-        <path d="M1596 76h278l10 9h-299Z" fill="url(#dark-armor)"/>
-      </g>
-
-      <!-- Vertical casings retain long calm faces; the mechanics sit at their ends. -->
-      <use href="#weapon-guard" transform="translate(-2 78) scale(.86 1)"/>
-      <use href="#weapon-guard" transform="translate(-2 468) scale(.86 1.15)"/>
-      <use href="#weapon-guard" transform="translate(1558 109) scale(1 .9)"/>
-      <use href="#weapon-guard" transform="translate(1558 449) scale(1 .87)"/>
-      <use href="#weapon-guard" transform="translate(1919 109) scale(-.85 .9)"/>
-      <use href="#weapon-guard" transform="translate(1919 481) scale(-.85 1.12)"/>
-      <!-- Small piston rods occupy the gaps without broad rectangular backing. -->
-      <g fill="none" stroke-linecap="square">
-        <path d="M7 400v60 M1575 398v41 M1575 730v17 M1907 399v13" stroke="#151515" stroke-width="7"/>
-        <path d="M7 401v57 M1575 399v38 M1575 731v15 M1907 400v11" stroke="#676767" stroke-width="2"/>
-      </g>
-      <use href="#armor-joint" transform="translate(1910 413) scale(-1 1)"/>
-      <use href="#armor-joint" x="1562" y="749"/>
-
-      <!-- Toe-like lower corners: sloped armor above a narrow, continuous outsole. -->
-      <g stroke="#161616" stroke-width="1.5" stroke-linejoin="round">
-        <path d="M1 855h13l10 33 28 19h53l33 24H30L1 908Z" fill="url(#dark-armor)"/>
-        <path d="M3 858h9l8 32 30 23h56l17 11H33L3 902Z" fill="url(#ceramic-armor)" stroke-width=".8"/>
-        <path d="M3 902l30 22h90l11 6H30L3 909Z" fill="#444444" stroke-width=".8"/>
-        <path d="M57 909h29l13 9H70Z" fill="#414141" stroke-width=".8"/>
-
-        <path d="M1572 846l12 13v38l-39 38h-156l39-22h96l25-18 9-41Z" fill="url(#dark-armor)"/>
-        <path d="M1570 851l8 10v31l-36 34h-136l25-10h95l30-22 6-37Z" fill="url(#ceramic-armor)" stroke-width=".8"/>
-        <path d="M1578 882v14l-33 35h-143l4-5h136Z" fill="#484848" stroke-width=".8"/>
-        <path d="M1564 858l7 4v24l-9 9-8-4 5-24Z" fill="#373737" stroke-width=".8"/>
-        <path d="M1434 918h42l-8 4h-43Z" fill="#4c4c4c" stroke="none"/>
-
-        <!-- A slim under-barrel strip leaves the radar's vertical space intact. -->
-        <path d="M151 915h1208l24 9H161Z" fill="url(#dark-armor)"/>
-        <path d="M162 916h1189l12 4H165Z" fill="#919191" stroke="none"/>
-        <path d="M499 913h13v14h-13Z M1049 913h13v14h-13Z" fill="#494949"/>
-      </g>
-
-      <!-- The square corner module echoes an ankle cuff, sloped instep and toe cap. -->
-      <path id="corner-module" d="M3 953h50l22 15 12 35 18 25v15l-16 12H18L3 1040Z" fill="url(#dark-armor)" stroke="#111111" stroke-width="1.5" stroke-linejoin="round"/>
-      <path d="M6 957h43l17 13-11 28H23L6 985Z" fill="url(#ceramic-armor)" stroke="#242424"/>
-      <path d="M66 971l8 2 10 32-16 15H30l-8-18h33Z" fill="url(#armor-shadow)" stroke="#222222"/>
-      <path d="M30 1020h38l17-15 16 24-15 12H20l-12-12Z" fill="url(#ceramic-armor)" stroke="#242424"/>
-      <path d="M8 1029l12 12h66l15-12v11l-14 11H20L8 1038Z" fill="#3f3f3f" stroke="#1c1c1c"/>
-      <path d="M27 968h23l-7 21H27Z" fill="#202020"/>
-      <path d="M30 973h14 M30 980h12" fill="none" stroke="#777777" stroke-width="2"/>
-      <path d="M37 1029h33l7 6H30Z" fill="#414141"/>
-      <path d="M1904 946h13v96l-17 31h-15l15-31v-87Z" fill="url(#ceramic-armor)" stroke="#1c1c1c" stroke-width="1.5"/>
-      <path d="M1913 953v88l-14 25" fill="none" stroke="#484848" stroke-width="3"/>
-
-      <!-- One seam and a short service mark per large face. -->
-      <g fill="none" stroke="#414141" stroke-width="1">
-        <path d="M151 20h153 M1304 15h140 M1665 13h148 M39 961h9"/>
-      </g>
-      <g fill="#bcbcbc" opacity=".7">
-        <path d="M287 17h20v1h-20Z M291 20h12v1h-12Z M1759 17h23v1h-23Z M1763 20h12v1h-12Z"/>
-      </g>
-
-      <!-- Each lamp has its own local glow, so empty corners stay empty. -->
-      <g transform="translate(24 28)" fill="none">
-        <path d="M0 0h27l12-7h27" stroke="#0b1110" stroke-width="7"/>
-        <path id="lamp-top" d="M0 0h27l12-7h27" stroke="#89ffe7" stroke-width="2.5"/>
-        <use href="#lamp-top" filter="url(#glow)" opacity=".95"/>
-      </g>
-      <g transform="translate(1488 921)" fill="none">
-        <path d="M0 0h41l21-17" stroke="#0b1110" stroke-width="7"/>
-        <path id="lamp-toe" d="M0 0h41l21-17" stroke="#89ffe7" stroke-width="2.5"/>
-        <use href="#lamp-toe" filter="url(#glow)" opacity=".95"/>
-      </g>
-      <g transform="translate(1884 46)" fill="none">
-        <path d="M0 0v23" stroke="#0b1110" stroke-width="7"/>
-        <path id="lamp-header" d="M0 0v23" stroke="#89ffe7" stroke-width="2.5"/>
-        <use href="#lamp-header" filter="url(#glow)" opacity=".95"/>
-      </g>
-      <g transform="translate(14 968)" fill="none">
-        <path d="M0 0v35" stroke="#0b1110" stroke-width="7"/>
-        <path id="lamp-ankle" d="M0 0v35" stroke="#89ffe7" stroke-width="2.5"/>
-        <use href="#lamp-ankle" filter="url(#glow)" opacity=".95"/>
-      </g>
-    </svg>
+        <!-- Each lamp has its own local glow, so empty corners stay empty. -->
+        <g transform="translate(24 28)" fill="none">
+          <path d="M0 0h27l12-7h27" stroke="#0b1110" stroke-width="7"/>
+          <path id="lamp-top" d="M0 0h27l12-7h27" stroke="#89ffe7" stroke-width="2.5"/>
+          <use href="#lamp-top" filter="url(#glow)" opacity=".95"/>
+        </g>
+        <g transform="translate(1470 951)" fill="none">
+          <path d="M0 0h41l21-17" stroke="#0b1110" stroke-width="7"/>
+          <path id="lamp-toe" d="M0 0h41l21-17" stroke="#89ffe7" stroke-width="2.5"/>
+          <use href="#lamp-toe" filter="url(#glow)" opacity=".95"/>
+        </g>
+        <g transform="translate(1884 46)" fill="none">
+          <path d="M0 0v23" stroke="#0b1110" stroke-width="7"/>
+          <path id="lamp-header" d="M0 0v23" stroke="#89ffe7" stroke-width="2.5"/>
+          <use href="#lamp-header" filter="url(#glow)" opacity=".95"/>
+        </g>
+        <g transform="translate(14 918)" fill="none">
+          <path d="M0 0v35" stroke="#0b1110" stroke-width="7"/>
+          <path id="lamp-ankle" d="M0 0v35" stroke="#89ffe7" stroke-width="2.5"/>
+          <use href="#lamp-ankle" filter="url(#glow)" opacity=".95"/>
+        </g>
+      </svg>
+    </div>
+    <header class="station-header vfd-display">
+      <svg class="display-surface" viewBox="0 0 300 32" aria-hidden="true">
+        <path class="screen-bezel" d="M8 1h291v30H1V8Z"/>
+        <path class="screen-glass" d="M10 4h285v24H4V10Z"/>
+        <path class="screen-highlight" d="M7 12 12 7h281"/>
+      </svg>
+      <code id="request-hint">点歌 &lt;曲名&gt; [难度]</code><span id="room-name" role="status">未连接</span>
+    </header>
     <section class="current-panel frame-current vfd-display" aria-label="游戏歌曲信息">
-      <svg class="display-surface song-face" viewBox="0 0 1761 130" aria-hidden="true">
-        <path class="screen-bezel" d="M22 2h1737v106l-20 20H2V22Z"/>
-        <path class="screen-glass" d="M24 6h1731v100l-18 18H6V24Z"/>
-        <path class="screen-highlight" d="M9 26 26 9h1726 M1752 105l-16 16H9"/>
-        <path class="screen-lock" d="M106 0h60v7h-60Z M1144 123h73v7h-73Z"/>
+      <svg class="display-surface song-face" viewBox="0 0 1648 130" aria-hidden="true">
+        <path class="screen-bezel" d="M22 2h1624v106l-20 20H2V22Z"/>
+        <path class="screen-glass" d="M24 6h1618v100l-18 18H6V24Z"/>
+        <path class="screen-highlight" d="M9 26 26 9h1613 M1639 105l-16 16H9"/>
+        <path class="screen-lock" d="M106 0h60v7h-60Z M1031 123h73v7h-73Z"/>
       </svg>
       <div id="current-content"></div>
       <div class="time-track"><span id="current-progress"></span></div>
     </section>
     <aside class="sidebar" data-queue-visible="false" aria-label="直播互动">
-      <svg class="display-surface sidebar-face" viewBox="0 0 290 824" aria-hidden="true">
+      <svg class="display-surface sidebar-face" viewBox="0 0 290 872" aria-hidden="true">
         <defs>
           <!-- Glass and scan share this exact outline, including the recessed mounts. -->
-          <path id="sidebar-glass-shape" d="M19 4H286V324h-9v54h9v422l-20 20H4V702h7v-42H4V19Z"/>
+          <path id="sidebar-glass-shape" d="M19 4H286V324h-9v54h9v470l-20 20H4V702h7v-42H4V19Z"/>
           <clipPath id="sidebar-glass-clip"><use href="#sidebar-glass-shape"/></clipPath>
           <clipPath id="choice-area-clip"><rect width="290" height="370"/></clipPath>
           <linearGradient id="choice-scan-glow" x1="0" y1="0" x2="0" y2="1">
@@ -212,7 +216,7 @@
           <pattern id="choice-scan-rows" width="1" height="3" patternUnits="userSpaceOnUse"><rect width="1" height="1" fill="white"/></pattern>
           <mask id="choice-scan-mask" maskUnits="userSpaceOnUse" x="0" y="0" width="290" height="370"><rect width="290" height="370" fill="url(#choice-scan-rows)"/></mask>
         </defs>
-        <path class="screen-bezel" d="M18 1H289V327h-9v48h9v427l-21 21H1V699h7v-36H1V18Z"/>
+        <path class="screen-bezel" d="M18 1H289V327h-9v48h9v475l-21 21H1V699h7v-36H1V18Z"/>
         <use class="screen-glass" href="#sidebar-glass-shape"/>
         <g class="choice-scan-surface" clip-path="url(#sidebar-glass-clip)">
           <g clip-path="url(#choice-area-clip)">
@@ -223,16 +227,8 @@
             </g>
           </g>
         </g>
-        <path class="screen-highlight" d="M7 21 21 7h262 M283 321h-9v60h9 M14 657v48H7 M283 799l-18 18H7"/>
+        <path class="screen-highlight" d="M7 21 21 7h262 M283 321h-9v60h9 M14 657v48H7 M283 847l-18 18H7"/>
       </svg>
-      <header class="station-header vfd-display">
-        <svg class="display-surface" viewBox="0 0 268 32" aria-hidden="true">
-          <path class="screen-bezel" d="M8 1h259v30H1V8Z"/>
-          <path class="screen-glass" d="M10 4h254v24H4V10Z"/>
-          <path class="screen-highlight" d="M7 12 12 7h249"/>
-        </svg>
-        <code id="request-hint">点歌 &lt;曲名&gt; [难度]</code><span id="room-name" role="status">未连接</span>
-      </header>
       <section class="panel queue-panel" hidden>
         <header class="queue-banner"><span class="eyebrow">点歌队列</span><span id="queue-count" class="count-label">00 <span>/ 20</span></span></header>
         <div id="queue-area">

@@ -92,7 +92,7 @@ with sync_playwright() as p:
     def bounded():
         assert page.evaluate('document.documentElement.scrollWidth <= innerWidth && document.documentElement.scrollHeight <= innerHeight')
         corner = page.locator('#corner-module').bounding_box()
-        assert abs(corner['width'] - corner['height']) < .01
+        assert abs(corner['width'] / corner['height'] - 192 / 172) < .01
         for selector, container in [('.queue-row', '#queue-body'), ('.candidate', '#pending-list'),
                                     ('#activity-list .activity-row', '.feed-body'), ('#event-list .activity-row', '#event-list'),
                                     ('.current-title, .current-song .chart, .current-meta', '.frame-current')]:
@@ -112,19 +112,22 @@ with sync_playwright() as p:
         # may naturally overlap the suggested OBS game placement.
         assert shot.crop((48, 64, 1536, 880)).getchannel('A').getextrema() == (0, 0)
         assert shot.getpixel((32, 44))[3] == 255
-        # Regressions: bare backing blocks used to protrude past these three
-        # corner silhouettes, and a rectangular bracket stuck out mid-rail.
-        for region in [(50, 53, 66, 59), (1508, 33, 1523, 38), (1480, 896, 1512, 906), (1545, 397, 1554, 409)]:
+        # Regressions: bare backing blocks used to protrude past these
+        # silhouettes; the top rail is now continuous, but the gaps beside the
+        # left rail, above the display housing and past the divider stay empty.
+        for region in [(50, 53, 66, 59), (1480, 896, 1512, 906), (1545, 397, 1554, 409)]:
             assert shot.crop(region).getchannel('A').getextrema() == (0, 0), f'Unexpected corner backing: {region}'
         assert shot.getpixel((1600, 500))[3] == 255
-        # The chassis stays gray around cyan VFD glass and illuminated joints.
+        # The drawn chassis metal carries a slight blue tint around cyan VFD
+        # glass and illuminated joints; only strong color casts are rejected.
         for region in [(200, 0, 500, 20)]:
             neutral = shot.crop(region)
-            assert ImageChops.difference(neutral.getchannel('R'), neutral.getchannel('G')).getbbox() is None
-            assert ImageChops.difference(neutral.getchannel('G'), neutral.getchannel('B')).getbbox() is None
-        r, g, b, _ = shot.getpixel((14, 990))
+            for first, second in [('R', 'G'), ('G', 'B')]:
+                drift = ImageChops.difference(neutral.getchannel(first), neutral.getchannel(second))
+                assert drift.getextrema()[1] <= 14
+        r, g, b, _ = shot.getpixel((14, 930))
         assert g > r + 30 and b > r + 20
-        r, g, b, _ = shot.getpixel((20, 990))
+        r, g, b, _ = shot.getpixel((20, 930))
         assert g > r + 3 and b > r + 2  # Light spreads beyond the physical strip.
         return png
 
@@ -239,12 +242,12 @@ with sync_playwright() as p:
 
     scan_contained()
     top = scan_at(600)
-    first_scan = Image.open(io.BytesIO(transparent())).convert('RGB').crop((1604, 88, 1872, 458))
+    first_scan = Image.open(io.BytesIO(transparent())).convert('RGB').crop((1604, 40, 1872, 410))
     middle = scan_at(1500)
     assert top['position'] != middle['position'] and top['opacity'] == middle['opacity'] == '1'
     expect(page.locator('.choice-prompt')).to_have_css('opacity', '1')
     scan_png = transparent()
-    next_scan = Image.open(io.BytesIO(scan_png)).convert('RGB').crop((1604, 88, 1872, 458))
+    next_scan = Image.open(io.BytesIO(scan_png)).convert('RGB').crop((1604, 40, 1872, 410))
     assert min(ImageStat.Stat(ImageChops.difference(first_scan, next_scan)).mean) > 3
     (shots / 'frame-choices-scan.png').write_bytes(scan_png)
     page.emulate_media(reduced_motion='reduce')
@@ -385,5 +388,5 @@ with sync_playwright() as p:
     expect(page.locator('.song-radar')).to_have_count(0)
     assert not errors, errors
     browser.close()
-print('PASS: gray chassis and cyan VFD, square corner, contained interlaced scan at three scales, compact expanding chat, pinned events, transparent center and unclipped armor, live metadata, candidate paging and reload, viewer rotation and focus, escaping, offline recovery, scaling, and empty states.')
+print('PASS: baked metal chassis and cyan VFD, turntable corner pods, contained interlaced scan at three scales, compact expanding chat, pinned events, transparent center and unclipped armor, live metadata, candidate paging and reload, viewer rotation and focus, escaping, offline recovery, scaling, and empty states.')
 print(f'Screenshots: {shots}')
