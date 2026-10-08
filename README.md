@@ -10,7 +10,7 @@ https://github.com/user-attachments/assets/9fb34c0f-e38e-40ef-945a-ef7c055b9534
 
 **游戏内 Overlay**
 
-![游戏内 Overlay：点歌队列、处理日志与实时弹幕](https://raw.githubusercontent.com/Avimitin/chart-requester/master/docs/images/in-game-overlay.jpg)
+![游戏内 Overlay：点歌队列、处理日志与实时弹幕](https://raw.githubusercontent.com/Avimitin/bilimani/master/docs/images/in-game-overlay.jpg)
 
 ## 使用指南
 
@@ -24,8 +24,8 @@ https://github.com/user-attachments/assets/9fb34c0f-e38e-40ef-945a-ef7c055b9534
 
 ### 1. 下载并解压
 
-1. 打开 [下载页面](https://github.com/Avimitin/chart-requester/releases)。
-2. 展开对应版本的 **Assets**，下载 `bilimani-版本号.zip`，例如 `bilimani-0.2.0.zip`。`Source code` 是源代码，安装时不需要下载。
+1. 打开 [下载页面](https://github.com/Avimitin/bilimani/releases)。
+2. 展开对应版本的 **Assets**，下载 `bilimani-版本号.zip`，例如 `bilimani-0.3.0.zip`。`Source code` 是源代码，安装时不需要下载。
 3. 将 ZIP 解压到本机一个可以保存文件的文件夹。
 
 解压后有四项：`bilimani.dll`、`bilimani-config.exe` 独立配置程序、`bilimani_web` 网页目录和 `README.md` 使用说明。DLL 由游戏启动器加载；EXE 可双击打开现有控制台，无需先启动游戏或准备配置文件。
@@ -351,12 +351,12 @@ OBS 在另一台电脑上时，将「监听地址」设为 `0.0.0.0`（所有 IP
 
 ### 遇到问题，应该提供什么？
 
-在 [问题反馈页面](https://github.com/Avimitin/chart-requester/issues) 说明插件版本、游戏版本、当时所在界面、发送的点歌命令，以及实际看到的提示。附上 DLL 旁 `bilimani.log` 中出问题时间附近的内容；较早的日志可能在 `.log.1` 等文件中。
+在 [问题反馈页面](https://github.com/Avimitin/bilimani/issues) 说明插件版本、游戏版本、当时所在界面、发送的点歌命令，以及实际看到的提示。附上 DLL 旁 `bilimani.log` 中出问题时间附近的内容；较早的日志可能在 `.log.1` 等文件中。
 
 日志默认记录收到的弹幕及处理结果。分享前检查其中的用户名、弹幕等个人信息，**不要上传自己的配置数据库、JSON 备份、旧 TOML 或身份码**。想减少日常日志，可在「日志」页改为普通级别并应用；排错时改回详细级别。
 
 ---
 
-需要编译插件或深入排错，请看 [技术参考与开发指南](https://github.com/Avimitin/chart-requester/blob/master/docs/development.md)；游戏版本与适配依据见 [游戏适配分析](https://github.com/Avimitin/chart-requester/blob/master/docs/game-analysis.md)。
+需要编译插件或深入排错，请看 [技术参考与开发指南](https://github.com/Avimitin/bilimani/blob/master/docs/development.md)；游戏版本与适配依据见 [游戏适配分析](https://github.com/Avimitin/bilimani/blob/master/docs/game-analysis.md)。
 
 调试控制台样式时，可以在源码目录运行 `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/preview-menu.ps1`，打开无需游戏的独立窗口。它连接真实直播间，用本地曲库检查匹配请求的处理状态和入队效果；支持鼠标、键盘及 F2–F7 模拟手台操作。首次运行在「直播连接」页填写身份码并保存；曲库与已有配置的指定方法见开发指南。
