@@ -12,7 +12,7 @@
   <main class="stream-frame overlay" data-queue-state="collapsed" aria-label="直播框架">
     <!-- Fully vector mecha chassis: layered top bar, side columns, interaction
          backing and the bottom bar share one armor language of beveled plates,
-         seams, screws and cyan lamps. The center stays unpainted. -->
+         seams, screws and cyan lamps. The turntable overlaps the lower-left. -->
     <div class="chassis" aria-hidden="true">
       <svg class="chassis-deck" viewBox="0 0 1920 1080">
         <defs>
@@ -27,6 +27,9 @@
             <feGaussianBlur stdDeviation="3.5" result="halo"/>
             <feGaussianBlur in="SourceGraphic" stdDeviation="1" result="core"/>
             <feMerge><feMergeNode in="halo"/><feMergeNode in="core"/></feMerge>
+          </filter>
+          <filter id="power-glow" filterUnits="userSpaceOnUse" x="-8" y="-8" width="16" height="16">
+            <feGaussianBlur stdDeviation="1.4"/>
           </filter>
           <linearGradient id="deck-housing" x2="0" y2="1">
             <stop stop-color="#484e54"/><stop offset=".1" stop-color="#383e43"/><stop offset=".5" stop-color="#2a2f33"/><stop offset="1" stop-color="#1d2024"/>
@@ -52,6 +55,7 @@
             <feTurbulence type="fractalNoise" baseFrequency=".9 .02" numOctaves="2" result="grain"/>
             <feColorMatrix in="grain" type="matrix" values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .05 0"/>
           </filter>
+          <clipPath id="tt-brush-clip"><circle r="71"/></clipPath>
           <!-- DJ platter: matte machined disc with fine grooves and a strobe-dash
                ring, brushed silver bezel, neon cue ring, center label and spindle. -->
           <g id="turntable">
@@ -59,7 +63,7 @@
             <circle r="78" fill="url(#tt-bezel)"/>
             <circle r="72.5" fill="none" stroke="#15181b" stroke-width="2"/>
             <circle r="71" fill="url(#tt-dome)"/>
-            <circle r="71" fill="#ffffff" filter="url(#tt-brush)"/>
+            <g clip-path="url(#tt-brush-clip)"><circle r="71" fill="#ffffff" filter="url(#tt-brush)"/></g>
             <g fill="none" stroke="#17191c"><circle r="40"/><circle r="44"/><circle r="48"/><circle r="52"/></g>
             <g fill="none" stroke="#363c41" stroke-width=".8"><circle r="42"/><circle r="46"/><circle r="50"/></g>
             <circle id="tt-neon" r="67.5" fill="none" stroke="#bfe6ff" stroke-width="2"/>
@@ -87,10 +91,10 @@
           </g>
         </defs>
 
-        <!-- The recessed bezel defines an exact, unobstructed 16:9 opening.
-             OBS capture: x=40, y=48, width=1504, height=846; all crop values zero. -->
-        <path id="capture-bezel" d="M0 32H1584V940H0Z M40 48H1544V894H40Z" fill="url(#deck-housing)" fill-rule="evenodd"/>
-        <rect id="game-capture" x="40" y="48" width="1504" height="846" fill="none"/>
+        <!-- OBS capture stays at x=40, y=24, width=1504, height=846.
+             The raised turntable intentionally overlaps its lower-left corner. -->
+        <path id="capture-bezel" d="M0 16H1584V940H0Z M40 24H1544V870H40Z" fill="url(#deck-housing)" fill-rule="evenodd"/>
+        <rect id="game-capture" x="40" y="24" width="1504" height="846" fill="none"/>
 
         <!-- Interaction backing: one armored slab behind the glass column. -->
         <g stroke-linejoin="round">
@@ -119,12 +123,29 @@
         <!-- Layered top bar: overlapping armor plates, vent banks and the right
              display module holding the request hint and room name. -->
         <g stroke-linejoin="round">
+          <g id="top-rail" transform="scale(1 .5)">
           <path d="M914 0h650l12 12v28H906V12Z" fill="url(#deck-pod)" stroke="#14171a" stroke-width="1.5"/>
           <path d="M918 2h642" fill="none" stroke="#9aa4ac" opacity=".8"/>
           <path d="M0 0h920l14 12v28H0Z" fill="url(#deck-housing)" stroke="#14171a" stroke-width="1.5"/>
           <path d="M2 2h914" fill="none" stroke="#9aa4ac" opacity=".8"/>
-          <path d="M1552 0h368v44h-356l-12-12Z" fill="url(#deck-housing)" stroke="#14171a" stroke-width="1.5"/>
-          <path d="M1556 2h360" fill="none" stroke="#9aa4ac" opacity=".8"/>
+          </g>
+          <!-- A dropped trapezoid overlaps the header rail and interaction slab.
+               Offset side plates and a stepped lower lip give it real depth. -->
+          <g id="station-armor">
+            <path d="M1552 0H1920V64l-20 84h-302l-34-60V44l-12-12Z" fill="#14181c" stroke="#0b0e10" stroke-width="2"/>
+            <path d="M1574 6h346v58l-26 72h-296l-28-52-10-42Z" fill="url(#deck-pod)" stroke="#15191c" stroke-width="1.5"/>
+            <path d="M1580 9h335 M1601 133h289l24-66" fill="none" stroke="#929da6" opacity=".65"/>
+            <path d="M1552 0h41l-14 44 21 70-13-8-25-48V34l-10-10Z" fill="url(#deck-rail)" stroke="#101417" stroke-width="1.5"/>
+            <path d="M1557 4h30l-14 40 16 53" fill="none" stroke="#69737d"/>
+            <path d="M1898 0h22v72l-18 60h-14l17-68Z" fill="#353c43" stroke="#101417" stroke-width="1.5"/>
+            <path d="M1903 5h12v64l-16 51" fill="none" stroke="#626d77"/>
+            <path d="M1614 131h105l8 8h151l-9 9h-267l-8-12h20Z" fill="#30373e" stroke="#101417"/>
+            <path d="M1619 135h96l8 8h130" fill="none" stroke="#737f87" opacity=".6"/>
+            <path d="M1580 65l6 16 M1584 62l6 16 M1903 82l-5 16 M1898 80l-5 16" stroke="#101417" stroke-width="2"/>
+            <use href="#deck-screw" x="1566" y="17"/><use href="#deck-screw" x="1910" y="20"/>
+            <use href="#deck-screw" x="1609" y="136"/><use href="#deck-screw" x="1886" y="129"/>
+          </g>
+          <g transform="scale(1 .5)">
           <g fill="#101315">
             <path d="M96 15h56v4H96Z M164 15h56v4h-56Z M232 15h56v4h-56Z"/>
             <path d="M990 15h120v3h-120Z M990 22h120v3h-120Z M990 29h120v3h-120Z"/>
@@ -138,35 +159,58 @@
           <use href="#deck-screw" x="34" y="22"/><use href="#deck-screw" x="890" y="22"/>
           <use href="#deck-screw" x="960" y="22"/><use href="#deck-screw" x="1536" y="22"/>
           <use href="#deck-screw" x="1898" y="30"/>
+          </g>
         </g>
 
         <!-- One continuous bottom bar; the raised pod carries the turntable and
              the housing runs to the right edge, flush with the canvas bottom. -->
         <g stroke-linejoin="round">
-          <g id="corner-module">
-            <path d="M0 908 12 896H180l12 12v172H0Z" fill="url(#deck-pod)" stroke="#14171a" stroke-width="1.5"/>
-            <path d="M13 898h167" fill="none" stroke="#9aa4ac" opacity=".8"/>
-            <use href="#turntable" x="96" y="988"/>
-            <use href="#deck-screw" x="20" y="904"/><use href="#deck-screw" x="20" y="1068"/>
-          </g>
-          <path d="M192 904h1388v24h328l12 12v140H180V916Z" fill="url(#deck-housing)" stroke="#14171a" stroke-width="1.5"/>
-          <path d="M196 906h1380 M1588 930h316" fill="none" stroke="#9aa4ac" opacity=".7"/>
-          <path d="M194 916h1382 M1588 940h318" fill="none" stroke="#101315" opacity=".8"/>
+          <path d="M284 880h1296v48h328l12 12v140H272V892Z" fill="url(#deck-housing)" stroke="#14171a" stroke-width="1.5"/>
+          <path d="M288 882h1288 M1588 930h316" fill="none" stroke="#9aa4ac" opacity=".7"/>
+          <path d="M286 892h1290 M1588 940h318" fill="none" stroke="#101315" opacity=".8"/>
           <!-- The angled connector block welds the pod to the display recess. -->
-          <path d="M192 904l40 10v162l-40 4Z" fill="#2e3337" stroke="#15181b"/>
-          <path d="M199 911v162" fill="none" stroke="#42484e"/>
-          <path d="M204 980h16 M204 990h16 M204 1000h16" stroke="#101315" stroke-width="2"/>
-          <use href="#deck-screw" x="212" y="955"/><use href="#deck-screw" x="212" y="1053"/>
+          <path d="M274 880l18 10v186l-18 4Z" fill="#2e3337" stroke="#15181b"/>
+          <path d="M281 894v172" fill="none" stroke="#42484e"/>
           <use href="#deck-screw" x="1898" y="950"/><use href="#deck-screw" x="1898" y="1050"/>
           <!-- Recessed glass channel; the live panel sits inside. -->
-          <path d="M244 910h1332l24 24h286l10 10v122l-10 10H244l-10-10V920Z" fill="#090c0b" stroke="#1f2426"/>
-          <path d="M248 912h1326l24 24h284" fill="none" stroke="#000000" opacity=".7"/>
+          <path d="M300 886h1276l24 48h286l10 10v122l-10 10H300l-10-10V896Z" fill="#090c0b" stroke="#1f2426"/>
+          <path d="M304 888h1270l24 48h284" fill="none" stroke="#000000" opacity=".7"/>
+          <g id="corner-module">
+            <!-- A deep socket and interlocking brackets embed the enlarged disc
+                 into both rails. Only this assembly crosses the capture edge. -->
+            <path d="M0 784h72l18 18h128l32 28v44l50 42v164H0Z" fill="#12171b" stroke="#080b0e" stroke-width="2"/>
+            <path d="M0 803l24-17h48l20 22h120l50 55v61l23 22v134H0Z" fill="url(#deck-pod)" stroke="#151a1e" stroke-width="1.5"/>
+            <path d="M3 806l23-16h43l20 23h121l48 53" fill="none" stroke="#89959e" opacity=".8"/>
+            <path d="M0 742h32v52l24 28-17 67H0Z" fill="url(#deck-rail)" stroke="#13181c" stroke-width="1.5"/>
+            <path d="M27 748v48l22 28-13 54" fill="none" stroke="#626e78"/>
+            <path d="M215 810l49 50v30l38 27h22v28h-33l-29-19v-54l-52-55Z" fill="#303940" stroke="#10171c" stroke-width="2"/>
+            <path d="M263 893l32 29h24v17h-27l-25-19" fill="none" stroke="#69757e"/>
+            <circle cx="132" cy="944" r="127" fill="#090d10" stroke="#5c6871" stroke-width="2"/>
+            <circle cx="132" cy="944" r="124" fill="#181e24" stroke="#000" stroke-width="3"/>
+            <g id="turntable-disc" transform="translate(132 944) scale(1.5)"><use href="#turntable"/></g>
+            <path d="M0 1014h8l26 47h174l30-16h41v35H0Z" fill="url(#deck-rail)" stroke="#11171b"/>
+            <path d="M36 1065h175l29-15h34 M56 1074h113" fill="none" stroke="#65717b"/>
+            <path d="M257 970h13 M257 980h13 M257 990h13" stroke="#0b1116" stroke-width="3"/>
+            <use href="#deck-screw" x="67" y="800"/><use href="#deck-screw" x="230" y="849"/>
+            <use href="#deck-screw" x="288" y="926"/><use href="#deck-screw" x="25" y="1057"/>
+            <!-- Recessed power indicator in the turntable's lower-right bracket. -->
+            <g id="turntable-power" transform="translate(231 1036)">
+              <path d="M0 8l8-8h38v36H0Z" fill="#242d33" stroke="#11181d"/>
+              <path d="M3 9l7-6h33 M3 33h40" fill="none" stroke="#53616a"/>
+              <circle cx="13" cy="18" r="6" fill="#090f12" stroke="#48564e"/>
+              <g transform="translate(13 18)">
+                <circle r="3" fill="#70f5c9" filter="url(#power-glow)"/>
+                <circle id="lamp-power" r="2.5" fill="#8dffd1"/>
+              </g>
+              <path d="M30 14a5 5 0 1 0 5 0 M32.5 12v6" fill="none" stroke="#71857d" stroke-width="1.2" stroke-linecap="round"/>
+            </g>
+          </g>
         </g>
 
         <!-- Each lamp has its own local glow, so empty corners stay empty. -->
-        <g transform="translate(24 28)" fill="none">
-          <path d="M0 0h27l12-7h27" stroke="#0b1110" stroke-width="7"/>
-          <path id="lamp-top" d="M0 0h27l12-7h27" stroke="#89ffe7" stroke-width="2.5"/>
+        <g transform="translate(24 14) scale(1 .5)" fill="none">
+          <path d="M0 0h66" stroke="#0b1110" stroke-width="7"/>
+          <path id="lamp-top" d="M0 0h66" stroke="#89ffe7" stroke-width="2.5"/>
           <use href="#lamp-top" filter="url(#glow)" opacity=".95"/>
         </g>
         <g transform="translate(1470 951)" fill="none">
@@ -174,41 +218,44 @@
           <path id="lamp-toe" d="M0 0h41l21-17" stroke="#89ffe7" stroke-width="2.5"/>
           <use href="#lamp-toe" filter="url(#glow)" opacity=".95"/>
         </g>
-        <g transform="translate(1884 46)" fill="none">
+        <g transform="translate(1889 99)" fill="none">
           <path d="M0 0v23" stroke="#0b1110" stroke-width="7"/>
           <path id="lamp-header" d="M0 0v23" stroke="#89ffe7" stroke-width="2.5"/>
           <use href="#lamp-header" filter="url(#glow)" opacity=".95"/>
         </g>
-        <g transform="translate(14 918)" fill="none">
-          <path d="M0 0v35" stroke="#0b1110" stroke-width="7"/>
-          <path id="lamp-ankle" d="M0 0v35" stroke="#89ffe7" stroke-width="2.5"/>
-          <use href="#lamp-ankle" filter="url(#glow)" opacity=".95"/>
-        </g>
       </svg>
     </div>
     <header class="station-header vfd-display">
-      <svg class="display-surface" viewBox="0 0 300 32" aria-hidden="true">
-        <path class="screen-bezel" d="M8 1h291v30H1V8Z"/>
-        <path class="screen-glass" d="M10 4h285v24H4V10Z"/>
-        <path class="screen-highlight" d="M7 12 12 7h281"/>
+      <svg class="display-surface" viewBox="0 0 308 116" aria-hidden="true">
+        <path class="screen-bezel" d="M12 1h289l6 9-14 87-17 18H28L1 31V12Z"/>
+        <path class="screen-glass" d="M15 5h282l6 8-14 82-15 16H31L5 30V15Z"/>
+        <path class="screen-highlight" d="M9 29V17l9-8h276 M33 106h236l16-15"/>
+        <path d="M26 55h252" stroke="#63d9bc28"/>
       </svg>
-      <code id="request-hint">点歌 &lt;曲名&gt; [难度]</code><span id="room-name" role="status">未连接</span>
+      <code id="request-hint">点歌 &lt;曲名&gt; [难度]</code>
+      <div class="station-room">
+        <svg class="bilibili-icon" viewBox="0 0 24 24" role="img" aria-label="bilibili">
+          <path d="m6 2 4 4m8-4-4 4M5 6h14a3 3 0 0 1 3 3v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a3 3 0 0 1 3-3Z"/>
+          <path d="m6 11 3 1m6 0 3-1m-9 5 1.5 1 1.5-1 1.5 1 1.5-1M6 21v1m12-1v1"/>
+        </svg>
+        <span id="room-name" role="status">未连接</span>
+      </div>
     </header>
     <section class="current-panel frame-current vfd-display" aria-label="游戏歌曲信息">
-      <svg class="display-surface song-face" viewBox="0 0 1648 154" aria-hidden="true">
-        <path class="screen-bezel" d="M22 2h1308l24 24h292v106l-20 20H2V22Z"/>
-        <path class="screen-glass" d="M24 6h1304l24 24h290v100l-18 18H6V24Z"/>
-        <path class="screen-highlight" d="M9 26 26 9h1300l24 24h289 M1639 129l-16 16H9"/>
-        <path class="screen-lock" d="M106 0h60v7h-60Z M1031 147h73v7h-73Z"/>
+      <svg class="display-surface song-face" viewBox="0 0 1592 178" aria-hidden="true">
+        <path class="screen-bezel" d="M22 2h1252l24 48h292v106l-20 20H2V22Z"/>
+        <path class="screen-glass" d="M24 6h1248l24 48h290v100l-18 18H6V24Z"/>
+        <path class="screen-highlight" d="M9 26 26 9h1244l24 48h289 M1583 153l-16 16H9"/>
+        <path class="screen-lock" d="M106 0h60v7h-60Z M1031 171h73v7h-73Z"/>
       </svg>
       <div id="current-content"></div>
       <div class="time-track"><span id="current-progress"></span></div>
     </section>
     <aside class="sidebar" data-queue-visible="false" aria-label="直播互动">
-      <svg class="display-surface sidebar-face" viewBox="0 0 290 872" aria-hidden="true">
+      <svg class="display-surface sidebar-face" viewBox="0 0 290 760" aria-hidden="true">
         <defs>
           <!-- Glass and scan share this exact outline, including the recessed mounts. -->
-          <path id="sidebar-glass-shape" d="M19 4H286V324h-9v54h9v470l-20 20H4V702h7v-42H4V19Z"/>
+          <path id="sidebar-glass-shape" d="M19 4H286V324h-9v54h9v358l-20 20H4V590h7v-42H4V19Z"/>
           <clipPath id="sidebar-glass-clip"><use href="#sidebar-glass-shape"/></clipPath>
           <clipPath id="choice-area-clip"><rect width="290" height="370"/></clipPath>
           <linearGradient id="choice-scan-glow" x1="0" y1="0" x2="0" y2="1">
@@ -221,7 +268,7 @@
           <pattern id="choice-scan-rows" width="1" height="3" patternUnits="userSpaceOnUse"><rect width="1" height="1" fill="white"/></pattern>
           <mask id="choice-scan-mask" maskUnits="userSpaceOnUse" x="0" y="0" width="290" height="370"><rect width="290" height="370" fill="url(#choice-scan-rows)"/></mask>
         </defs>
-        <path class="screen-bezel" d="M18 1H289V327h-9v48h9v475l-21 21H1V699h7v-36H1V18Z"/>
+        <path class="screen-bezel" d="M18 1H289V327h-9v48h9v363l-21 21H1V587h7v-36H1V18Z"/>
         <use class="screen-glass" href="#sidebar-glass-shape"/>
         <g class="choice-scan-surface" clip-path="url(#sidebar-glass-clip)">
           <g clip-path="url(#choice-area-clip)">
@@ -232,7 +279,7 @@
             </g>
           </g>
         </g>
-        <path class="screen-highlight" d="M7 21 21 7h262 M283 321h-9v60h9 M14 657v48H7 M283 847l-18 18H7"/>
+        <path class="screen-highlight" d="M7 21 21 7h262 M283 321h-9v60h9 M14 545v48H7 M283 735l-18 18H7"/>
       </svg>
       <section class="panel queue-panel" hidden>
         <header class="queue-banner"><span class="eyebrow">点歌队列</span><span id="queue-count" class="count-label">00 <span>/ 20</span></span></header>

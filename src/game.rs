@@ -82,6 +82,17 @@ pub struct ChartInfo {
     pub bpm: Option<BpmRange>,
     pub note_count: Option<u32>,
     pub radar: Option<Radar>,
+    pub density: Option<NoteDensity>,
+}
+
+/// Native chart histogram. Scratch is a subset of notes; charge notes count
+/// twice in their onset bin, matching IIDX's detail graph (not held duration).
+#[derive(Clone, Debug, Serialize)]
+pub struct NoteDensity {
+    pub bin_ms: u32,
+    pub duration_ms: u32,
+    pub notes: Vec<u32>,
+    pub scratch: Vec<u32>,
 }
 
 #[derive(Clone, Copy, Debug, Serialize)]

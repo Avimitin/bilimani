@@ -277,6 +277,63 @@ if song_info:
     chart = data['song']['charts'][0]
     assert chart['bpm'] == dict(min=100, max=200) and chart['note_count'] == 1234
     assert chart['radar']['notes'] == 150.25
+    assert chart['density'] is None
+    # Reuse the native background request ABI without running any game code.
+    detail_thread = ctypes.create_string_buffer(56)
+    ctypes.c_void_p.from_buffer(detail_thread).value = game + 0xcb5cd0
+    ctypes.c_uint32.from_buffer(detail_thread, 8).value = 77
+    ctypes.c_void_p.from_address(game + 0xa7d33e0).value = ctypes.addressof(detail_thread)
+    mutex_calls = []
+    mutex_fn = ctypes.CFUNCTYPE(None, ctypes.c_uint32)
+    @mutex_fn
+    def mutex_lock(handle):
+        mutex_calls.append(('lock', handle))
+    @mutex_fn
+    def mutex_unlock(handle):
+        mutex_calls.append(('unlock', handle))
+    patch(game + 0xc91fe0, struct.pack('<Q', ctypes.cast(mutex_lock, ctypes.c_void_p).value))
+    patch(game + 0xc91fe8, struct.pack('<Q', ctypes.cast(mutex_unlock, ctypes.c_void_p).value))
+    publication_lock = ctypes.c_uint32.from_address(game + 0xbaac324)
+    publication_lock.value = 1
+    time.sleep(.3)
+    invoke(scene, 15)
+    assert not mutex_calls and publication_lock.value == 1  # busy: no wait or unlock
+    publication_lock.value = 0
+    time.sleep(.3)
+    invoke(scene, 15)
+    assert mutex_calls == [('lock', 77), ('unlock', 77)]
+    assert ctypes.c_uint64.from_buffer(detail_thread, 16).value == 33001 | (1 << 32)
+    assert publication_lock.value == 0
+    # Publish two distinct native difficulty histograms on the next frame.
+    analyzer = ctypes.create_string_buffer(256)
+    ctypes.c_void_p.from_buffer(analyzer).value = game + 0xcb5cf0
+    ctypes.c_uint32.from_buffer(analyzer, 8).value = 33001
+    native_histograms = []
+    for index, notes, scratch in [(3, [0, 2, 42, 1], [0, 0, 2, 1]), (8, [3, 4], [1, 2])]:
+        detail = ctypes.create_string_buffer(116)
+        for offset, values in [(0, notes), (24, scratch)]:
+            vector = (ctypes.c_uint32 * len(values))(*values)
+            begin = ctypes.addressof(vector)
+            struct.pack_into('<QQQ', detail, offset, begin, begin + len(values) * 4, begin + len(values) * 4)
+            native_histograms.append(vector)
+        ctypes.c_uint32.from_buffer(detail, 112).value = 6500
+        ctypes.c_void_p.from_buffer(analyzer, 16 + index * 24).value = ctypes.addressof(detail)
+        analyzer[32 + index * 24] = b'\x01'
+        native_histograms.append(detail)
+    ctypes.c_void_p.from_buffer(detail_thread, 40).value = ctypes.addressof(analyzer)
+    time.sleep(.3)
+    invoke(scene, 15)
+    deadline = time.monotonic() + 3
+    while time.monotonic() < deadline:
+        data = wait_song('selecting', 'Manual selection fixture')
+        if data['song']['charts'][0]['density'] is not None:
+            break
+        time.sleep(.05)
+    assert data['song']['charts'][0]['density'] == dict(bin_ms=1000, duration_ms=6500, notes=[0, 2, 42, 1], scratch=[0, 0, 2, 1])
+    assert data['song']['charts'][1]['density']['notes'] == [3, 4]
+    assert publication_lock.value == 0
+    # Cache contains owned arrays: the native analyzer can disappear before stage init.
+    ctypes.c_void_p.from_address(game + 0xa7d33e0).value = 0
     # DP and two-player SP share a double layout but use different chart indices.
     return_value(0x82ded0, 1)
     ctypes.c_uint32.from_address(game + 0xacd79a4).value = 1
@@ -294,11 +351,19 @@ if song_info:
     wait_song('selecting', None)
     assert invoke(scene, 14) == 72
     wait_song('idle', None)
+    ctypes.c_void_p.from_address(game + 0xabac028).value = ctypes.addressof(selected_record)
     assert invoke(stage, 13) == 74
-    wait_song('playing', 'Actual stage fixture')
+    cached = wait_song('playing', 'Manual selection fixture')
+    assert cached['song']['charts'][0]['density']['notes'] == [0, 2, 42, 1]
     assert invoke(stage, 14) == 75
     wait_song('idle', None)
-    print('PASS: real DLL callbacks -> live song JSON, folders, distinct stage record, cleanup and preserved returns')
+    ctypes.c_void_p.from_address(game + 0xabac028).value = ctypes.addressof(stage_record)
+    assert invoke(stage, 13) == 74
+    different = wait_song('playing', 'Actual stage fixture')
+    assert all(c['density'] is None for c in different['song']['charts'])
+    assert invoke(stage, 14) == 75
+    wait_song('idle', None)
+    print('PASS: real DLL callbacks -> live song/density JSON, async request ABI, busy lock, SP/DP, cached stage, folders, distinct stage record, cleanup and preserved returns')
 
 # Simulate Spice's documented SDK initialization/shutdown callback ABI.
 destroy_callback = None

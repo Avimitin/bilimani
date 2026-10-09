@@ -173,6 +173,12 @@ pub fn install(image: ModuleImage) -> Result<()> {
         (0x90f990, "488d0589c6290ac3cccccccccccccccc"),
         (0x949430, "4863c1488d0d6ee5380a8b0481c3cccc"),
         (0x9493a0, "8b05fee5380ac3cccccccccccccccccc"),
+        // Density analyzer publication, request and event-layout evidence.
+        (0x650550, "48895c24104889742418574883ec4048"),
+        (0x632f20, "40574883ec4048c7442420feffffff48"),
+        (0x632d20, "4c89442418555657415641574883ec50"),
+        (0xaf158c, "6690f00fba2d8dadfb0a0072f5c3cccc"),
+        (0xaf159c, "f00fba357fadfb0a00c3cccc4883ec28"),
     ] {
         let observed = read_memory(base + rva, 16)?;
         ensure!(
@@ -619,12 +625,20 @@ unsafe fn decode_song(
     } else {
         iidx::SP
     };
-    super::song_info::decode(
+    let mut playing = super::song_info::decode(
         &read_memory(music, super::song_info::RECORD_SIZE)?,
         mode,
         difficulties,
         phase,
-    )
+    )?;
+    if let Some(song) = playing.song.as_mut() {
+        super::native_density::apply(
+            ADAPTER.get().unwrap().base,
+            song,
+            phase == SongPhase::Selecting,
+        );
+    }
+    Ok(playing)
 }
 
 unsafe fn sample_selected_song(this: usize) {

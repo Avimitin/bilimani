@@ -155,6 +155,71 @@ synthetic records and stubbed original functions in a private mapped image,
 including SP/DP index selection, a directory, a different stage record, cleanup,
 and original return values. Real gameplay has not been exercised by that test.
 
+## Native note density histogram
+
+Rechecked through IDA MCP against the same SHA-256. This is an internal native
+interface, not a DLL export. `MusicDetailDataAnalyzer` drives the assistant
+panel's time histogram; the separate `notes_graph_key*` widgets are lane totals.
+
+| RVA | Finding |
+| --- | --- |
+| `0x6320d0` | Analyzer constructor: `(this, music_id)`; ten optional chart entries |
+| `0x632730` | Loads `%05d/%05d.1` on the native detail worker; parses each available chart |
+| `0x632d20` | Note events 0/1: resize both vectors to `timestamp_ms / 1000 + 1`, increment total; lane `% 10 == 7` also increments scratch |
+| `0x632e70` | End event 6 stores `timestamp_ms` at detail +112 |
+| `0x632f20` | Worker consumes pending ID under AVS mutex and publishes an immutable analyzer under the shared_ptr lock |
+| `0x650550` | Native panel copies published analyzer; requests its selected ID through the worker mutex |
+| `0x64f920` | Renders total and scratch vectors; native height caps at 30 notes/bin |
+| `0xa7d33e0` | `MusicDetailDataThread*` singleton, owned by the assistant UI |
+| `0xcb5cd0` / `0xcb5cf0` | Expected thread mutex / analyzer vtables |
+| `0xaf158c` / `0xaf159c` | MSVC shared_ptr lock/unlock, bit 0 at `0xbaac324` |
+| `0xc91fe0` / `0xc91fe8` | AVS mutex lock/unlock import slots (`avs2_core_16/17`) |
+
+The 56-byte thread has mutex handle +8, optional pending ID +16 (u32 ID, presence
+byte +20), and published shared_ptr at +40/+48. The 256-byte analyzer has music
+ID +8 and ten entries at +16, stride 24: shared_ptr +0/+8, presence byte +16.
+Chart order is SP B/N/H/A/L then DP B/N/H/A/L, matching the live music record.
+Each `MusicDetailData` starts with two 24-byte `vector<i32>` objects, total at +0
+and scratch at +24 (begin/end/capacity pointers). Per-lane totals occupy +48/+80;
+duration is u32 milliseconds at +112. A BPM map at +120 is not exported here.
+
+The increment is `1 + (event.u16_at_6 != 0)`: charge notes contribute **2 in the
+onset second**, including charge scratches, rather than one count at each end
+or counts while held. Both DP sides contribute to the same chart histogram.
+Scratch is a subset of total. These are the game's native weighted note counts,
+not a claim about literal button presses per second. The vectors end at the last
+note's bucket; the chart's silent tail is represented by `duration_ms`.
+
+`native_density.rs` runs in the existing scene callbacks. At the existing 4 Hz
+selection sampling point it reads the singleton, uses a nonblocking atomic
+try-lock of the verified shared_ptr lock, and copies bounded immutable data
+while the lock pins the analyzer. All error paths release the lock. Missing or
+different song results trigger the same pending-ID write as `0x650550`, under
+the native AVS mutex. Thus opening the assistant tab is unnecessary when its
+worker exists. No native analyzer constructor, file parser, or shared scratch
+buffer is invoked from our thread. The thread singleton is destroyed by native
+UI cleanup on the same scene thread; HTTP and our worker never follow pointers.
+
+One owned song snapshot is cached, matched by canonical music ID. Stage entry
+can reuse it after the native UI is destroyed, but a different song never gets
+the old graph. No analysis is requested during stage entry. Missing UI worker,
+unavailable chart, unfinished analysis, invalid headers/vectors or unsupported
+data produce `density: null`; entering a special stage without prior selection
+may therefore have metadata but no density. The whole existing adapter remains
+restricted to the exact supported DLL hash; request, publication and counting
+functions also have entry-byte guards. Bounds are 1 hour, at most 3601 buckets,
+10000 weighted notes per bucket, and 1000000 per chart. The API retains full
+native 1s counts, including values above 30 and the silent tail. Mecha's VFD
+display averages 5s windows (10s for songs over 3 minutes), normalizes a partial
+last window by its duration, and quantizes to 12 illuminated segments. The
+displayed peak remains the original 1s peak; empty windows retain unlit segments.
+
+`tests/density.rs` covers layout, all ten indices, corruption and song identity.
+`smoke-dll.py --song-info` uses a private mapped image and synthetic native
+objects to test the actual request lock/unlock ABI, busy publication lock,
+asynchronous publication, cached stage data, and stale-song rejection. It does
+not execute the game's file loader or validate a live gameplay session.
+
 ## Opposite-Start input eligibility
 
 The shortcut reads `0x9493e0(0/1)` on selection frames and requires exactly one

@@ -1,9 +1,12 @@
 //! The verified IIDX 33 binary profile. No offsets escape this module.
 pub mod catalog;
+pub mod density;
 #[cfg(windows)]
 mod input_hook;
 #[cfg(windows)]
 mod native;
+#[cfg(windows)]
+mod native_density;
 pub mod player;
 #[cfg(windows)]
 mod search_index;

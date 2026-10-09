@@ -51,7 +51,7 @@ with sync_playwright() as p:
     title_box = page.locator('.current-title').bounding_box()
     chart_box = page.locator('.current-song .chart').bounding_box()
     assert 0 <= chart_box['x'] - title_box['x'] - title_box['width'] <= 20
-    expect(page.locator('#activity-list .activity-row')).to_have_count(4)
+    expect(page.locator('#activity-list .activity-row')).to_have_count(3)
     expect(page.locator('#event-list .activity-row')).to_have_count(3)
     expect(page.locator('#queue-more')).to_have_text('另有 1 首等待中')
     expect(page.locator('body')).to_have_css('background-color', 'rgba(0, 0, 0, 0)')
@@ -60,6 +60,9 @@ with sync_playwright() as p:
     expect(page.locator('.station-header #request-hint')).to_have_text('点歌 <曲名> [难度]')
     expect(page.locator('.frame-current #request-hint, .queue-panel #request-hint')).to_have_count(0)
     expect(page.locator('#room-name')).to_have_text('CookieBacon')
+    expect(page.locator('.bilibili-icon')).to_have_count(1)
+    expect(page.locator('.station-header code')).to_have_css('text-align', 'center')
+    expect(page.locator('.station-room')).to_have_css('justify-content', 'center')
     # Anchor names update with the active room, render literally, and never push
     # the persistent request format out of the narrow header.
     long_name = '<img src=x onerror="window.injected=true">' + '很长的主播名字' * 10
@@ -70,7 +73,10 @@ with sync_playwright() as p:
     header = page.locator('.station-header').bounding_box()
     hint = page.locator('#request-hint').bounding_box()
     anchor = page.locator('#room-name').bounding_box()
-    assert hint['x'] + hint['width'] < anchor['x']
+    assert hint['y'] + hint['height'] <= anchor['y']
+    expect(page.locator('.station-header code')).to_have_css('font-size', '20px')
+    expect(page.locator('#room-name')).to_have_css('font-size', '22px')
+    assert page.locator('.sidebar').bounding_box()['y'] >= header['y'] + header['height']
     assert anchor['x'] + anchor['width'] <= header['x'] + header['width']
     payload['connected'] = False
     expect(page.locator('#room-name')).to_have_text('未连接')
@@ -88,17 +94,25 @@ with sync_playwright() as p:
     chat_box = page.locator('#activity-panel').bounding_box()
     expect(page.locator('#activity-list')).to_have_css('row-gap', '4px')
     expect(page.locator('#activity-list .activity-row').first).to_have_css('border-bottom-width', '1px')
-    assert page.locator('#activity-list .activity-row').first.bounding_box()['height'] <= 49
+    expect(page.locator('#activity-list .activity-text').first).to_have_css('font-size', '20px')
+    assert page.locator('#activity-list .activity-row').first.bounding_box()['height'] <= 63
 
     def bounded():
+        page.wait_for_function("Number(document.querySelector('.stream-frame').style.getPropertyValue('--frame-scale')) === Math.min(innerWidth / 1920, innerHeight / 1080)")
         assert page.evaluate('document.documentElement.scrollWidth <= innerWidth && document.documentElement.scrollHeight <= innerHeight')
         corner = page.locator('#corner-module').bounding_box()
-        assert abs(corner['width'] / corner['height'] - 192 / 184) < .01
+        scale = min(page.viewport_size['width'] / 1920, page.viewport_size['height'] / 1080)
+        assert corner['width'] / scale >= 300 and corner['height'] / scale >= 330
+        disc = page.locator('#turntable-disc').bounding_box()
+        assert abs(disc['width'] / scale - 240) < .1
         capture = page.locator('#game-capture').bounding_box()
         scale = min(page.viewport_size['width'] / 1920, page.viewport_size['height'] / 1080)
-        for key, expected in dict(x=40, y=48, width=1504, height=846).items():
+        for key, expected in dict(x=40, y=24, width=1504, height=846).items():
             assert abs(capture[key] - expected * scale) < .01, (key, capture)
         assert abs(capture['width'] / capture['height'] - 16 / 9) < 1e-6
+        assert 20 <= page.locator('#top-rail').bounding_box()['height'] / scale <= 21  # Includes the edge stroke.
+        bottom = page.locator('.frame-current').bounding_box()
+        assert abs(bottom['y'] / scale - 890) < .1 and abs(bottom['height'] / scale - 178) < .1
         for selector, container in [('.queue-row', '#queue-body'), ('.candidate', '#pending-list'),
                                     ('#activity-list .activity-row', '.feed-body'), ('#event-list .activity-row', '#event-list'),
                                     ('.current-title, .current-song .chart, .current-meta', '.frame-current')]:
@@ -113,10 +127,15 @@ with sync_playwright() as p:
 
     def capture_clear(shot):
         box = page.locator('#game-capture').bounding_box()
-        # Check every complete physical pixel, including the capture's four edges.
+        # The enlarged turntable intentionally overlaps the lower-left capture;
+        # every other complete physical pixel must remain transparent.
         bounds = (math.ceil(box['x']), math.ceil(box['y']),
                   math.floor(box['x'] + box['width']), math.floor(box['y'] + box['height']))
-        assert shot.crop(bounds).getchannel('A').getextrema() == (0, 0), 'Frame obscures the 16:9 capture'
+        alpha = shot.getchannel('A').copy()
+        scale = box['width'] / 1504
+        alpha.paste(0, (0, math.floor(780 * scale), math.ceil(306 * scale), math.ceil(870 * scale)))
+        assert alpha.crop(bounds).getextrema() == (0, 0), 'Frame obscures capture outside the turntable corner'
+        assert shot.getpixel((round(132 * scale), round(850 * scale)))[3] > 0
 
     def transparent():
         png = page.screenshot(omit_background=True)
@@ -125,12 +144,12 @@ with sync_playwright() as p:
         # All four sides meet the opening: the transparent area has no extra
         # strips that would suggest stretching or cropping the game source.
         alpha = shot.getchannel('A')
-        for edge in [(39, 48, 40, 894), (1544, 48, 1545, 894),
-                     (40, 47, 1544, 48), (40, 894, 1544, 895)]:
+        for edge in [(39, 24, 40, 870), (1544, 24, 1545, 870),
+                     (40, 23, 1544, 24), (40, 870, 1544, 871)]:
             assert alpha.crop(edge).getextrema() == (255, 255), edge
         assert shot.getpixel((32, 44))[3] == 255
         # Armor/glow must stay outside even the capture's corner regions.
-        for region in [(40, 48, 66, 64), (1480, 878, 1544, 894), (40, 878, 66, 894)]:
+        for region in [(40, 24, 66, 40), (1480, 854, 1544, 870)]:
             assert shot.crop(region).getchannel('A').getextrema() == (0, 0), f'Unexpected corner backing: {region}'
         assert shot.getpixel((1600, 500))[3] == 255
         # The drawn chassis metal carries a slight blue tint around cyan VFD
@@ -140,10 +159,10 @@ with sync_playwright() as p:
             for first, second in [('R', 'G'), ('G', 'B')]:
                 drift = ImageChops.difference(neutral.getchannel(first), neutral.getchannel(second))
                 assert drift.getextrema()[1] <= 14
-        r, g, b, _ = shot.getpixel((14, 930))
+        r, g, b, _ = shot.getpixel((244, 1054))
         assert g > r + 30 and b > r + 20
-        r, g, b, _ = shot.getpixel((20, 930))
-        assert g > r + 3 and b > r + 2  # Light spreads beyond the physical strip.
+        assert page.locator('#lamp-ankle').count() == 0
+        assert page.locator('#lamp-top').evaluate('el => el.getBBox().height') == 0
         return png
 
     bounded()
@@ -158,7 +177,7 @@ with sync_playwright() as p:
     # Viewer strings are text, even if they contain HTML.
     injection = '<img src=x onerror="window.injected=true">'
     payload['current']['title'] = injection + '长曲名' * 40
-    payload['feed'][0]['text'] = injection
+    payload['feed'][-1]['text'] = injection
     expect(page.locator('.current-title')).to_have_text(payload['current']['title'])
     expect(page.locator('#activity-list')).to_contain_text(injection)
     assert page.locator('img').count() == 0 and not page.evaluate('Boolean(window.injected)')
@@ -204,6 +223,10 @@ with sync_playwright() as p:
     def scan_contained():
         # Compare every exterior pixel with the effect hidden. Sample the actual
         # glass geometry, allowing one physical pixel for antialiased edges.
+        # Isolate the SVG effect: Chromium can rerasterize overlaid HTML borders
+        # at fractional scaling when this SVG layer changes visibility.
+        backdrop = page.locator('.chassis, .sidebar > .panel, .sidebar-face > .screen-bezel, .sidebar-face > .screen-glass, .sidebar-face > .screen-highlight')
+        backdrop.evaluate_all("els => els.forEach(el => el.style.visibility = 'hidden')")
         geometry = page.locator('.sidebar-face').evaluate('''svg => {
             const box = svg.getBoundingClientRect(), scale = box.width / 290;
             const shape = svg.querySelector('#sidebar-glass-shape');
@@ -254,15 +277,16 @@ with sync_playwright() as p:
                 leaked.save(shots / 'scan-leaked.png')
                 exterior.save(shots / 'scan-exterior.png')
             assert strongest <= 1, f'Scan escaped glass at {phase} ms, viewport {page.viewport_size}, pixels {leaked.getbbox()}'
+        backdrop.evaluate_all("els => els.forEach(el => el.style.removeProperty('visibility'))")
 
     scan_contained()
     top = scan_at(600)
-    first_scan = Image.open(io.BytesIO(transparent())).convert('RGB').crop((1604, 40, 1872, 410))
+    first_scan = Image.open(io.BytesIO(transparent())).convert('RGB').crop((1604, 152, 1872, 522))
     middle = scan_at(1500)
     assert top['position'] != middle['position'] and top['opacity'] == middle['opacity'] == '1'
     expect(page.locator('.choice-prompt')).to_have_css('opacity', '1')
     scan_png = transparent()
-    next_scan = Image.open(io.BytesIO(scan_png)).convert('RGB').crop((1604, 40, 1872, 410))
+    next_scan = Image.open(io.BytesIO(scan_png)).convert('RGB').crop((1604, 152, 1872, 522))
     assert min(ImageStat.Stat(ImageChops.difference(first_scan, next_scan)).mean) > 3
     (shots / 'frame-choices-scan.png').write_bytes(scan_png)
     page.emulate_media(reduced_motion='reduce')
@@ -292,7 +316,7 @@ with sync_playwright() as p:
     payload['pending'] = []
     payload['feed_limit'] = 100
     payload['feed'] = [dict(id=i, kind='chat' if i % 2 else 'event', name='观众', text='很长的消息 ' * 80) for i in range(100)]
-    expect(page.locator('#feed-count')).to_have_text('5 / 50')
+    expect(page.locator('#feed-count')).to_have_text('3 / 50')
     expect(page.locator('#event-count')).to_have_text('3 / 50')
     expect(page.locator('#activity-list .activity-row').last).to_have_attribute('data-id', '99')
     expect(page.locator('#event-list .activity-row').last).to_have_attribute('data-id', '98')
@@ -302,7 +326,7 @@ with sync_playwright() as p:
     # Empty queue gives its full height to chat, even during a current request.
     payload['queue'] = []
     expect(page.locator('.queue-panel')).to_be_hidden()
-    expect(page.locator('#feed-count')).to_have_text('12 / 50')
+    expect(page.locator('#feed-count')).to_have_text('8 / 50')
     expanded_chat = page.locator('#activity-panel').bounding_box()
     assert expanded_chat['y'] < chat_box['y'] and expanded_chat['height'] == chat_box['height'] + 370
     assert page.locator('.event-panel').bounding_box() == event_box
@@ -312,15 +336,15 @@ with sync_playwright() as p:
     payload['pending'] = [dict(choice, candidates=[dict(title=f'Choice {i+1}', available=True) for i in range(9)])]
     expect(page.locator('.candidate')).to_have_count(5)
     expect(page.locator('.queue-panel')).to_be_visible()
-    expect(page.locator('#feed-count')).to_have_text('5 / 50')
+    expect(page.locator('#feed-count')).to_have_text('3 / 50')
     assert page.locator('.event-panel').bounding_box() == event_box
     bounded()
     payload['pending'] = []
-    expect(page.locator('#feed-count')).to_have_text('12 / 50')
+    expect(page.locator('#feed-count')).to_have_text('8 / 50')
     fail = True
     expect(page.locator('.connection-banner')).to_be_visible(timeout=6000)
     expect(page.locator('.current-title')).to_have_count(0)
-    expect(page.locator('#activity-list .activity-row')).to_have_count(11)
+    expect(page.locator('#activity-list .activity-row')).to_have_count(8)
     assert page.locator('.event-panel').bounding_box() == event_box
     bounded()
     transparent()
@@ -328,7 +352,7 @@ with sync_playwright() as p:
     payload = copy.deepcopy(live)
     expect(page.locator('.current-title')).to_have_text('X-DEN')
     expect(page.locator('.connection-banner')).to_be_hidden()
-    expect(page.locator('#activity-list .activity-row')).to_have_count(4)
+    expect(page.locator('#activity-list .activity-row')).to_have_count(3)
     assert page.locator('#activity-panel').bounding_box() == chat_box
     for size in [(1280, 720), (960, 540)]:
         page.set_viewport_size(dict(width=size[0], height=size[1]))
@@ -347,6 +371,7 @@ with sync_playwright() as p:
     # Actual game selection must render independently of the request queue.
     live_chart = dict(chart=dict(mode='SP', id='SPA'), difficulty='ANOTHER', level='12', style='red',
                       bpm=dict(min=100, max=200), note_count=2000,
+                      density=dict(bin_ms=1000, duration_ms=6500, notes=[0, 2, 42, 1], scratch=[0, 0, 2, 1]),
                       radar=dict(notes=180.25, peak=145.50, scratch=65.75, soflan=120, charge=0, chord=150.01))
     game_song = dict(id=11040, title='手动选曲 · Manual selection', artist='テスト Artist', genre='TEST GENRE',
                      game_version=11, charts=[live_chart])
@@ -357,22 +382,60 @@ with sync_playwright() as p:
     expect(page.locator('.queue-panel #request-hint')).to_have_count(0)
     expect(page.locator('.game-chart .chart')).to_have_text('2P SPA 12')
     expect(page.locator('.song-bpm')).to_have_text('BPM 100–200')
+    expect(page.locator('.game-chart .chart')).to_have_css('font-size', '26px')
+    bpm_box = page.locator('.song-bpm').bounding_box()
+    difficulty_box = page.locator('.game-chart .chart').bounding_box()
+    assert bpm_box['y'] + bpm_box['height'] <= difficulty_box['y']
     expect(page.locator('.song-credits')).to_have_text('TEST GENRE / テスト Artist')
     expect(page.locator('.song-notes')).to_contain_text('2000 NOTES')
     expect(page.locator('.radar-axis')).to_have_count(6)
     expect(page.locator('.song-radar svg')).to_have_count(1)
     assert page.locator('.song-radar svg').bounding_box()['height'] == 116
+    expect(page.locator('.song-density svg')).to_have_count(1)
+    expect(page.locator('.density-heading')).to_contain_text('峰值 42 个/秒')
+    expect(page.locator('.density-axis')).to_have_text('0:0000:07')
+    expect(page.locator('.song-density svg')).to_have_attribute('data-bin-ms', '5000')
+    expect(page.locator('.density-column')).to_have_count(2)
+    # 45 native notes in the first five seconds = 9/s. The silent tail is a
+    # separate unlit window; the original 1s peak of 42 is still reported above.
+    expect(page.locator('.density-column').first).to_have_attribute('data-average', '9.000')
+    expect(page.locator('.density-column').last).to_have_attribute('data-average', '0.000')
+    assert page.locator('.density-column .density-hot').first.get_attribute('d')
+    assert page.locator('.density-column .density-notes').last.get_attribute('d') == ''
     def metadata_bounded():
         bounded()
         outer = page.locator('.frame-current').bounding_box()
-        for selector in ['.game-identity', '.game-charts', '.song-radar']:
+        for selector in ['.game-identity', '.game-charts', '.song-densities', '.song-radar']:
             box = page.locator(selector).bounding_box()
             assert box['x'] >= outer['x'] and box['x'] + box['width'] <= outer['x'] + outer['width'], selector
             assert box['y'] >= outer['y'] and box['y'] + box['height'] <= outer['y'] + outer['height'], selector
-        boxes = [page.locator(s).bounding_box() for s in ['.game-identity', '.game-charts', '.song-radar']]
+        boxes = [page.locator(s).bounding_box() for s in ['.game-identity', '.game-charts', '.song-densities', '.song-radar']]
         assert all(a['x'] + a['width'] <= b['x'] for a, b in zip(boxes, boxes[1:]))
+        # The outer panel rectangle includes the raised metal shoulder. Check
+        # radar content against the actual stepped glass, with a small inset.
+        assert page.evaluate('''() => {
+            const glass = document.querySelector('.song-face .screen-glass');
+            const inverse = glass.getScreenCTM().inverse();
+            const pad = 3 * Math.min(innerWidth / 1920, innerHeight / 1080);
+            return [...document.querySelectorAll('.song-radar svg, .radar-caption, .radar-axis')].every(el => {
+                const b = el.getBoundingClientRect();
+                return [b.left - pad, b.right + pad].every(x =>
+                    [b.top - pad, b.bottom + pad].every(y =>
+                        glass.isPointInFill(new DOMPoint(x, y).matrixTransform(inverse))));
+            });
+        }'''), 'Radar content crosses the glass outline'
     metadata_bounded()
     (shots / 'frame-game-song.png').write_bytes(transparent())
+    # Longer songs use 10s windows. Divide a partial ending by its own duration,
+    # not by ten seconds, and retain the native peak independently of the bars.
+    payload['now_playing']['song']['charts'][0]['density'] = dict(
+        bin_ms=1000, duration_ms=181500, notes=[2] * 181 + [0], scratch=[0] * 182)
+    expect(page.locator('.song-density svg')).to_have_attribute('data-bin-ms', '10000')
+    expect(page.locator('.density-column')).to_have_count(19)
+    expect(page.locator('.density-column').first).to_have_attribute('data-average', '2.000')
+    expect(page.locator('.density-column').last).to_have_attribute('data-average', '1.333')
+    payload['now_playing'] = copy.deepcopy(game)
+    expect(page.locator('.song-density svg')).to_have_attribute('data-bin-ms', '5000')
     payload['now_playing']['song']['title'] = injection + '长曲名' * 40
     payload['now_playing']['song']['artist'] = injection + '长作者' * 40
     expect(page.locator('.current-title')).to_have_text(payload['now_playing']['song']['title'])
@@ -386,7 +449,24 @@ with sync_playwright() as p:
     payload['now_playing']['song']['charts'].append(other_chart)
     payload['now_playing']['players'].append(dict(side=1, chart=other_chart['chart']))
     expect(page.locator('.game-chart')).to_have_count(2)
+    expect(page.locator('.song-density svg')).to_have_count(2)
     metadata_bounded()
+    for size in [(1280, 720), (960, 540)]:
+        page.set_viewport_size(dict(width=size[0], height=size[1]))
+        metadata_bounded()
+    page.set_viewport_size(dict(width=1920, height=1080))
+    page.screenshot(path=str(shots / 'frame-density-two-players.png'), omit_background=True)
+    # Invalid and old DLL data must clear a previously rendered plot.
+    for bad in [None, dict(bin_ms=1000, duration_ms=0, notes=[1], scratch=[0]),
+                dict(bin_ms=1000, duration_ms=1000, notes=[1], scratch=[2])]:
+        payload['now_playing'] = copy.deepcopy(game)
+        payload['now_playing']['song']['charts'][0]['density'] = bad
+        expect(page.locator('.song-density svg')).to_have_count(0)
+        expect(page.locator('.density-empty')).to_have_text('暂无密度数据')
+    del payload['now_playing']['song']['charts'][0]['density']
+    expect(page.locator('.song-density svg')).to_have_count(0)
+    payload['now_playing'] = copy.deepcopy(game)
+    expect(page.locator('.song-density svg')).to_have_count(1)
     payload['now_playing'] = copy.deepcopy(game)
     payload['now_playing']['song']['charts'][0].update(bpm=None, note_count=None, radar=None)
     expect(page.locator('.game-chart')).to_have_count(1)
@@ -402,7 +482,8 @@ with sync_playwright() as p:
     payload['now_playing'] = dict(phase='idle', song=None, players=[])
     expect(page.locator('.current-idle')).to_be_visible()
     expect(page.locator('.song-radar')).to_have_count(0)
+    expect(page.locator('.song-densities')).to_have_count(0)
     assert not errors, errors
     browser.close()
-print('PASS: exact 1504x846 16:9 capture opening, fully transparent capture edges at three scales, taller bottom display, connected chassis, contained interlaced scan, compact expanding chat, pinned events, live metadata, candidate paging and reload, viewer rotation and focus, escaping, offline recovery, scaling, and empty states.')
+print('PASS: exact 1504x846 16:9 capture at (40,24), thin top rail, raised bottom display, embedded turntable, transparency outside its corner at three scales, contained scan, larger expanding chat, pinned events, live density/metadata, candidate paging and reload, viewer rotation and focus, escaping, offline recovery, scaling, and empty states.')
 print(f'Screenshots: {shots}')

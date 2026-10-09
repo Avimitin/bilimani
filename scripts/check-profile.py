@@ -40,6 +40,11 @@ guards = {
     0x5c4480: "833d614caf00007411833d5c4caf0000",
     0x5ad900: "48895c240848896c2410488974241857",
     0x5ad8a0: "4883ec28e8d76b010085c075484863c9",
+    0x650550: "48895c24104889742418574883ec4048",
+    0x632f20: "40574883ec4048c7442420feffffff48",
+    0x632d20: "4c89442418555657415641574883ec50",
+    0xaf158c: "6690f00fba2d8dadfb0a0072f5c3cccc",
+    0xaf159c: "f00fba357fadfb0a00c3cccc4883ec28",
 }
 for rva, expected in guards.items():
     assert read(rva, 16).hex() == expected, f"Function guard mismatch at {rva:x}"

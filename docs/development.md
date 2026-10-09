@@ -153,9 +153,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "& ./scripts/build.ps1 -C
       "level": "12",
       "style": "red",
       "bpm": {"min": 100, "max": 200},
-      "note_count": 2000,
+      "note_count": 45,
       "radar": {"notes": 180.25, "peak": 145.5, "scratch": 65.75,
-                "soflan": 120.0, "charge": 0.0, "chord": 150.01}
+                "soflan": 120.0, "charge": 0.0, "chord": 150.01},
+      "density": {"bin_ms": 1000, "duration_ms": 6500,
+                  "notes": [0, 2, 42, 1], "scratch": [0, 0, 2, 1]}
     }]
   },
   "players": [{"side": 2, "chart": {"mode": "SP", "id": "SPA"}}]
@@ -171,6 +173,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "& ./scripts/build.ps1 -C
 | `bpm` | 谱面最小／最大 BPM；恒定 BPM 两值相同，尚未加载时为 `null` |
 | `note_count` | 该谱面总音符数，尚未加载或异常时为 `null` |
 | `radar` | 六项数值，`100.0` 对应原生雷达的 100% 参考环；缺失时为 `null`，允许超过 100 |
+| `density` | 原生每秒 note 密度；未加载、不可用或异常时为 `null`，字段见下文 |
 | `players` | 每个参与侧及其选中谱面；`side` 为 1 或 2，通过 `chart.id` 关联 `charts` |
 
 普通选曲在原生更新完成后每 250ms 采集一次；切换难度和手动选歌都更新。弹窗期间保留最近
@@ -178,12 +181,31 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "& ./scripts/build.ps1 -C
 stage 清理时立即清空。特殊选曲画面暂不采集选曲信息，其支持的 stage 仍可报告演奏曲目。
 本版提供谱面 BPM 范围，尚未采集演奏进度、瞬时 BPM 或实时判定分数。
 
+`density.bin_ms` 固定为 1000；`notes[i]` 是 `[i*1000, (i+1)*1000)` 毫秒内的原生
+加权 note 总数，`scratch[i]` 是其中的转盘数量，不能再加到总数上。长押沿用原生统计：
+在起点所在秒计 2 个 note，不按持续时长计数。DP 合并两侧。`duration_ms` 是原生谱面结束
+时间，数组可能在最后一个 note 所在秒结束；绘制时应按曲长保留结尾空白。不对大于 30 的
+数值截断，也不把最后不足一秒的桶放大折算。
+
+普通选曲复用游戏已有后台分析线程请求当前歌曲，无需打开原生密度面板。结果可能晚于歌曲
+元数据出现；原生线程不存在、谱面不可用或数据异常时保持 `null`。已取得的当前歌曲密度会
+保留到该曲演奏，特殊 stage 若未取得对应结果则为空。仅缓存一首，按歌曲 ID 匹配，不串曲。
+
 游戏回调只产生拥有独立内存的 Rust 数据；worker 每 100ms 发布快照，HTTP 请求不调用游戏。
 没有可用元数据时仍返回 200 和空状态；网页应正常处理 `null`、空 `players` 与空文本。
-Mecha 底栏展示曲名、曲风／作者、参与侧难度、BPM、音符数及雷达；两侧都参与时显示两份难度，
+Mecha 底栏展示曲名、曲风／作者、参与侧难度、BPM、音符数、密度及雷达；BPM 在难度上方，
+难度字号为 26px。每个参与侧有独立密度图、原生每秒峰值和时间轴。密度图宽 380px，
+按 5 秒窗口求平均（超过 3 分钟用 10 秒），以 12 段 VFD 灯条近似显示，末窗按实际时长求均值。
+低段青绿、高段暗橙，底部亮青绿表示总量中的转盘，空窗仍保留暗段；API 仍返回原生 1 秒数组。
+缺失时显示「暂无密度数据」。两侧都参与时显示两份难度和密度图，
 雷达注明其对应的首个参与侧。断线超过三秒清除歌曲，重连恢复。卡片样式维持点歌队列展示。
 
-`tests/song_info.rs` 覆盖记录索引与缺失数据，`tests/overlay.rs` 覆盖 API 发布及清空。
+Mecha 顶部提示为 20px、主播名为 22px，名字旁为内联 bilibili SVG；向下突出的梯形装甲
+占用扩大的提示区。互动栏下移到 y=152、高度 760px，正文／昵称分别为 20px／18px。
+队列存在时让出固定 370px，队列隐藏时归还给弹幕；按实际行高显示最近消息，不裁切半行。
+
+`tests/song_info.rs` 覆盖记录索引与缺失数据，`tests/density.rs` 覆盖密度布局及读取边界，
+`tests/overlay.rs` 覆盖 API 发布及清空。
 `py scripts/smoke-dll.py --song-info` 使用私有映射与模拟原函数，验证真实 DLL 回调到 JSON 的
 链路、SP/DP、目录、stage 切换与清理。`scripts/check-frame.py` 验证手动选曲、双侧难度、雷达、
 缺失值、超长文本转义、断线恢复和画面边界。上述模拟测试不等于真实游戏运行验证。
@@ -499,12 +521,12 @@ The ZIP is kept as an Actions artifact and uploaded to the GitHub Release for th
 tag. An existing release receives the rebuilt asset when the workflow is rerun.
 
 The archive name follows the package version in `Cargo.toml`, for example
-`bilimani-0.3.0.zip`. Update the package version and `Cargo.lock` before
+`bilimani-0.3.1.zip`. Update the package version and `Cargo.lock` before
 tagging a new version, then push the tag:
 
 ```powershell
-git tag v0.3.0
-git push origin v0.3.0
+git tag v0.3.1
+git push origin v0.3.1
 ```
 
 You can also run the workflow manually from the Actions tab to build and download

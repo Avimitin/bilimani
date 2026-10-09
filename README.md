@@ -25,7 +25,7 @@ https://github.com/user-attachments/assets/9fb34c0f-e38e-40ef-945a-ef7c055b9534
 ### 1. 下载并解压
 
 1. 打开 [下载页面](https://github.com/Avimitin/bilimani/releases)。
-2. 展开对应版本的 **Assets**，下载 `bilimani-版本号.zip`，例如 `bilimani-0.3.0.zip`。`Source code` 是源代码，安装时不需要下载。
+2. 展开对应版本的 **Assets**，下载 `bilimani-版本号.zip`，例如 `bilimani-0.3.1.zip`。`Source code` 是源代码，安装时不需要下载。
 3. 将 ZIP 解压到本机一个可以保存文件的文件夹。
 
 解压后有四项：`bilimani.dll`、`bilimani-config.exe` 独立配置程序、`bilimani_web` 网页目录和 `README.md` 使用说明。DLL 由游戏启动器加载；EXE 可双击打开现有控制台，无需先启动游戏或准备配置文件。

@@ -107,30 +107,138 @@
         return;
       }
       const identity = node("div", "game-identity");
+      const identityFrame = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      identityFrame.setAttribute("class", "song-identity-frame");
+      identityFrame.setAttribute("viewBox", "0 0 500 90");
+      identityFrame.setAttribute("preserveAspectRatio", "none");
+      identityFrame.setAttribute("aria-hidden", "true");
+      const phosphor = document.createElementNS(identityFrame.namespaceURI, "linearGradient");
+      phosphor.id = "song-identity-phosphor";
+      phosphor.setAttribute("x2", "0");
+      phosphor.setAttribute("y2", "1");
+      [[0, "#a6efd1", .85], [.28, "#76c8ae", .68], [.62, "#66b49a", .5], [1, "#7dcbb0", .42]].forEach(([offset, color, opacity]) => {
+        const stop = document.createElementNS(identityFrame.namespaceURI, "stop");
+        stop.setAttribute("offset", offset);
+        stop.setAttribute("stop-color", color);
+        stop.setAttribute("stop-opacity", opacity);
+        phosphor.append(stop);
+      });
+      const frameDefs = document.createElementNS(identityFrame.namespaceURI, "defs");
+      frameDefs.append(phosphor);
+      identityFrame.append(frameDefs);
+      const outline = document.createElementNS(identityFrame.namespaceURI, "path");
+      outline.setAttribute("d", "M18 3H302l12 7h166l17 17v42l-18 18H160l-12-7H3V18Z");
+      identityFrame.append(outline);
       const title = node("h1", "current-title", song.title);
       title.title = song.title;
       const credits = node("div", "song-credits", [song.genre, song.artist].filter(Boolean).join(" / "));
       credits.title = credits.textContent;
-      identity.append(title, credits);
+      identity.append(identityFrame, title, credits);
       const charts = node("div", "game-charts");
       const selected = (game.players || []).map((player) => ({player, info: song.charts.find((c) => c.chart.id === player.chart.id)})).filter(({info}) => info);
       selected.forEach(({player, info}) => {
         const group = node("div", "game-chart");
         const badge = chart({chart: `${player.side}P ${info.chart.id} ${info.level}`, chart_style: info.style});
+        badge.replaceChildren(node("span", "chart-side", `${player.side}P`), document.createTextNode(" "),
+          node("span", "chart-difficulty", `${info.chart.id} ${info.level}`));
         const bpm = info.bpm ? (info.bpm.min === info.bpm.max ? String(info.bpm.max) : `${info.bpm.min}–${info.bpm.max}`) : "—";
         const top = node("div", "chart-summary");
         const bpmDisplay = node("span", "song-bpm");
         const digits = node("span", "");
         vfdNumber(digits, bpm);
         bpmDisplay.append(document.createTextNode("BPM "), digits);
-        top.append(badge, bpmDisplay);
+        top.append(bpmDisplay, badge);
         group.append(top, node("div", "song-notes", `${info.difficulty} · ${info.note_count ?? "—"} NOTES`));
         charts.append(group);
       });
       box.append(identity, charts);
+      if (selected.length) {
+        const plots = node("div", "song-densities");
+        selected.forEach(({player, info}) => plots.append(density(info.density, player.side, info.chart.id)));
+        box.append(plots);
+      }
       if (selected.length) box.append(radar(selected[0].info.radar, selected[0].player.side));
     });
     progress($("current-progress"), 0, 1);
+  }
+  function density(values, side, chartId) {
+    const wrap = node("div", "song-density");
+    const heading = node("div", "density-heading");
+    heading.append(node("span", "", "音符密度"));
+    wrap.append(heading);
+    const valid = values && values.bin_ms === 1000 && Number.isInteger(values.duration_ms)
+      && values.duration_ms > 0 && values.duration_ms <= 3600000
+      && Array.isArray(values.notes) && Array.isArray(values.scratch)
+      && values.notes.length > 0 && values.notes.length <= Math.floor(values.duration_ms / 1000) + 1
+      && values.notes.length === values.scratch.length
+      && values.notes.every((n, i) => Number.isInteger(n) && n >= 0 && n <= 10000
+        && Number.isInteger(values.scratch[i]) && values.scratch[i] >= 0 && values.scratch[i] <= n)
+      && values.notes.some((n) => n > 0);
+    if (!valid) {
+      wrap.append(node("div", "density-empty", "暂无密度数据"));
+      return wrap;
+    }
+    const peak = Math.max(...values.notes);
+    heading.append(node("b", "", `峰值 ${peak} 个/秒`));
+    const binMs = values.duration_ms > 180000 ? 10000 : 5000;
+    const columns = [];
+    for (let start = 0; start < values.duration_ms; start += binMs) {
+      const end = Math.min(start + binMs, values.duration_ms);
+      const first = start / values.bin_ms;
+      const last = Math.ceil(end / values.bin_ms);
+      const sum = (kind) => values[kind].slice(first, last).reduce((a, b) => a + b, 0);
+      columns.push({start, end, notes: sum("notes") * 1000 / (end - start), scratch: sum("scratch") * 1000 / (end - start)});
+    }
+    // The API remains at 1s resolution. The VFD shows time-window averages
+    // quantized to 12 segments, retaining empty windows and a partial tail.
+    const scale = Math.max(10, Math.ceil(Math.max(...columns.map((c) => c.notes)) / 5) * 5);
+    wrap.title = `每柱 ${binMs / 1000} 秒平均密度，12 段灯条，量程 ${scale} /秒；青绿至暗橙表示密度高度，底部亮青绿为转盘（包含在总量中）。峰值保留原始 1 秒统计。长押在起点计 2 个 note。`;
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 380 72");
+    svg.setAttribute("preserveAspectRatio", "none");
+    svg.setAttribute("role", "img");
+    svg.setAttribute("aria-label", `${side}P ${chartId} 谱面密度，每 ${binMs / 1000} 秒平均，每秒峰值 ${peak}`);
+    svg.dataset.binMs = binMs;
+    const appendPath = (parent, className, d) => {
+      const path = document.createElementNS(svg.namespaceURI, "path");
+      path.setAttribute("class", className);
+      path.setAttribute("d", d.join(" "));
+      parent.append(path);
+    };
+    const rect = (x, y, w, h) => `M${x.toFixed(3)},${y.toFixed(3)}h${w.toFixed(3)}v${h}h-${w.toFixed(3)}z`;
+    const dots = [];
+    for (let row = 0; row < 12; row++) {
+      dots.push(rect(1, 68 - row * 6, 2, 2), rect(377, 68 - row * 6, 2, 2));
+    }
+    appendPath(svg, "density-ticks", dots);
+    columns.forEach((column) => {
+      const group = document.createElementNS(svg.namespaceURI, "g");
+      group.setAttribute("class", "density-column");
+      group.dataset.average = column.notes.toFixed(3);
+      const title = document.createElementNS(svg.namespaceURI, "title");
+      title.textContent = `${clock(column.start / 1000)}–${clock(Math.ceil(column.end / 1000))} · 平均 ${column.notes.toFixed(1)} /秒 · 转盘 ${column.scratch.toFixed(1)} /秒`;
+      group.append(title);
+      const width = (column.end - column.start) / values.duration_ms * 364;
+      const gap = Math.min(3, width * .25);
+      const x = 8 + column.start / values.duration_ms * 364 + gap / 2;
+      const w = width - gap;
+      const levels = (n) => n > 0 ? Math.min(12, Math.max(1, Math.round(n / scale * 12))) : 0;
+      const lit = levels(column.notes), scratch = Math.min(lit, levels(column.scratch));
+      const paths = {off: [], notes: [], hot: [], scratch: [], cap: []};
+      for (let row = 0; row < 12; row++) {
+        const segment = rect(x, 67 - row * 6, w, 4);
+        paths.off.push(segment);
+        if (row < lit) paths[row >= 8 ? "hot" : "notes"].push(segment);
+        if (row < scratch) paths.scratch.push(segment);
+        if (row === lit - 1) paths.cap.push(rect(x, 67 - row * 6, w, .8));
+      }
+      Object.entries(paths).forEach(([kind, d]) => appendPath(group, `density-${kind}`, d));
+      svg.append(group);
+    });
+    const axis = node("div", "density-axis");
+    axis.append(node("span", "", "0:00"), node("span", "", clock(Math.ceil(values.duration_ms / 1000))));
+    wrap.append(svg, axis);
+    return wrap;
   }
   function radar(values, side) {
     const wrap = node("div", "song-radar");

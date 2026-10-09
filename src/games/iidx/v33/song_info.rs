@@ -62,6 +62,7 @@ pub fn decode(
                 bpm,
                 note_count,
                 radar,
+                density: None,
             })
         })
         .collect();
