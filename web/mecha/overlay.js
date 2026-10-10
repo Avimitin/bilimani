@@ -151,7 +151,7 @@
         group.dataset.double = String(sides.length === 2);
         sides.forEach((side) => {
           const order = Array.isArray(game.lane_order) ? game.lane_order.find((v) => v.side === side) : null;
-          orders.append(laneOrder(order, side, sides.length === 2 || selected.length > 1));
+          orders.append(laneOrder(order, side, sides.length === 2 || selected.length > 1, info));
         });
         group.append(bpmDisplay, orders);
         charts.append(group);
@@ -166,7 +166,7 @@
     });
     progress($("current-progress"), 0, 1);
   }
-  function laneOrder(value, side, showSide) {
+  function laneOrder(value, side, showSide, info) {
     const wrap = node("div", "lane-order");
     const modes = {off: "RANDOM OFF", random: "RANDOM", r_random: "R-RANDOM", s_random: "S-RANDOM"};
     const known = value && Object.hasOwn(modes, value.random);
@@ -176,9 +176,44 @@
       && value.keys.length === 7 && new Set(value.keys).size === 7
       && value.keys.every((n) => Number.isInteger(n) && n >= 1 && n <= 7);
     const keys = node("div", "lane-keys");
+    keys.dataset.side = String(side);
     keys.setAttribute("role", "img");
-    keys.setAttribute("aria-label", `${side}P 键位：${valid ? value.keys.join("") : "暂无固定排列"}`);
-    (valid ? value.keys : Array(7).fill("—")).forEach((n) => keys.append(node("span", "lane-key", n)));
+    const sourceSide = info.chart.mode === "DP" ? side : 1;
+    const counts = Array.isArray(info.lane_counts?.sides)
+      ? info.lane_counts.sides.find((v) => v?.side === sourceSide) : null;
+    const validCounts = counts && Array.isArray(counts.keys) && counts.keys.length === 7
+      && [...counts.keys, counts.scratch].every((n) => Number.isInteger(n) && n >= 0 && n <= 1000000)
+      && counts.keys.reduce((sum, n) => sum + n, counts.scratch) <= 1000000;
+    const addKey = (id, count, position, scratch = false) => {
+      const cell = node("div", scratch ? "lane-scratch" : "lane-key");
+      const face = node("span", "lane-face");
+      const display = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      display.setAttribute("viewBox", "0 0 32 34");
+      display.setAttribute("aria-hidden", "true");
+      const digits = document.createElementNS(display.namespaceURI, "text");
+      digits.setAttribute("x", "16");
+      digits.setAttribute("y", "22");
+      digits.setAttribute("text-anchor", "middle");
+      digits.textContent = count ?? "—";
+      if (digits.textContent.length >= 4) {
+        digits.setAttribute("textLength", "26");
+        digits.setAttribute("lengthAdjust", "spacingAndGlyphs");
+      }
+      display.append(digits);
+      face.append(display);
+      cell.dataset.raised = String(!scratch && position % 2 === 0);
+      cell.append(face, node("span", "lane-id", id));
+      cell.title = `${scratch ? "转盘" : `原谱 ${id} 键`}：${count ?? "暂无"} notes`;
+      keys.append(cell);
+    };
+    (valid ? value.keys : Array(7).fill("—")).forEach((n, index) => {
+      addKey(n, valid && validCounts ? counts.keys[n - 1] : null, index + 1);
+    });
+    // Physical 1P scratch is on the left, 2P on the right. SP still reads
+    // original chart side 1; random IDs select original counts, never vice versa.
+    addKey("SC", validCounts ? counts.scratch : null, 0, true);
+    keys.setAttribute("aria-label", `${side}P 键位：${valid ? value.keys.join("") : "暂无固定排列"}；` +
+      [...keys.children].map((c) => c.title).join("；"));
     wrap.dataset.ready = String(valid);
     const caption = node("div", "lane-caption", `${showSide ? `${side}P · ` : ""}${option}`);
     caption.title = caption.textContent;

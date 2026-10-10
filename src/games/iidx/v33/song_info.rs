@@ -63,6 +63,7 @@ pub fn decode(
                 note_count,
                 radar,
                 density: None,
+                lane_counts: None,
             })
         })
         .collect();

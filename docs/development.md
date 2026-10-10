@@ -176,6 +176,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "& ./scripts/build.ps1 -C
 | `note_count` | 该谱面总音符数，尚未加载或异常时为 `null` |
 | `radar` | 六项数值，`100.0` 对应原生雷达的 100% 参考环；缺失时为 `null`，允许超过 100 |
 | `density` | 原生每秒 note 密度；未加载、不可用或异常时为 `null`，字段见下文 |
+| `lane_counts` | 每个难度的原谱七键／转盘数量；尚未分析或异常时为 `null`，不受随机选项影响 |
 | `players` | 每个参与侧及其选中谱面；`side` 为 1 或 2，通过 `chart.id` 关联 `charts` |
 | `lane_order` | 每个物理侧的随机选项和实际七键排列；空闲或选项不可读时为空数组，详见下文 |
 
@@ -199,6 +200,49 @@ stage 清理时立即清空。特殊选曲画面暂不采集选曲信息，其�
 其他键位布局／回调不兼容时只停用 `lane_order`，网页及点歌功能继续运行；
 `bilimani.log` 的 `[lane]` 项记录是否启用、修改位置及实际字节。
 
+### 按键数量与按键排列 API
+
+两份独立的只读接口均支持 `GET` / `HEAD`，与 `/api/state` 使用同一批已发布快照，HTTP
+线程不访问游戏内存。它们描述当前选曲／演奏的歌曲，不接受任意歌曲加载请求。
+
+`GET /api/lane-counts` 返回当前歌曲各个可用难度的**原谱**数量：
+
+```json
+{
+  "phase": "playing", "song_id": 33001,
+  "basis": "original_chart", "counting": "native_weighted",
+  "charts": [{
+    "chart": {"mode": "SP", "id": "SPA"},
+    "lane_counts": {"sides": [{
+      "side": 1, "keys": [210, 248, 233, 269, 221, 246, 254], "scratch": 119
+    }]}
+  }]
+}
+```
+
+`keys` 固定为原谱 1–7 键顺序，`scratch` 单列；SP 只有谱面侧 `1`，即使玩家坐在 2P。
+DP 有谱面侧 `1` 和 `2`。数量沿用游戏原生统计：普通 note 计 1，CN／HCN 及长转盘计 2，
+不是实际按下次数。未完成分析的难度返回 `lane_counts: null`，真实的空轨道返回 `0`。
+相同数据也包含在 `/api/now-playing` 的 `song.charts[].lane_counts` 内。
+
+`GET /api/lane-order` 返回独立的当前物理排列：
+
+```json
+{
+  "phase": "playing", "song_id": 33001,
+  "players": [{"side": 2, "chart": {"mode": "SP", "id": "SPA"}}],
+  "lane_order": [{"side": 2, "random": "random", "mirror": false,
+                  "status": "ready", "keys": [3, 4, 5, 2, 1, 6, 7]}]
+}
+```
+
+`lane_order[].side` 是物理玩家侧。排列为 `3452167` 时，第一个物理按钮的下标为 `3`，
+内部数量取原谱 `keys[2]`，即例中的 `233`。RANDOM／R-RANDOM／MIRROR 都按这一规则显示。
+S-RANDOM 没有固定映射，七键数量和下标显示破折号，转盘数量仍可展示；原谱数量 API 保持可用。
+空闲／离开歌曲后 `song_id` 为 `null`，数量接口的 `charts` 及排列接口的 `players`、
+`lane_order` 均为空数组。独立请求可能跨过一次状态更新；需要严格同步时读一次
+`/api/now-playing` 或 `/api/state`，Mecha 前端采用这一方式。
+
 `density.bin_ms` 固定为 1000；`notes[i]` 是 `[i*1000, (i+1)*1000)` 毫秒内的原生
 加权 note 总数，`scratch[i]` 是其中的转盘数量，不能再加到总数上。长押沿用原生统计：
 在起点所在秒计 2 个 note，不按持续时长计数。DP 合并两侧。`duration_ms` 是原生谱面结束
@@ -211,8 +255,9 @@ stage 清理时立即清空。特殊选曲画面暂不采集选曲信息，其�
 
 游戏回调只产生拥有独立内存的 Rust 数据；worker 每 100ms 发布快照，HTTP 请求不调用游戏。
 没有可用元数据时仍返回 200 和空状态；网页应正常处理 `null`、空 `players` 与空文本。
-Mecha 底栏展示曲名、曲风／作者、BPM、随机键位、密度及雷达。BPM 在七位键号上方，
-荧光底板上的深色粗体数字呈现镂空效果，左上方小字显示随机选项；底板下沿对齐密度图柱状区域下沿，DP 两侧键位左右并排。不再展示难度牌或音符数。
+Mecha 底栏展示曲名、曲风／作者、BPM、各轨数量与随机键位、密度及雷达。BPM 在键盘上方，
+七个错位排列的矩形 IIDX 按钮内显示数量，荧光底板上的深色数字呈现镂空效果，下标显示随机后的原谱键号。
+圆点显示转盘数量，下标为 SC；1P 转盘在左、2P 在右。左上方小字显示随机选项；BPM 与键盘作为一组在底部容器内垂直居中，DP 两侧键位左右并排。不再展示难度牌或总音符数。
 每个参与侧有独立密度图、原生每秒峰值和时间轴。密度图宽 380px，
 按 5 秒窗口求平均（超过 3 分钟用 10 秒），以 12 段 VFD 灯条近似显示，末窗按实际时长求均值。
 低段青绿、高段暗橙，底部亮青绿表示总量中的转盘，空窗仍保留暗段；API 仍返回原生 1 秒数组。

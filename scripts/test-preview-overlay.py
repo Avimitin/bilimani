@@ -63,7 +63,7 @@ class PreviewTests(unittest.TestCase):
                 self.assertLessEqual(len(state["feed"]), state["feed_limit"])
                 self.assertEqual(len({m["id"] for m in state["feed"]}), len(state["feed"]))
 
-    def test_http_assets_refresh_and_both_apis_follow_the_same_clock(self):
+    def test_http_assets_refresh_and_all_apis_follow_the_same_clock(self):
         timeline = Timeline(json.loads((ROOT / "scripts/fixtures/overlay-loop.json").read_text(encoding="utf-8-sig")))
         now = [14]
         with tempfile.TemporaryDirectory() as work:
@@ -87,12 +87,25 @@ class PreviewTests(unittest.TestCase):
                     state = json.load(response)
                 with get("/api/now-playing") as response:
                     self.assertEqual(json.load(response), state["now_playing"])
+                with get("/api/lane-counts") as response:
+                    counts = json.load(response)
+                    self.assertEqual(counts['song_id'], state['now_playing']['song']['id'])
+                    self.assertEqual(counts['charts'][0]['lane_counts'], state['now_playing']['song']['charts'][0]['lane_counts'])
+                with get("/api/lane-order") as response:
+                    order = json.load(response)
+                    self.assertEqual(order['lane_order'], state['now_playing']['lane_order'])
+                    self.assertEqual(order['players'], state['now_playing']['players'])
                 self.assertEqual(len(state["pending"][0]["candidates"]), 9)
                 with urlopen(Request(base + "/api/state", method="HEAD"), timeout=2) as response:
                     self.assertEqual(response.read(), b"")
                 now[0] = 42
                 with get("/api/state") as response:
                     self.assertEqual(json.load(response)["feed"], [])
+                for path, field in [('lane-counts', 'charts'), ('lane-order', 'lane_order')]:
+                    with get('/api/' + path) as response:
+                        cleared = json.load(response)
+                        self.assertIsNone(cleared['song_id'])
+                        self.assertEqual(cleared[field], [])
                 for path in ("/.private", "/%2e%2e/README.md", "/missing"):
                     with self.assertRaises(HTTPError) as error:
                         get(path)

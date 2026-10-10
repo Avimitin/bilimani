@@ -320,6 +320,7 @@ if song_info:
     assert chart['bpm'] == dict(min=100, max=200) and chart['note_count'] == 1234
     assert chart['radar']['notes'] == 150.25
     assert chart['density'] is None
+    assert chart['lane_counts'] is None
     if lane_disabled:
         assert data['lane_order'] == []
     else:
@@ -364,6 +365,9 @@ if song_info:
             struct.pack_into('<QQQ', detail, offset, begin, begin + len(values) * 4, begin + len(values) * 4)
             native_histograms.append(vector)
         ctypes.c_uint32.from_buffer(detail, 112).value = 6500
+        lane_totals = ([1, 2, 3, 4, 5, 6, 21, 3] + [0] * 8 if index == 3
+                       else [1, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 2])
+        struct.pack_into('<16I', detail, 48, *lane_totals)
         ctypes.c_void_p.from_buffer(analyzer, 16 + index * 24).value = ctypes.addressof(detail)
         analyzer[32 + index * 24] = b'\x01'
         native_histograms.append(detail)
@@ -378,6 +382,13 @@ if song_info:
         time.sleep(.05)
     assert data['song']['charts'][0]['density'] == dict(bin_ms=1000, duration_ms=6500, notes=[0, 2, 42, 1], scratch=[0, 0, 2, 1])
     assert data['song']['charts'][1]['density']['notes'] == [3, 4]
+    assert data['song']['charts'][0]['lane_counts'] == dict(sides=[dict(side=1, keys=[1,2,3,4,5,6,21], scratch=3)])
+    assert data['song']['charts'][1]['lane_counts'] == dict(sides=[
+        dict(side=1, keys=[1,0,1,0,0,0,0], scratch=1), dict(side=2, keys=[0,1,0,1,0,0,0], scratch=2)])
+    with urllib.request.urlopen(f'http://127.0.0.1:{overlay_port}/api/lane-counts', timeout=2) as response:
+        counts_api = json.load(response)
+    assert counts_api['song_id'] == 33001 and counts_api['basis'] == 'original_chart'
+    assert counts_api['charts'][0]['lane_counts'] == data['song']['charts'][0]['lane_counts']
     assert publication_lock.value == 0
     # Cache contains owned arrays: the native analyzer can disappear before stage init.
     ctypes.c_void_p.from_address(game + 0xa7d33e0).value = 0
@@ -404,6 +415,10 @@ if song_info:
     assert invoke(stage, 13) == 74
     cached = wait_song('playing', 'Manual selection fixture')
     assert cached['song']['charts'][0]['density']['notes'] == [0, 2, 42, 1]
+    assert cached['song']['charts'][0]['lane_counts']['sides'][0]['keys'] == [1,2,3,4,5,6,21]
+    with urllib.request.urlopen(f'http://127.0.0.1:{overlay_port}/api/lane-order', timeout=2) as response:
+        order_api = json.load(response)
+    assert order_api['song_id'] == 33001 and order_api['lane_order'] == cached['lane_order']
     if lane_disabled:
         assert cached['lane_order'] == []
     else:
@@ -438,6 +453,7 @@ if song_info:
     assert invoke(stage, 13) == 74
     different = wait_song('playing', 'Actual stage fixture')
     assert all(c['density'] is None for c in different['song']['charts'])
+    assert all(c['lane_counts'] is None for c in different['song']['charts'])
     assert invoke(stage, 14) == 75
     wait_song('idle', None)
     if lane_disabled:

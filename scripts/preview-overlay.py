@@ -108,9 +108,18 @@ def handler_for(directory, timeline, clock):
                 self.send_error(403)
                 return
             path = urlsplit(self.path).path
-            if path in ("/api/state", "/api/now-playing"):
+            if path in ("/api/state", "/api/now-playing", "/api/lane-counts", "/api/lane-order"):
                 state = timeline.snapshot(clock())
                 payload = state if path == "/api/state" else state["now_playing"]
+                if path in ("/api/lane-counts", "/api/lane-order"):
+                    game = state['now_playing']
+                    song = game.get('song') or {}
+                    payload = dict(phase=game['phase'], song_id=song.get('id'))
+                    if path == '/api/lane-counts':
+                        payload.update(basis='original_chart', counting='native_weighted', charts=[
+                            dict(chart=c['chart'], lane_counts=c.get('lane_counts')) for c in song.get('charts', [])])
+                    else:
+                        payload.update(players=game.get('players', []), lane_order=game.get('lane_order', []))
                 data = json.dumps(payload, ensure_ascii=False, allow_nan=False).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json; charset=utf-8")

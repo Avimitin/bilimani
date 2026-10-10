@@ -113,6 +113,22 @@ pub struct ChartInfo {
     pub note_count: Option<u32>,
     pub radar: Option<Radar>,
     pub density: Option<NoteDensity>,
+    /// Original chart lanes, before RANDOM/MIRROR. Native weighted note counts.
+    pub lane_counts: Option<LaneCounts>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct LaneCounts {
+    /// SP always uses chart side 1, even when played on the physical 2P side.
+    pub sides: Vec<LaneSideCounts>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct LaneSideCounts {
+    pub side: u8,
+    /// Original keys 1..7; CN/HCN count twice, like the native detail graph.
+    pub keys: [u32; 7],
+    pub scratch: u32,
 }
 
 /// Native chart histogram. Scratch is a subset of notes; charge notes count

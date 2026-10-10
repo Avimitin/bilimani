@@ -272,6 +272,8 @@ async fn serves_static_assets_live_snapshots_and_releases_port_on_shutdown() {
         ("/overlay.js", "text/javascript"),
         ("/api/state", "application/json"),
         ("/api/now-playing", "application/json"),
+        ("/api/lane-counts", "application/json"),
+        ("/api/lane-order", "application/json"),
     ] {
         let response = client.get(format!("{root}{path}")).send().await.unwrap();
         assert_eq!(response.status(), 200);
@@ -313,7 +315,11 @@ async fn serves_static_assets_live_snapshots_and_releases_port_on_shutdown() {
     );
     // Game metadata remains available before the request-engine catalog exists.
     updated["now_playing"] = serde_json::json!({
-        "phase": "playing", "song": {"id": 11040, "title": "AA", "artist": "D.J.Amuro"},
+        "phase": "playing", "song": {"id": 11040, "title": "AA", "artist": "D.J.Amuro",
+            "charts": [
+                {"chart": {"mode": "SP", "id": "SPA"}, "lane_counts": {"sides": [
+                    {"side": 1, "keys": [100,200,300,400,500,600,700], "scratch": 80}]}},
+                {"chart": {"mode": "SP", "id": "SPH"}, "lane_counts": null}]},
         "players": [{"side": 2, "chart": {"mode": "SP", "id": "SPA"}}],
         "lane_order": [{"side": 2, "random": "random", "mirror": false,
                         "status": "ready", "keys": [3, 4, 5, 2, 1, 6, 7]}]
@@ -335,6 +341,64 @@ async fn serves_static_assets_live_snapshots_and_releases_port_on_shutdown() {
         .unwrap();
     assert_eq!(head.status(), 200);
     assert!(head.text().await.unwrap().is_empty());
+    let counts = client
+        .get(format!("{root}/api/lane-counts"))
+        .send()
+        .await
+        .unwrap()
+        .json::<serde_json::Value>()
+        .await
+        .unwrap();
+    assert_eq!(
+        counts,
+        serde_json::json!({
+            "phase": "playing", "song_id": 11040, "basis": "original_chart", "counting": "native_weighted",
+            "charts": updated["now_playing"]["song"]["charts"]
+        })
+    );
+    let order = client
+        .get(format!("{root}/api/lane-order"))
+        .send()
+        .await
+        .unwrap()
+        .json::<serde_json::Value>()
+        .await
+        .unwrap();
+    assert_eq!(
+        order,
+        serde_json::json!({
+            "phase": "playing", "song_id": 11040,
+            "players": updated["now_playing"]["players"], "lane_order": updated["now_playing"]["lane_order"]
+        })
+    );
+    for path in ["lane-counts", "lane-order"] {
+        let head = client
+            .head(format!("{root}/api/{path}"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(head.status(), 200);
+        assert!(head.text().await.unwrap().is_empty());
+        assert_eq!(
+            client
+                .post(format!("{root}/api/{path}"))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            405
+        );
+        assert_eq!(
+            client
+                .get(format!("{root}/api/{path}"))
+                .header("Origin", "https://example.com")
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            403
+        );
+    }
     assert_eq!(
         client
             .get(format!("{root}/api/state"))
@@ -354,6 +418,19 @@ async fn serves_static_assets_live_snapshots_and_releases_port_on_shutdown() {
         &History::default(),
     );
     server.publish(&idle);
+    for (path, field) in [("lane-counts", "charts"), ("lane-order", "lane_order")] {
+        let response = client
+            .get(format!("{root}/api/{path}"))
+            .send()
+            .await
+            .unwrap()
+            .json::<serde_json::Value>()
+            .await
+            .unwrap();
+        assert_eq!(response["phase"], "idle");
+        assert!(response["song_id"].is_null());
+        assert_eq!(response[field], serde_json::json!([]));
+    }
     assert_eq!(
         client
             .get(format!("{root}/api/now-playing"))

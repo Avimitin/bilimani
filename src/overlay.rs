@@ -190,10 +190,12 @@ pub struct Server {
     task: JoinHandle<Result<()>>,
 }
 
-/// Both endpoints are serialized together on the worker, then swapped atomically.
+/// All endpoints are serialized together on the worker, then swapped atomically.
 struct Published {
     state: Bytes,
     now_playing: Bytes,
+    lane_counts: Bytes,
+    lane_order: Bytes,
 }
 impl Published {
     fn new(value: &Value) -> Result<Self> {
@@ -204,6 +206,20 @@ impl Published {
         Ok(Self {
             state: serde_json::to_vec(value)?.into(),
             now_playing: serde_json::to_vec(&game)?.into(),
+            lane_counts: serde_json::to_vec(&json!({
+                "phase": game["phase"], "song_id": game["song"]["id"],
+                "basis": "original_chart", "counting": "native_weighted",
+                "charts": game["song"]["charts"].as_array().map(|charts| charts.iter().map(|c|
+                    json!({"chart": c["chart"], "lane_counts": c["lane_counts"]})
+                ).collect::<Vec<_>>()).unwrap_or_default()
+            }))?
+            .into(),
+            lane_order: serde_json::to_vec(&json!({
+                "phase": game["phase"], "song_id": game["song"]["id"],
+                "players": game.get("players").cloned().unwrap_or_else(|| json!([])),
+                "lane_order": game.get("lane_order").cloned().unwrap_or_else(|| json!([]))
+            }))?
+            .into(),
         })
     }
 }
@@ -374,6 +390,16 @@ async fn route(
                 StatusCode::OK,
                 "application/json; charset=utf-8",
                 state.read().unwrap().now_playing.clone(),
+            ),
+            "/api/lane-counts" => (
+                StatusCode::OK,
+                "application/json; charset=utf-8",
+                state.read().unwrap().lane_counts.clone(),
+            ),
+            "/api/lane-order" => (
+                StatusCode::OK,
+                "application/json; charset=utf-8",
+                state.read().unwrap().lane_order.clone(),
             ),
             path => {
                 let asset = match path {

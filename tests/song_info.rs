@@ -86,6 +86,7 @@ fn unloaded_invalid_and_absent_data_is_not_presented_as_real_metrics() {
     for chart in current.song.unwrap().charts {
         assert!(chart.bpm.is_none() && chart.note_count.is_none() && chart.radar.is_none());
         assert!(chart.density.is_none());
+        assert!(chart.lane_counts.is_none());
     }
     put(&mut data, 0x3fc + 3 * 8, 154);
     let song = song_info::decode(&data, iidx::SP, [Some(3), None], SongPhase::Playing)

@@ -34,6 +34,11 @@ impl Memory {
             }
         }
         self.u32(at + 112, duration);
+        self.u32(
+            at + 48,
+            notes.iter().sum::<u32>() - scratch.iter().sum::<u32>(),
+        );
+        self.u32(at + 76, scratch.iter().sum());
     }
 }
 
@@ -74,13 +79,19 @@ fn maps_all_ten_optional_charts_by_identity_and_rejects_stale_song() {
     snapshot.apply(&mut song);
     for (i, chart) in song.charts.iter().enumerate() {
         assert_eq!(chart.density.as_ref().unwrap().notes, [i as u32 + 1]);
+        let sides = &chart.lane_counts.as_ref().unwrap().sides;
+        assert_eq!(sides.len(), if i < 5 { 1 } else { 2 });
+        assert_eq!(sides[0].keys, [i as u32 + 1, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(sides[0].side, 1);
     }
     song.id = 33002;
     for chart in &mut song.charts {
         chart.density = None;
+        chart.lane_counts = None;
     }
     snapshot.apply(&mut song);
     assert!(song.charts.iter().all(|c| c.density.is_none()));
+    assert!(song.charts.iter().all(|c| c.lane_counts.is_none()));
     assert!(density::read_snapshot(256, 33002, 1234, |a, n| memory.read(a, n)).is_err());
     assert!(density::read_snapshot(256, 33001, 9999, |a, n| memory.read(a, n)).is_err());
     // An absent/invalid chart must not discard a different valid difficulty.
@@ -89,6 +100,62 @@ fn maps_all_ten_optional_charts_by_identity_and_rejects_stale_song() {
     let snapshot = density::read_snapshot(256, 33001, 1234, |a, n| memory.read(a, n)).unwrap();
     assert!(snapshot.charts[3].is_none() && snapshot.charts[8].is_none());
     assert!(snapshot.charts[9].is_some());
+}
+
+#[test]
+fn lane_totals_preserve_both_chart_sides_and_native_scratch_counts() {
+    let mut header = vec![0; density::DETAIL_SIZE];
+    let values: [u32; 16] = [10, 20, 30, 40, 50, 60, 70, 8, 11, 21, 31, 41, 51, 61, 71, 9];
+    for (i, n) in values.iter().enumerate() {
+        header[48 + i * 4..52 + i * 4].copy_from_slice(&n.to_le_bytes());
+    }
+    let counts = density::read_lane_counts(&header, true).unwrap();
+    assert_eq!(
+        serde_json::to_value(counts).unwrap(),
+        serde_json::json!({"sides": [
+            {"side": 1, "keys": [10,20,30,40,50,60,70], "scratch": 8},
+            {"side": 2, "keys": [11,21,31,41,51,61,71], "scratch": 9}
+        ]})
+    );
+    assert!(density::read_lane_counts(&header, false).is_err());
+    header[80..112].fill(0);
+    let counts = density::read_lane_counts(&header, false).unwrap();
+    assert_eq!(counts.sides.len(), 1);
+    assert_eq!(counts.sides[0].keys, [10, 20, 30, 40, 50, 60, 70]);
+    header[48..52].copy_from_slice(&u32::MAX.to_le_bytes());
+    assert!(density::read_lane_counts(&header, false).is_err());
+    assert!(density::read_lane_counts(&header[..112], false).is_err());
+    header.fill(0);
+    assert!(density::read_lane_counts(&header, true).is_err());
+}
+
+#[test]
+fn lane_counts_and_density_fail_independently_without_accepting_disagreeing_totals() {
+    let mut memory = Memory::new();
+    memory.ptr(256, 1234);
+    memory.u32(264, 33001);
+    memory.ptr(272, 512);
+    memory.0[288] = 1;
+    memory.detail(512, &[2, 4], &[0, 2], 2000);
+    let capture =
+        |m: &Memory| density::read_snapshot(256, 33001, 1234, |a, n| m.read(a, n)).unwrap();
+    assert_eq!(
+        capture(&memory).lane_counts[0].as_ref().unwrap().sides[0].scratch,
+        2
+    );
+    memory.u32(512 + 48, 5); // Plausible values, but sum no longer agrees.
+    let bad = capture(&memory);
+    assert!(bad.charts[0].is_some() && bad.lane_counts[0].is_none());
+    memory.u32(512 + 48, 4);
+    memory.u32(512 + 76, u32::MAX);
+    assert!(capture(&memory).lane_counts[0].is_none());
+    memory.u32(512 + 76, 2);
+    memory.ptr(512, 0); // Invalid vector must not hide independently valid counts.
+    let bad = capture(&memory);
+    assert!(bad.charts[0].is_none() && bad.lane_counts[0].is_some());
+    memory.0[288] = 0;
+    let missing = capture(&memory);
+    assert!(missing.charts[0].is_none() && missing.lane_counts[0].is_none());
 }
 
 #[test]

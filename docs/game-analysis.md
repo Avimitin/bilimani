@@ -220,6 +220,41 @@ objects to test the actual request lock/unlock ABI, busy publication lock,
 asynchronous publication, cached stage data, and stale-song rejection. It does
 not execute the game's file loader or validate a live gameplay session.
 
+### Original per-lane note totals
+
+Rechecked with IDA MCP on the same supported image. The lane-count interface is
+the already-published `MusicDetailData` object, not a DLL export or an input poll.
+No additional hooks, native calls, or memory writes are needed.
+
+`0x632d20` chooses detail +48 for note event type 0 and +80 for type 1. Each is
+eight `i32` values: keys 1–7 followed by scratch. It increments index
+`event.byte_at_5 % 10` by `1 + (event.u16_at_6 != 0)`, exactly the histogram's
+weight. These are original chart lanes before RANDOM/MIRROR; CN/HCN and charge
+scratches count twice. The chart parser `0x632730` zeroes both arrays and builds
+all ten optional difficulty entries independently.
+
+`0x650030(panel, widget_name, counts)` renders eight consecutive values using
+the name table at `0x105e9a0`: `notes_graph_key1` through `notes_graph_key7`, then
+`notes_graph_scratch`. Its bar-height limits of 175/350 are only visual caps.
+`0x64f440` passes detail +48 to the selected physical player's widget for SP,
+regardless of whether that player is 1P or 2P. DP passes +48/+80 to the two
+widgets. Thus SP API counts always have original chart `side: 1`; DP has both
+chart sides. Physical player side belongs to the separate lane-order API.
+
+The adapter copies both arrays from the same 116-byte header already pinned
+by the analyzer publication lock. It rejects negative/implausible counts,
+totals above 1,000,000, empty charts, or a nonempty second SP array. Where the
+histogram is valid, total and scratch sums must agree. Invalid lane totals do
+not suppress a valid density graph; invalid histogram pointers do not suppress
+independently valid lane totals. Song identity and the existing owned cache
+prevent reuse across songs and retain counts after the selection UI is gone.
+
+`/api/lane-counts` projects every available difficulty of the current song from
+that owned snapshot. `/api/lane-order` independently projects physical side,
+random mode, status and permutation. No request follows a game pointer.
+Tests cover all ten chart slots, SP/DP layouts, corruption, histogram agreement,
+cache lifetime, HTTP idle clearing and frontend source-to-destination lookup.
+
 ## Native RANDOM lane order
 
 Implementation: `lane_order.rs`. All addresses below belong to the same guarded

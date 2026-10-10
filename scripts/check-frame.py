@@ -370,6 +370,7 @@ with sync_playwright() as p:
     # Actual game selection must render independently of the request queue.
     live_chart = dict(chart=dict(mode='SP', id='SPA'), difficulty='ANOTHER', level='12', style='red',
                       bpm=dict(min=100, max=200), note_count=2000,
+                      lane_counts=dict(sides=[dict(side=1, keys=[101,202,303,404,505,606,707], scratch=88)]),
                       density=dict(bin_ms=1000, duration_ms=6500, notes=[0, 2, 42, 1], scratch=[0, 0, 2, 1]),
                       radar=dict(notes=180.25, peak=145.50, scratch=65.75, soflan=120, charge=0, chord=150.01))
     game_song = dict(id=11040, title='手动选曲 · Manual selection', artist='テスト Artist', genre='TEST GENRE',
@@ -382,10 +383,12 @@ with sync_playwright() as p:
     expect(page.locator('.queue-panel #request-hint')).to_have_count(0)
     expect(page.locator('.game-chart .chart, .chart-difficulty, .song-notes')).to_have_count(0)
     expect(page.locator('.song-bpm')).to_have_text('BPM 100–200')
-    expect(page.locator('.lane-keys')).to_have_text('1234567')
+    expect(page.locator('.lane-key .lane-id')).to_have_text(list('1234567'))
+    expect(page.locator('.lane-key .lane-face')).to_have_text(['101','202','303','404','505','606','707'])
+    expect(page.locator('.lane-scratch .lane-face')).to_have_text('88')
     expect(page.locator('.lane-caption')).to_have_text('RANDOM OFF')
-    expect(page.locator('.lane-keys')).to_have_css('color', 'rgb(6, 16, 24)')
-    expect(page.locator('.lane-keys')).to_have_css('text-shadow', 'none')
+    expect(page.locator('.lane-face').first).to_have_css('color', 'rgb(6, 16, 24)')
+    expect(page.locator('.lane-face').first).to_have_css('text-shadow', 'none')
     bpm_box = page.locator('.song-bpm').bounding_box()
     keys_box = page.locator('.lane-keys').bounding_box()
     assert bpm_box['y'] + bpm_box['height'] < keys_box['y']
@@ -431,7 +434,8 @@ with sync_playwright() as p:
     payload['now_playing']['phase'] = 'playing'
     order = payload['now_playing']['lane_order'][0]
     order.update(random='random', keys=[3,4,5,2,1,6,7])
-    expect(page.locator('.lane-keys')).to_have_text('3452167')
+    expect(page.locator('.lane-key .lane-id')).to_have_text(list('3452167'))
+    expect(page.locator('.lane-key .lane-face')).to_have_text(['303','404','505','202','101','606','707'])
     expect(page.locator('.lane-caption')).to_have_text('RANDOM')
     page.locator('.frame-current').screenshot(path=str(shots / 'frame-random.png'), omit_background=True)
     order.update(random='r_random', mirror=True)
@@ -440,7 +444,9 @@ with sync_playwright() as p:
     for state, option in [('dynamic', 's_random'), ('pending', 'random'), ('unavailable', 'random')]:
         order.update(status=state, random=option, keys=None)
         expect(page.locator('.lane-order')).to_have_attribute('data-ready', 'false')
-        expect(page.locator('.lane-keys')).to_have_text('———————')
+        expect(page.locator('.lane-key .lane-id')).to_have_text(['—'] * 7)
+        expect(page.locator('.lane-key .lane-face')).to_have_text(['—'] * 7)
+        expect(page.locator('.lane-scratch .lane-face')).to_have_text('88')
         expect(page.locator('.lane-caption')).to_have_text('S-RANDOM + MIRROR' if state == 'dynamic' else 'RANDOM + MIRROR')
     for invalid in [[1,1,2,3,4,5,6], [1,2,3,4,5,6,8], [1,2,3,4,5,6], ['<img src=x onerror=alert(1)>']*7]:
         order.update(status='ready', keys=invalid)
@@ -448,7 +454,15 @@ with sync_playwright() as p:
     assert page.locator('img').count() == 0
     del payload['now_playing']['lane_order']
     expect(page.locator('.lane-caption')).to_have_text('等待键位数据')
-    expect(page.locator('.lane-keys')).to_have_text('———————')
+    expect(page.locator('.lane-key .lane-id')).to_have_text(['—'] * 7)
+    payload['now_playing'] = copy.deepcopy(game)
+    for bad in [None, dict(sides=[dict(side=1, keys=[10] * 6, scratch=2)]),
+                dict(sides=[dict(side=1, keys=[-1] * 7, scratch=2)]),
+                dict(sides=[dict(side=1, keys=['<img src=x>'] * 7, scratch=2)])]:
+        payload['now_playing']['song']['charts'][0]['lane_counts'] = bad
+        expect(page.locator('.lane-face')).to_have_text(['—'] * 8)
+        expect(page.locator('.lane-key .lane-id')).to_have_text(list('1234567'))
+    assert page.locator('img').count() == 0
     payload['now_playing'] = copy.deepcopy(game)
     # Longer songs use 10s windows. Divide a partial ending by its own duration,
     # not by ten seconds, and retain the native peak independently of the bars.
@@ -483,9 +497,20 @@ with sync_playwright() as p:
     payload['now_playing'] = copy.deepcopy(game)
     payload['now_playing']['song']['charts'][0]['chart'] = dict(mode='DP', id='DPA')
     payload['now_playing']['players'][0]['chart'] = dict(mode='DP', id='DPA')
+    payload['now_playing']['song']['charts'][0]['lane_counts']['sides'].append(
+        dict(side=2, keys=[111,222,333,444,555,666,777], scratch=99))
     payload['now_playing']['lane_order'] = [dict(side=i, random='random', mirror=False, status='ready', keys=[3,4,5,2,1,6,7]) for i in [1,2]]
     expect(page.locator('.lane-keys')).to_have_count(2)
     expect(page.locator('.lane-caption')).to_have_text(['1P · RANDOM', '2P · RANDOM'])
+    expect(page.locator('.lane-key .lane-face')).to_have_text([
+        '303','404','505','202','101','606','707', '333','444','555','222','111','666','777'])
+    expect(page.locator('.lane-scratch .lane-face')).to_have_text(['88','99'])
+    for i, side in enumerate([1, 2]):
+        keyboard = page.locator('.lane-keys').nth(i)
+        scratch = keyboard.locator('.lane-scratch').bounding_box()
+        first = keyboard.locator('.lane-key').first.bounding_box()
+        last = keyboard.locator('.lane-key').last.bounding_box()
+        assert scratch['x'] < first['x'] if side == 1 else scratch['x'] > last['x']
     metadata_bounded()
     page.locator('.frame-current').screenshot(path=str(shots / 'frame-random-dp.png'), omit_background=True)
     payload['now_playing']['players'].append(dict(side=1, chart=dict(mode='DP', id='DPA')))

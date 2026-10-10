@@ -103,16 +103,22 @@
 .song-identity-frame path { fill: none; stroke: url(#song-identity-phosphor); stroke-width: 1.5; stroke-linejoin: miter; vector-effect: non-scaling-stroke; }
 .game-identity .current-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; flex: none; white-space: normal; overflow-wrap: anywhere; font-size: var(--title-size); line-height: 34px; }
 .song-credits { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--muted); font-size: 13px; line-height: 20px; }
-.game-charts { display: flex; gap: 24px; flex: none; height: 118px; padding-bottom: 22px; }
-/* Reserve the density time-axis height so the keyboard bottoms share its plot baseline. */
-.game-charts:has(.game-chart:nth-child(2)) { height: 160px; }
-.game-chart { width: 184px; display: flex; flex-direction: column; gap: 8px; }
+/* Center the complete BPM/keyboard group within the bottom display. */
+.game-charts { display: flex; align-items: center; gap: 16px; flex: none; }
+.game-chart { width: 248px; display: flex; flex-direction: column; gap: 8px; }
+.game-charts:has(.game-chart:nth-child(2)) .game-chart { width: 228px; }
 .lane-orders { margin-top: auto; display: flex; flex-direction: column; gap: 6px; }
 .lane-order { min-width: 0; filter: drop-shadow(0 0 2px #70f5d750) drop-shadow(0 0 5px #70f5d725); }
 .lane-keys {
-  display: grid; grid-template-columns: repeat(7, 1fr); padding: 3px 9px;
-  border-radius: 3px;
-  color: #061018; text-shadow: none; font: 900 25px/32px "Arial Black", "Segoe UI Black", sans-serif;
+  display: flex; align-items: flex-end; gap: 3px; height: 60px;
+}
+.lane-key, .lane-scratch { min-width: 0; display: flex; flex-direction: column; align-items: stretch; gap: 2px; }
+.lane-key { flex: 1; }
+.lane-scratch { flex: 0 0 30px; }
+.lane-keys[data-side="1"] .lane-scratch { order: -1; }
+.lane-face {
+  display: flex; justify-content: center; align-items: center; height: 34px; border-radius: 2px;
+  color: #061018; text-shadow: none; font: 800 12px/18px Arial, sans-serif; letter-spacing: -.4px;
   background-image: url("./phosphor-honeycomb.svg"),
     radial-gradient(ellipse at 18% 16%, #ffffff26, transparent 65%),
     radial-gradient(ellipse at 76% 82%, #00080f57, transparent 60%),
@@ -120,11 +126,16 @@
   background-size: 12px 7px, 100% 100%, 100% 100%, 100% 100%;
   background-repeat: repeat, no-repeat, no-repeat, no-repeat;
 }
-.lane-key { text-align: center; }
-.lane-caption { font-size: 14px; line-height: 22px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left; }
-.lane-order[data-ready="false"] .lane-keys { opacity: .3; }
-.game-chart[data-double="true"] { width: 392px; }
-.game-chart[data-double="true"] .lane-orders { flex-direction: row; gap: 24px; }
+.lane-face svg { display: block; width: 100%; height: 100%; }
+.lane-face text { fill: currentColor; font: 800 14px Arial, sans-serif; letter-spacing: -.4px; }
+.lane-key[data-raised="true"] .lane-face { transform: translateY(-8px); background-color: #264e53; background-blend-mode: normal, normal, normal, luminosity; opacity: .75; }
+.lane-scratch .lane-face { border-radius: 50%; width: 30px; height: 30px; margin-bottom: 4px; }
+.lane-id { color: var(--text); text-align: center; font: 700 16px/18px Arial, sans-serif; text-shadow: 0 0 3px #70f5d760; }
+.lane-scratch .lane-id { font-size: 12px; }
+.lane-caption { font-size: 14px; line-height: 20px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left; }
+.lane-order[data-ready="false"] .lane-key .lane-face { opacity: .3; }
+.game-chart[data-double="true"] { width: 472px; }
+.game-chart[data-double="true"] .lane-orders { flex-direction: row; gap: 16px; }
 .game-chart[data-double="true"] .lane-order { flex: 1; }
 .song-bpm { display: inline-flex; align-items: center; gap: 7px; font-size: 11px; color: var(--accent); }
 /* The right end of the glass is lower than the rest of the display. */
