@@ -440,7 +440,7 @@ async fn serves_static_assets_live_snapshots_and_releases_port_on_shutdown() {
             .json::<serde_json::Value>()
             .await
             .unwrap(),
-        serde_json::json!({"phase": "idle", "song": null, "players": [], "lane_order": []})
+        serde_json::json!({"phase": "idle", "song": null, "players": [], "lane_order": [], "playback": null})
     );
     for private in [
         "bilimani.toml",

@@ -46,6 +46,19 @@ class PreviewTests(unittest.TestCase):
         self.assertEqual(timeline.snapshot(23.2), timeline.snapshot(23.2))
         self.assertEqual(source, self.scenario)
 
+    def test_playback_snapshots_advance_reset_and_do_not_mutate_source(self):
+        scenario = {'duration': 10, 'steps': [
+            {'at': 0, 'set': {'now_playing': {'phase': 'playing', 'playback': {'position_ms': 1000, 'duration_ms': 5000}}}},
+            {'at': 6, 'set': {'now_playing': {'phase': 'playing', 'playback': {'position_ms': 0, 'duration_ms': 5000}}}},
+            {'at': 9, 'set': {'now_playing': {'phase': 'idle', 'playback': None}}},
+        ]}
+        timeline = Timeline(scenario)
+        for at, expected in [(2, 3000), (5, 5000), (6, 0), (7, 1000), (12, 3000)]:
+            self.assertEqual(timeline.snapshot(at)['now_playing']['playback']['position_ms'], expected)
+        self.assertIsNone(timeline.snapshot(9)['now_playing']['playback'])
+        self.assertEqual(timeline.snapshot(2), timeline.snapshot(2))
+        self.assertEqual(scenario['steps'][0]['set']['now_playing']['playback']['position_ms'], 1000)
+
     def test_invalid_timing_and_feed_are_rejected_before_startup(self):
         for duration in (0, -1, float("nan"), float("inf")):
             with self.assertRaises(ValueError):

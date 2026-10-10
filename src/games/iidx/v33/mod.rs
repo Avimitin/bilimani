@@ -8,6 +8,7 @@ pub mod lane_order;
 mod native;
 #[cfg(windows)]
 mod native_density;
+pub mod playback;
 pub mod player;
 #[cfg(windows)]
 mod search_index;
@@ -65,6 +66,7 @@ impl crate::game::GameAdapter for Adapter {
                 format!("Input poll chain: {}", native::input_chain()),
             ),
             ("lane", native::lane_order_status().into()),
+            ("playback", native::playback_status().into()),
         ]
     }
     fn catalog(

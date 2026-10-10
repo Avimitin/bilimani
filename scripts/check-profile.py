@@ -47,8 +47,9 @@ guards = {
     0xaf158c: "6690f00fba2d8dadfb0a0072f5c3cccc",
     0xaf159c: "f00fba357fadfb0a00c3cccc4883ec28",
 }
-lane_source = pathlib.Path(__file__).resolve().parent.parent / 'src/games/iidx/v33/lane_order.rs'
-guards.update({int(rva, 16): code for rva, code in re.findall(r'\(0x([0-9a-f]+), "([0-9a-f]+)"\)', lane_source.read_text(encoding='utf-8'))})
+for module in ('lane_order', 'playback'):
+    source = pathlib.Path(__file__).resolve().parent.parent / f'src/games/iidx/v33/{module}.rs'
+    guards.update({int(rva, 16): code for rva, code in re.findall(r'\(0x([0-9a-f]+), "([0-9a-f]+)"\)', source.read_text(encoding='utf-8'))})
 for rva, expected in guards.items():
     assert read(rva, 16).hex() == expected, f"Function guard mismatch at {rva:x}"
 for slot, expected in [(13, 0x8eb820), (14, 0x8ebeb0), (15, 0x8ec1f0)]:

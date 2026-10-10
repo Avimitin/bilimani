@@ -159,6 +159,9 @@
 .density-hot { fill: #a16b37; filter: drop-shadow(0 0 1px #a16b3740); }
 .density-scratch { fill: #a8f5cd; }
 .density-cap { fill: #e0ffdf; opacity: .65; }
+.density-column[data-played="false"] :is(.density-notes, .density-scratch) { fill: #19382b; filter: none; }
+.density-column[data-played="false"] .density-hot { fill: #30271b; filter: none; }
+.density-column[data-played="false"] .density-cap { fill: #264233; opacity: .4; }
 .density-ticks { fill: #8f6038; }
 .density-empty { font-size: 15px; line-height: 72px; color: var(--muted); }
 .song-densities:has(.song-density:nth-child(2)) .song-density svg { height: 30px; }

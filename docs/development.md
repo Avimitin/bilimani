@@ -162,7 +162,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "& ./scripts/build.ps1 -C
   },
   "players": [{"side": 2, "chart": {"mode": "SP", "id": "SPA"}}],
   "lane_order": [{"side": 2, "random": "random", "mirror": false,
-                  "status": "ready", "keys": [3, 4, 5, 2, 1, 6, 7]}]
+                  "status": "ready", "keys": [3, 4, 5, 2, 1, 6, 7]}],
+  "playback": {"position_ms": 3200, "duration_ms": 6500}
 }
 ```
 
@@ -179,11 +180,21 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "& ./scripts/build.ps1 -C
 | `lane_counts` | 每个难度的原谱七键／转盘数量；尚未分析或异常时为 `null`，不受随机选项影响 |
 | `players` | 每个参与侧及其选中谱面；`side` 为 1 或 2，通过 `chart.id` 关联 `charts` |
 | `lane_order` | 每个物理侧的随机选项和实际七键排列；空闲或选项不可读时为空数组，详见下文 |
+| `playback` | 原生谱面时钟，包含 `position_ms` 和 `duration_ms`；非演奏或不可用时为 `null` |
 
 普通选曲在原生更新完成后每 250ms 采集一次；切换难度和手动选歌都更新。弹窗期间保留最近
 一次有效选曲，离开选曲清空。进入 stage 后从实际演奏上下文重新采集，不沿用上一首选曲；
 stage 清理时立即清空。特殊选曲画面暂不采集选曲信息，其支持的 stage 仍可报告演奏曲目。
-本版提供谱面 BPM 范围，尚未采集演奏进度、瞬时 BPM 或实时判定分数。
+本版提供谱面 BPM 范围和演奏进度，尚未采集瞬时 BPM 或实时判定分数。
+
+`playback` 直接读取游戏当前谱面帧和结束帧，按加载谱面时的帧率转换成毫秒，
+与 `density` 的时间原点相同，精度约为一帧。演奏回调后最多每 250ms 采样一次，
+通过 `/api/now-playing` 和 `/api/state.now_playing` 发布；HTTP 不访问原生指针。
+时钟停止时数值不增加，同一 stage 重试时可以回退到 0，网页不使用本地计时补间。
+未加载、字段异常或进度接口不兼容时返回 `null`，不会使用上次的进度。
+原生结束前最后一次采样可能略小于总时长，不据此推断通关／失败。
+`bilimani.log` 的 `[playback]` 项记录接口启用情况；进度接口单独失败不影响键位和网页，
+共用的演奏更新回调不兼容时同时停用进度与键位采样，核心点歌和网页仍可运行。
 
 `lane_order[].side` 为物理侧 1 或 2，DP 同时返回两侧。`random` 为 `off`、`random`、
 `r_random` 或 `s_random`，`mirror` 单独表示 MIRROR 开关。`keys` 从实际左至右七键排列，

@@ -98,6 +98,7 @@ pub fn decode(
         }),
         players,
         lane_order: Vec::new(),
+        playback: None,
     })
 }
 

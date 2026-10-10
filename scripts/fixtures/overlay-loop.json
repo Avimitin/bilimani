@@ -370,6 +370,7 @@
       "set": {
         "now_playing": {
           "phase": "playing",
+          "playback": {"position_ms": 35000, "duration_ms": 125000},
           "lane_order": [{"side": 1, "random": "random", "mirror": false, "status": "ready", "keys": [3, 4, 5, 2, 1, 6, 7]}],
           "song": {
             "id": 33001,

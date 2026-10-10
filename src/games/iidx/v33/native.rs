@@ -49,6 +49,8 @@ struct Adapter {
     input_chain: String,
     lane_order_enabled: bool,
     lane_order_status: String,
+    playback_enabled: bool,
+    playback_status: String,
 }
 static ADAPTER: OnceLock<Adapter> = OnceLock::new();
 pub static DISABLED: AtomicBool = AtomicBool::new(false);
@@ -90,6 +92,24 @@ pub fn lane_order_status() -> &'static str {
     })
 }
 
+pub fn playback_status() -> &'static str {
+    ADAPTER
+        .get()
+        .map_or("not installed", |adapter| adapter.playback_status.as_str())
+}
+
+fn inspect_playback(base: usize) -> Result<()> {
+    for &(rva, expected) in super::playback::GUARDS {
+        let observed = read_memory(base + rva, 16)?;
+        ensure!(
+            observed == hex::decode(expected)?,
+            "Playback function at RVA {rva:x} was changed; observed={}",
+            hex::encode(&observed)
+        );
+    }
+    inspect_stage_updates(base)
+}
+
 fn inspect_lane_order(base: usize) -> Result<String> {
     let mut status = "Lane-order sampling enabled".to_owned();
     for &(rva, expected) in super::lane_order::GUARDS {
@@ -111,6 +131,11 @@ fn inspect_lane_order(base: usize) -> Result<String> {
             hex::encode(&observed)
         );
     }
+    inspect_stage_updates(base)?;
+    Ok(status)
+}
+
+fn inspect_stage_updates(base: usize) -> Result<()> {
     for &table in STAGES {
         let target = read_memory(base + table + 15 * 8, 8)?;
         let observed = usize::from_le_bytes(target.try_into().unwrap());
@@ -124,7 +149,7 @@ fn inspect_lane_order(base: usize) -> Result<String> {
             "Unexpected stage update at vtable RVA {table:x}; observed={observed:x}"
         );
     }
-    Ok(status)
+    Ok(())
 }
 
 /// Read-only diagnostics. Native callbacks update counters; disk IO stays on the worker.
@@ -165,7 +190,7 @@ pub struct Mailbox {
     pub snapshot: Snapshot,
     pub now_playing: NowPlaying,
     song_sample_at: Option<Instant>,
-    lane_sample_at: Option<Instant>,
+    stage_sample_at: Option<Instant>,
     pub plays: u64,
     pub command: Option<Selection>,
     pub ack: Option<Ack>,
@@ -186,9 +211,10 @@ pub static MAILBOX: Mutex<Mailbox> = Mutex::new(Mailbox {
         song: None,
         players: Vec::new(),
         lane_order: Vec::new(),
+        playback: None,
     },
     song_sample_at: None,
-    lane_sample_at: None,
+    stage_sample_at: None,
     plays: 0,
     command: None,
     ack: None,
@@ -243,6 +269,16 @@ pub fn install(image: ModuleImage) -> Result<()> {
             format!("Lane-order sampling disabled: {error:#}; other features remain available"),
         ),
     };
+    let (playback_enabled, playback_status) = match inspect_playback(base) {
+        Ok(()) => (
+            true,
+            "Playback sampling enabled (native chart clock)".into(),
+        ),
+        Err(error) => (
+            false,
+            format!("Playback sampling disabled: {error:#}; other features remain available"),
+        ),
+    };
     let input_chain = super::input_hook::inspect(
         base + super::input_hook::RVA,
         read_memory,
@@ -258,7 +294,7 @@ pub fn install(image: ModuleImage) -> Result<()> {
     })?
     .map_or_else(|| "native".into(), |module| format!("MinHook -> {module}"));
     let mut hooks = Vec::new();
-    let stage_slots: &[usize] = if lane_order_enabled {
+    let stage_slots: &[usize] = if lane_order_enabled || playback_enabled {
         &[13, 14, 15]
     } else {
         &[13, 14]
@@ -301,6 +337,8 @@ pub fn install(image: ModuleImage) -> Result<()> {
             input_chain,
             lane_order_enabled,
             lane_order_status,
+            playback_enabled,
+            playback_status,
         })
         .map_err(|_| anyhow::anyhow!("Hooks already installed"))?;
     let adapter = ADAPTER.get().unwrap();
@@ -633,7 +671,7 @@ unsafe extern "system" fn stage_init(this: usize, a2: usize, a3: usize, a4: usiz
         m.plays += 1;
         m.snapshot.phase = Phase::Playing;
         m.now_playing = NowPlaying::default();
-        m.lane_sample_at = None;
+        m.stage_sample_at = None;
         cancel_command(&mut m);
         reset_input(&mut m);
     });
@@ -672,24 +710,27 @@ unsafe extern "system" fn stage_update(this: usize, a2: usize, a3: usize, a4: us
         let players = {
             let mut m = MAILBOX.lock().unwrap();
             if m.now_playing.phase != SongPhase::Playing
-                || m.lane_sample_at
+                || m.stage_sample_at
                     .is_some_and(|last| now.duration_since(last) < Duration::from_millis(250))
             {
                 return;
             }
-            m.lane_sample_at = Some(now);
+            m.stage_sample_at = Some(now);
             m.now_playing.players.clone()
         };
         // Retry can generate a different permutation without leaving the stage.
         // Sample after the game update; only owned arrays reach HTTP.
-        let lanes = super::lane_order::capture(
-            ADAPTER.get().unwrap().base,
-            SongPhase::Playing,
-            &players,
-            read_memory,
-        )
-        .unwrap_or_default();
-        MAILBOX.lock().unwrap().now_playing.lane_order = lanes;
+        let adapter = ADAPTER.get().unwrap();
+        let lanes = if adapter.lane_order_enabled {
+            super::lane_order::capture(adapter.base, SongPhase::Playing, &players, read_memory)
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        let playback = capture_playback(SongPhase::Playing);
+        let mut m = MAILBOX.lock().unwrap();
+        m.now_playing.lane_order = lanes;
+        m.now_playing.playback = playback;
     });
     result
 }
@@ -698,11 +739,21 @@ unsafe extern "system" fn stage_exit(this: usize, a2: usize, a3: usize, a4: usiz
     guard(|| {
         let mut m = MAILBOX.lock().unwrap();
         m.now_playing = NowPlaying::default();
-        m.lane_sample_at = None;
+        m.stage_sample_at = None;
         m.snapshot.phase = Phase::Other;
         m.snapshot.can_skip = false;
     });
     original(this, 14)(this, a2, a3, a4)
+}
+
+fn capture_playback(phase: SongPhase) -> Option<crate::game::PlaybackProgress> {
+    let adapter = ADAPTER.get()?;
+    if !adapter.playback_enabled {
+        return None;
+    }
+    super::playback::capture(adapter.base, phase, read_memory)
+        .ok()
+        .flatten()
 }
 
 unsafe fn decode_song(
@@ -737,6 +788,7 @@ unsafe fn decode_song(
     if ADAPTER.get().unwrap().lane_order_enabled {
         super::lane_order::apply(ADAPTER.get().unwrap().base, &mut playing, read_memory);
     }
+    playing.playback = capture_playback(phase);
     Ok(playing)
 }
 

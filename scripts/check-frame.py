@@ -398,7 +398,7 @@ with sync_playwright() as p:
     assert page.locator('.song-radar svg').bounding_box()['height'] == 116
     expect(page.locator('.song-density svg')).to_have_count(1)
     expect(page.locator('.density-heading')).to_contain_text('峰值 42 个/秒')
-    expect(page.locator('.density-axis')).to_have_text('0:0000:07')
+    expect(page.locator('.density-axis')).to_have_text('00:0000:07')
     expect(page.locator('.song-density svg')).to_have_attribute('data-bin-ms', '5000')
     expect(page.locator('.density-column')).to_have_count(2)
     # 45 native notes in the first five seconds = 9/s. The silent tail is a
@@ -407,6 +407,31 @@ with sync_playwright() as p:
     expect(page.locator('.density-column').last).to_have_attribute('data-average', '0.000')
     assert page.locator('.density-column .density-hot').first.get_attribute('d')
     assert page.locator('.density-column .density-notes').last.get_attribute('d') == ''
+    expect(page.locator('.density-column[data-played="true"]')).to_have_count(0)
+    expect(page.locator('.density-notes').first).to_have_css('fill', 'rgb(25, 56, 43)')
+    # Native snapshots alone control illumination: exact boundaries, frozen
+    # clocks, retry, absent/invalid data, and a refresh in the middle of a song.
+    payload['now_playing'].update(phase='playing', playback=dict(position_ms=0, duration_ms=6500))
+    expect(page.locator('.density-column[data-played="true"]')).to_have_count(0)
+    payload['now_playing']['playback']['position_ms'] = 1
+    expect(page.locator('.density-column[data-played="true"]')).to_have_count(1)
+    expect(page.locator('.density-notes').first).to_have_css('fill', 'rgb(87, 219, 178)')
+    page.evaluate('window.songPanel = document.querySelector(".game-identity"); window.densityPlot = document.querySelector(".song-density svg")')
+    for position, count in [(4999, 1), (5000, 2), (6500, 2), (0, 0), (2500, 1)]:
+        payload['now_playing']['playback']['position_ms'] = position
+        expect(page.locator('.density-elapsed')).to_have_text(f'00:{position // 1000:02d}')
+        expect(page.locator('.density-column[data-played="true"]')).to_have_count(count)
+        assert page.evaluate('window.songPanel === document.querySelector(".game-identity") && window.densityPlot === document.querySelector(".song-density svg")')
+    page.wait_for_timeout(800)
+    expect(page.locator('.density-elapsed')).to_have_text('00:02')
+    page.reload()
+    expect(page.locator('.density-column[data-played="true"]')).to_have_count(1)
+    for bad in [None, {}, dict(position_ms=-1, duration_ms=6500), dict(position_ms=6501, duration_ms=6500)]:
+        payload['now_playing']['playback'] = bad
+        expect(page.locator('.density-column[data-played="true"]')).to_have_count(0)
+    del payload['now_playing']['playback']
+    expect(page.locator('.density-column[data-played="true"]')).to_have_count(0)
+    payload['now_playing'] = copy.deepcopy(game)
     def metadata_bounded():
         bounded()
         outer = page.locator('.frame-current').bounding_box()
@@ -472,6 +497,17 @@ with sync_playwright() as p:
     expect(page.locator('.density-column')).to_have_count(19)
     expect(page.locator('.density-column').first).to_have_attribute('data-average', '2.000')
     expect(page.locator('.density-column').last).to_have_attribute('data-average', '1.333')
+    payload['now_playing'].update(phase='playing', playback=dict(position_ms=9999, duration_ms=181500))
+    expect(page.locator('.density-column[data-played="true"]')).to_have_count(1)
+    payload['now_playing']['playback']['position_ms'] = 10000
+    expect(page.locator('.density-column[data-played="true"]')).to_have_count(2)
+    payload['now_playing']['playback']['position_ms'] = 85000
+    expect(page.locator('.density-column[data-played="true"]')).to_have_count(9)
+    page.locator('.frame-current').screenshot(path=str(shots / 'frame-density-progress.png'), omit_background=True)
+    payload['now_playing']['playback']['position_ms'] = 181500
+    expect(page.locator('.density-column[data-played="true"]')).to_have_count(19)
+    payload['now_playing']['phase'] = 'selecting'
+    expect(page.locator('.density-column[data-played="true"]')).to_have_count(0)
     payload['now_playing'] = copy.deepcopy(game)
     expect(page.locator('.song-density svg')).to_have_attribute('data-bin-ms', '5000')
     payload['now_playing']['song']['title'] = injection + '长曲名' * 40
@@ -488,6 +524,8 @@ with sync_playwright() as p:
     payload['now_playing']['players'].append(dict(side=1, chart=other_chart['chart']))
     expect(page.locator('.game-chart')).to_have_count(2)
     expect(page.locator('.song-density svg')).to_have_count(2)
+    payload['now_playing']['playback'] = dict(position_ms=5000, duration_ms=6500)
+    expect(page.locator('.density-column[data-played="true"]')).to_have_count(4)
     metadata_bounded()
     for size in [(1280, 720), (960, 540)]:
         page.set_viewport_size(dict(width=size[0], height=size[1]))

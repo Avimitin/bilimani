@@ -50,10 +50,10 @@ class Timeline:
             "version": "preview", "connected": True, "ready": True,
             "status": "模拟直播间已连接", "capacity": 20, "room": None,
             "current": None, "queue": [], "pending": [], "notices": [],
-            "now_playing": {"phase": "idle", "song": None, "players": []},
+            "now_playing": {"phase": "idle", "song": None, "players": [], "lane_order": [], "playback": None},
             "feed": [], "feed_limit": self.limit,
         }
-        current_since = pending_since = 0
+        current_since = pending_since = playback_since = 0
         next_id = int(cycle) * max(1, self.messages) + 1
         for step in self.steps:
             if step["at"] > offset:
@@ -64,6 +64,8 @@ class Timeline:
                 current_since = step["at"]
             if "pending" in patch:
                 pending_since = step["at"]
+            if "now_playing" in patch:
+                playback_since = step["at"]
             if step.get("clear_feed"):
                 state["feed"] = []
             for entry in step.get("feed", []):
@@ -78,6 +80,11 @@ class Timeline:
             current["remaining"] = max(0, math.ceil(current.get("remaining", 0) - (offset - current_since)))
         for choice in state["pending"]:
             choice["remaining"] = max(0, math.ceil(choice.get("remaining", 0) - (offset - pending_since)))
+        game = state['now_playing']
+        clock = game.get('playback')
+        if game['phase'] == 'playing' and clock:
+            # Preview only: emulate clock snapshots produced by native gameplay.
+            clock['position_ms'] = min(clock['duration_ms'], clock['position_ms'] + int((offset - playback_since) * 1000))
         return state
 
 

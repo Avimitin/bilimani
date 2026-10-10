@@ -48,6 +48,14 @@ pub struct NowPlaying {
     pub players: Vec<PlayerChart>,
     /// Physical lanes, left to right; empty when the adapter cannot sample them.
     pub lane_order: Vec<LaneOrder>,
+    /// Native chart clock; absent outside gameplay or when unavailable.
+    pub playback: Option<PlaybackProgress>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub struct PlaybackProgress {
+    pub position_ms: u32,
+    pub duration_ms: u32,
 }
 
 #[derive(Clone, Debug, Serialize)]

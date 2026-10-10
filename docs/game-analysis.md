@@ -428,6 +428,60 @@ its delta. It does not mask Start, service keys or the other side. Closing keeps
 held menu keys masked until release. Layout masking and edge/repeat behavior
 have independent tests; native timing and scratch direction require live testing.
 
+## Native chart playback clock
+
+Implementation: `playback.rs`, same supported image/hash as above. RVAs were
+verified in IDA; no timing function is called or hooked directly.
+
+| RVA / offset | Evidence |
+| --- | --- |
+| `0x824af0` → `0xa7f1da0` | Sequence singleton accessor |
+| Sequence `+0x2a29f8` | Current consumed chart frame (`i32`) |
+| Sequence `+0x2a2a10` | Conversion FPS captured at chart load (`f32`) |
+| `0x8297e0` → `0xaaad6c0` | Timeline singleton accessor |
+| Timeline `+96` | End frame from chart event type 6 (`i32`) |
+| `0x8245c0` | Prepare/load: clears current frame, captures FPS, resets timeline |
+| `0x8268b0` / `0x8286a0` | Converts .1 milliseconds to frames with `int(ms / (1000/FPS) + 0.40000001)` |
+| `0x828cd0` | Publishes end frame and builds BPM/scroll-position timeline |
+| `0x824b00` | Sequencer tick: consumes frames toward timeline `+92`, schedules the next frame |
+
+The .1 conversion does not subtract an origin. `frame * 1000 / captured_fps`
+therefore aligns with the existing density bins to within frame quantization.
+Do not use timeline `+32` (BPM), `0x8291a0` (scroll position), the scene state
+machine frame counter, or subtract `0x81c9e0`'s BGM-start frame. The live FPS
+configuration can be recalibrated at song end; use the rate captured for this
+chart. `0x90f2d0 → 0x90f270 → 0x90de60 → 0x824b00` drives normal playback;
+`0x8fbc20` also invokes the sequencer. Sampling is not gated on one normal-stage
+state handler, so the shared clock can support other guarded stage classes.
+
+The existing stage callback reads 28 bytes around current frame/FPS and 4 bytes
+for end frame after the original update, at most 4 Hz. All published data is
+owned. No HTTP or worker thread dereferences these addresses. Invalid/unloaded
+clocks return `null`: FPS must be finite in 30..1000, end positive, duration at
+most one hour, and current within 0..end+1 (the end boundary is clamped).
+Outside `playing`, no clock reads occur. Stage exit clears the snapshot.
+
+The sequencer's scheduling gate at sequence `+2763261` can stop time advancing;
+same-stage retry (`0x90f420` calling prepare) resets it. Do not extrapolate with
+wall time or preserve a maximum across snapshots. A normal final snapshot can
+be a frame short of end; failure is not treated as full completion. The UI lights
+each 5/10-second density column when playback enters its interval, keeps the
+future histogram dim, and resets on zero/unavailable progress. At position zero
+all columns remain off. Clock-only updates preserve the existing song DOM.
+
+Playback guards and lane guards fail independently. Both require intact stage
+update vtables; only if both features are disabled is slot 15 left untouched.
+An optional failure never prevents the core adapter or web server from starting.
+`[playback]` logs the enabled/disabled result and incompatible bytes/slot.
+
+Unit tests cover frame conversion, fractional FPS and corrupt/short snapshots.
+DLL smoke tests exercise actual callback-to-HTTP publication with synthetic
+native clock values, including frozen time, retry, invalid-clock clearing,
+recovery, cleanup and independent guard failures. Browser checks cover exact
+5/10-second boundaries, absent data, refresh, backwards progress, two-player
+plots and stable DOM identity. These verify the integration with a private
+mapped image; synchronization against audible music still needs live gameplay.
+
 ## Validation boundary
 
 `scripts/check-profile.py` checks the file hash, architecture, function guards and

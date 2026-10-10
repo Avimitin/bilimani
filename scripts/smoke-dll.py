@@ -5,6 +5,7 @@ Additional options: --occupied-port --no-sdk-input --sdk-renderer --profiles
 --song-info exercises song callbacks with synthetic records and stubbed originals.
 --lane-generator-patch simulates an existing hook on the RANDOM generator.
 --bad-lane-layout / --bad-lane-update verify optional lane-only degradation.
+--bad-playback verifies that an incompatible clock does not affect other features.
 Requires the built release DLL and the ignored local game copy for positive mode.
 Artifacts remain under analysis/smoke-* for inspection.
 """
@@ -31,6 +32,8 @@ lane_generator_patch = "--lane-generator-patch" in sys.argv
 bad_lane_layout = "--bad-lane-layout" in sys.argv
 bad_lane_update = "--bad-lane-update" in sys.argv
 lane_disabled = bad_lane_layout or bad_lane_update
+bad_playback = "--bad-playback" in sys.argv
+playback_disabled = bad_playback or bad_lane_update
 bad_input_detour = "--bad-input-detour" in sys.argv
 input_detour = "--input-detour" in sys.argv or bad_input_detour
 startup_rejected = reject or bad_input_detour
@@ -67,7 +70,7 @@ if not reject:
     # callbacks and the game entry point from running. Never call game exports.
     game = kernel.LoadLibraryExW(str(root / "analysis/bm2dx.dll"), None, 1)
     assert game, ctypes.WinError(ctypes.get_last_error())
-if input_detour or song_info or lane_generator_patch or lane_disabled:
+if input_detour or song_info or lane_generator_patch or lane_disabled or bad_playback:
     # Synthetic MinHook x64 entry + relay in this process's private image.
     # Route to a real loaded executable module, never to the game body.
     kernel.VirtualProtect.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_uint32,
@@ -110,6 +113,8 @@ if bad_lane_layout:
     patch(game + 0x897890, b'\xc3')
 if bad_lane_update:
     patch(game + 0xda50a8 + 15 * 8, struct.pack('<Q', game + 0x933640))
+if bad_playback:
+    patch(game + 0x824b00, b'\xc3')
 plugin = ctypes.CDLL(str(dll_path))
 plugin.bilimani_shutdown.argtypes = []
 plugin.bilimani_shutdown.restype = None
@@ -156,13 +161,13 @@ else:
             assert state["ready"] is False and state["queue"] == []
             assert state["feed"] == [] and state["feed_limit"] == 10
         with urllib.request.urlopen(f"http://127.0.0.1:{overlay_port}/api/now-playing", timeout=3) as response:
-            assert json.load(response) == state["now_playing"] == dict(phase="idle", song=None, players=[], lane_order=[])
+            assert json.load(response) == state["now_playing"] == dict(phase="idle", song=None, players=[], lane_order=[], playback=None)
     for table, slot, rva in [(0xd84788, 13, 0x8eb820), (0xd84788, 14, 0x8ebeb0),
                              (0xd84788, 15, 0x8ec1f0), (0xce9f40, 1, 0x7f2fd0),
                              (0xdd05c0, 3, 0xa7a2f0), (0xda50a8, 14, 0x933640),
                              (0xda50a8, 15, 0x9336a0), (0xdae728, 15, 0x8d2350)]:
         hooked = ctypes.c_void_p.from_address(game + table + slot*8).value
-        if lane_disabled and table in (0xda50a8, 0xdae728) and slot == 15:
+        if lane_disabled and playback_disabled and table in (0xda50a8, 0xdae728) and slot == 15:
             expected = 0x933640 if bad_lane_update and table == 0xda50a8 else rva
             assert hooked == game + expected, 'Disabled lane sampler modified a stage update'
             continue
@@ -176,6 +181,7 @@ else:
         assert ctypes.string_at(lane_generator, 16) == generator_patch
     else:
         assert 'Lane-order sampling enabled' in text, text
+    assert ('Playback sampling disabled:' if playback_disabled else 'Playback sampling enabled') in text, text
     if input_detour:
         assert "Input poll chain: MinHook -> " in text, text
         assert ctypes.string_at(input_entry, 16) == patched_entry
@@ -290,6 +296,13 @@ if song_info:
         for key, destination in enumerate(values):
             ctypes.c_uint32.from_address(game + 0xa7ef580 + side * 32 + key * 4).value = destination
 
+    def playback_clock(frame, fps=120.0):
+        ctypes.c_int32.from_address(game + 0xa7f1da0 + 0x2a29f8).value = frame
+        ctypes.c_float.from_address(game + 0xa7f1da0 + 0x2a2a10).value = fps
+        ctypes.c_int32.from_address(game + 0xaaad6c0 + 96).value = 18000
+
+    playback_clock(0)
+
     for side in range(2):
         lane_table(side, range(8))
     callback = ctypes.CFUNCTYPE(ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_size_t, ctypes.c_size_t)
@@ -299,7 +312,7 @@ if song_info:
         address = ctypes.c_void_p.from_address(table + slot * 8).value
         return callback(address)(ctypes.addressof(instance), 0, 0, 0)
 
-    def wait_song(phase, title, chart_id=None, keys=None, lane_status=None):
+    def wait_song(phase, title, chart_id=None, keys=None, lane_status=None, position=None):
         deadline = time.monotonic() + 3
         while time.monotonic() < deadline:
             with urllib.request.urlopen(f'http://127.0.0.1:{overlay_port}/api/now-playing', timeout=2) as response:
@@ -307,7 +320,8 @@ if song_info:
             if (data['phase'] == phase and (data['song'] or {}).get('title') == title
                     and (chart_id is None or data['players'][0]['chart']['id'] == chart_id)
                     and (keys is None or data['lane_order'][0]['keys'] == keys)
-                    and (lane_status is None or data['lane_order'][0]['status'] == lane_status)):
+                    and (lane_status is None or data['lane_order'][0]['status'] == lane_status)
+                    and (position is None or (data.get('playback') or {}).get('position_ms') == position)):
                 return data
             time.sleep(.05)
         raise AssertionError(f'Song snapshot not published: {phase} {title}: {data}')
@@ -315,6 +329,7 @@ if song_info:
     assert invoke(scene, 13) == 71
     assert invoke(scene, 15) == 73
     data = wait_song('selecting', 'Manual selection fixture')
+    assert data['playback'] is None
     assert [p['side'] for p in data['players']] == [1, 2]
     chart = data['song']['charts'][0]
     assert chart['bpm'] == dict(min=100, max=200) and chart['note_count'] == 1234
@@ -414,6 +429,26 @@ if song_info:
     lane_table(0, [4, 3, 0, 1, 2, 5, 6, 7])
     assert invoke(stage, 13) == 74
     cached = wait_song('playing', 'Manual selection fixture')
+    assert cached['playback'] == (None if playback_disabled else dict(position_ms=0, duration_ms=150000))
+    if not playback_disabled:
+        for frame in [600, 1200, 1200, 0, 17999]:  # advance, pause, retry, end
+            playback_clock(frame)
+            time.sleep(.3)
+            assert invoke(stage, 15) == 76
+            current = wait_song('playing', 'Manual selection fixture', position=round(frame * 1000 / 120))
+            assert current['playback']['duration_ms'] == 150000
+            with urllib.request.urlopen(f'http://127.0.0.1:{overlay_port}/api/state', timeout=2) as response:
+                assert json.load(response)['now_playing']['playback'] == current['playback']
+        playback_clock(600, float('nan'))
+        time.sleep(.3)
+        invoke(stage, 15)
+        time.sleep(.3)
+        assert wait_song('playing', 'Manual selection fixture')['playback'] is None
+        playback_clock(0)
+        time.sleep(.3)
+        invoke(stage, 15)
+        wait_song('playing', 'Manual selection fixture', position=0)
+        print('PASS: native playback clock -> both HTTP snapshots; advance, pause, retry, invalid clock clearing and recovery')
     assert cached['song']['charts'][0]['density']['notes'] == [0, 2, 42, 1]
     assert cached['song']['charts'][0]['lane_counts']['sides'][0]['keys'] == [1,2,3,4,5,6,21]
     with urllib.request.urlopen(f'http://127.0.0.1:{overlay_port}/api/lane-order', timeout=2) as response:
@@ -448,7 +483,8 @@ if song_info:
         dynamic = wait_song('playing', 'Manual selection fixture', lane_status='dynamic')
         assert dynamic['lane_order'][0]['keys'] is None
     assert invoke(stage, 14) == 75
-    assert wait_song('idle', None)['lane_order'] == []
+    cleared = wait_song('idle', None)
+    assert cleared['lane_order'] == [] and cleared['playback'] is None
     ctypes.c_void_p.from_address(game + 0xabac028).value = ctypes.addressof(stage_record)
     assert invoke(stage, 13) == 74
     different = wait_song('playing', 'Actual stage fixture')

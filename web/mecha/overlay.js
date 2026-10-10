@@ -96,7 +96,10 @@
   function renderNowPlaying(game, offline) {
     signatures.delete("current");
     const song = offline ? null : game.song;
-    changed("game-song", [game, offline], () => {
+    // Clock snapshots arrive independently; do not rebuild the song panel on
+    // every tick (or restart its VFD glow and title layout).
+    const {playback, ...metadata} = game;
+    changed("game-song", [metadata, offline], () => {
       const box = $("current-content");
       box.classList.add("game-content");
       box.replaceChildren();
@@ -164,7 +167,24 @@
       }
       if (selected.length) box.append(radar(selected[0].info.radar, selected[0].player.side));
     });
+    updateDensityProgress(!offline && game.phase === "playing" ? playback : null);
     progress($("current-progress"), 0, 1);
+  }
+  function updateDensityProgress(playback) {
+    const valid = playback && Number.isInteger(playback.position_ms) && playback.position_ms >= 0
+      && Number.isInteger(playback.duration_ms) && playback.duration_ms > 0
+      && playback.duration_ms <= 3600000 && playback.position_ms <= playback.duration_ms;
+    // Follow the native clock, including a frozen clock or a retry moving it
+    // backwards. Missing data never continues advancing on a browser timer.
+    const position = valid ? playback.position_ms : 0;
+    document.querySelectorAll(".song-density svg").forEach((svg) => {
+      const elapsed = Math.min(position, Number(svg.dataset.durationMs));
+      svg.querySelectorAll(".density-column").forEach((column) => {
+        const played = String(elapsed > 0 && elapsed >= Number(column.dataset.startMs));
+        if (column.dataset.played !== played) column.dataset.played = played;
+      });
+      text(svg.parentElement.querySelector(".density-elapsed"), clock(Math.floor(elapsed / 1000)));
+    });
   }
   function laneOrder(value, side, showSide, info) {
     const wrap = node("div", "lane-order");
@@ -262,6 +282,7 @@
     svg.setAttribute("role", "img");
     svg.setAttribute("aria-label", `${side}P ${chartId} 谱面密度，每 ${binMs / 1000} 秒平均，每秒峰值 ${peak}`);
     svg.dataset.binMs = binMs;
+    svg.dataset.durationMs = values.duration_ms;
     const appendPath = (parent, className, d) => {
       const path = document.createElementNS(svg.namespaceURI, "path");
       path.setAttribute("class", className);
@@ -278,6 +299,8 @@
       const group = document.createElementNS(svg.namespaceURI, "g");
       group.setAttribute("class", "density-column");
       group.dataset.average = column.notes.toFixed(3);
+      group.dataset.startMs = column.start;
+      group.dataset.played = "false";
       const title = document.createElementNS(svg.namespaceURI, "title");
       title.textContent = `${clock(column.start / 1000)}–${clock(Math.ceil(column.end / 1000))} · 平均 ${column.notes.toFixed(1)} /秒 · 转盘 ${column.scratch.toFixed(1)} /秒`;
       group.append(title);
@@ -299,7 +322,7 @@
       svg.append(group);
     });
     const axis = node("div", "density-axis");
-    axis.append(node("span", "", "0:00"), node("span", "", clock(Math.ceil(values.duration_ms / 1000))));
+    axis.append(node("span", "density-elapsed", "0:00"), node("span", "", clock(Math.ceil(values.duration_ms / 1000))));
     wrap.append(svg, axis);
     return wrap;
   }
