@@ -1,5 +1,5 @@
 {
-  "description": "循环预览：连接、手动选曲、BPM/难度/雷达、点歌队列、9 个候选、演奏、历史溢出、清空与重连；所有曲目参数均为模拟值",
+  "description": "循环预览：连接、手动选曲、BPM/随机键位/雷达、点歌队列、9 个候选、演奏、历史溢出、清空与重连；所有曲目参数均为模拟值",
   "duration": 42,
   "feed_limit": 10,
   "steps": [
@@ -38,6 +38,7 @@
       "set": {
         "now_playing": {
           "phase": "selecting",
+          "lane_order": [{"side": 1, "random": "off", "mirror": false, "status": "ready", "keys": [1, 2, 3, 4, 5, 6, 7]}],
           "song": {
             "id": 33001,
             "title": "Preview Orbit / 循环演示曲",
@@ -368,6 +369,7 @@
       "set": {
         "now_playing": {
           "phase": "playing",
+          "lane_order": [{"side": 1, "random": "random", "mirror": false, "status": "ready", "keys": [3, 4, 5, 2, 1, 6, 7]}],
           "song": {
             "id": 33001,
             "title": "Preview Orbit / 循环演示曲",

@@ -140,7 +140,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "& ./scripts/build.ps1 -C
 
 ```json
 {
-  "phase": "selecting",
+  "phase": "playing",
   "song": {
     "id": 33001,
     "title": "Example Song",
@@ -160,7 +160,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "& ./scripts/build.ps1 -C
                   "notes": [0, 2, 42, 1], "scratch": [0, 0, 2, 1]}
     }]
   },
-  "players": [{"side": 2, "chart": {"mode": "SP", "id": "SPA"}}]
+  "players": [{"side": 2, "chart": {"mode": "SP", "id": "SPA"}}],
+  "lane_order": [{"side": 2, "random": "random", "mirror": false,
+                  "status": "ready", "keys": [3, 4, 5, 2, 1, 6, 7]}]
 }
 ```
 
@@ -175,11 +177,27 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "& ./scripts/build.ps1 -C
 | `radar` | 六项数值，`100.0` 对应原生雷达的 100% 参考环；缺失时为 `null`，允许超过 100 |
 | `density` | 原生每秒 note 密度；未加载、不可用或异常时为 `null`，字段见下文 |
 | `players` | 每个参与侧及其选中谱面；`side` 为 1 或 2，通过 `chart.id` 关联 `charts` |
+| `lane_order` | 每个物理侧的随机选项和实际七键排列；空闲或选项不可读时为空数组，详见下文 |
 
 普通选曲在原生更新完成后每 250ms 采集一次；切换难度和手动选歌都更新。弹窗期间保留最近
 一次有效选曲，离开选曲清空。进入 stage 后从实际演奏上下文重新采集，不沿用上一首选曲；
 stage 清理时立即清空。特殊选曲画面暂不采集选曲信息，其支持的 stage 仍可报告演奏曲目。
 本版提供谱面 BPM 范围，尚未采集演奏进度、瞬时 BPM 或实时判定分数。
+
+`lane_order[].side` 为物理侧 1 或 2，DP 同时返回两侧。`random` 为 `off`、`random`、
+`r_random` 或 `s_random`，`mirror` 单独表示 MIRROR 开关。`keys` 从实际左至右七键排列，
+每个数字为该位置接收的原谱键号，不含转盘。例如 `[3,4,5,2,1,6,7]` 在网页显示为 `3452167`。
+未开随机／镜像为 `1234567`，单独 MIRROR 为 `7654321`。
+
+`status` 为 `ready` 时 `keys` 才是有效排列；选曲时 RANDOM／R-RANDOM 尚未生成本次排列，
+返回 `pending` 和 `null`。进入演奏后读取游戏实际生成的映射，每 250ms 在原生更新之后采样，
+覆盖不退出 stage 的重试。S-RANDOM 逐音符改变落点，没有固定七键排列，返回 `dynamic` 和
+`null`。读取失败、非法映射或开启 BEGINNER 动态辅助时返回 `unavailable` 和 `null`；
+无法读取选项时省略该侧，不能据此推断为 RANDOM OFF。切歌／退出场景时清除旧排列。
+采集仅复制已有状态，不调用会消耗随机数的游戏变换函数。
+已有插件对随机生成函数的修改可以保留；采样读取其最终键位表并检查排列是否合法。
+其他键位布局／回调不兼容时只停用 `lane_order`，网页及点歌功能继续运行；
+`bilimani.log` 的 `[lane]` 项记录是否启用、修改位置及实际字节。
 
 `density.bin_ms` 固定为 1000；`notes[i]` 是 `[i*1000, (i+1)*1000)` 毫秒内的原生
 加权 note 总数，`scratch[i]` 是其中的转盘数量，不能再加到总数上。长押沿用原生统计：
@@ -193,11 +211,12 @@ stage 清理时立即清空。特殊选曲画面暂不采集选曲信息，其�
 
 游戏回调只产生拥有独立内存的 Rust 数据；worker 每 100ms 发布快照，HTTP 请求不调用游戏。
 没有可用元数据时仍返回 200 和空状态；网页应正常处理 `null`、空 `players` 与空文本。
-Mecha 底栏展示曲名、曲风／作者、参与侧难度、BPM、音符数、密度及雷达；BPM 在难度上方，
-难度字号为 26px。每个参与侧有独立密度图、原生每秒峰值和时间轴。密度图宽 380px，
+Mecha 底栏展示曲名、曲风／作者、BPM、随机键位、密度及雷达。BPM 在七位键号上方，
+荧光底板上的深色粗体数字呈现镂空效果，左上方小字显示随机选项；底板下沿对齐密度图柱状区域下沿，DP 两侧键位左右并排。不再展示难度牌或音符数。
+每个参与侧有独立密度图、原生每秒峰值和时间轴。密度图宽 380px，
 按 5 秒窗口求平均（超过 3 分钟用 10 秒），以 12 段 VFD 灯条近似显示，末窗按实际时长求均值。
 低段青绿、高段暗橙，底部亮青绿表示总量中的转盘，空窗仍保留暗段；API 仍返回原生 1 秒数组。
-缺失时显示「暂无密度数据」。两侧都参与时显示两份难度和密度图，
+缺失时显示「暂无密度数据」。两侧都参与时显示各自键位和密度图，
 雷达注明其对应的首个参与侧。断线超过三秒清除歌曲，重连恢复。卡片样式维持点歌队列展示。
 
 Mecha 顶部提示为 20px、主播名为 22px，名字旁为内联 bilibili SVG；向下突出的梯形装甲
@@ -205,9 +224,10 @@ Mecha 顶部提示为 20px、主播名为 22px，名字旁为内联 bilibili SVG
 队列存在时让出固定 370px，队列隐藏时归还给弹幕；按实际行高显示最近消息，不裁切半行。
 
 `tests/song_info.rs` 覆盖记录索引与缺失数据，`tests/density.rs` 覆盖密度布局及读取边界，
+`tests/lane_order.rs` 覆盖映射方向、随机选项、SP/DP、原生后处理与异常状态，
 `tests/overlay.rs` 覆盖 API 发布及清空。
 `py scripts/smoke-dll.py --song-info` 使用私有映射与模拟原函数，验证真实 DLL 回调到 JSON 的
-链路、SP/DP、目录、stage 切换与清理。`scripts/check-frame.py` 验证手动选曲、双侧难度、雷达、
+链路、SP/DP、目录、stage 切换、重试键位更新与清理。`scripts/check-frame.py` 验证手动选曲、双侧键位、雷达、
 缺失值、超长文本转义、断线恢复和画面边界。上述模拟测试不等于真实游戏运行验证。
 
 ### 按时间表录制网页演示

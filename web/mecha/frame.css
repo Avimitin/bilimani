@@ -88,8 +88,6 @@
 .frame-current #current-content { display: flex; align-items: center; justify-content: space-between; gap: 36px; flex: 1; min-width: 0; }
 .frame-current .current-song { display: flex; align-items: center; gap: 18px; flex: 1; min-width: 0; }
 .frame-current .current-title { flex: 0 1 auto; min-width: 0; margin: 0; color: var(--text); font-size: var(--title-size); font-weight: 400; letter-spacing: .025em; text-shadow: 0 0 2px #b1ffe788, 0 0 9px #5fffcf35; }
-.frame-current .current-song .chart { flex: none; border-left: 1px solid #bfbfbf30; padding-left: 18px; font-size: 19px; font-weight: 400; letter-spacing: .06em; }
-.frame-current .current-song .chart[data-automatic="true"] { font-size: 14px; letter-spacing: 0; }
 .frame-current .current-meta { flex: 0 1 auto; gap: 28px; padding: 0; min-width: 0; }
 .frame-current .requester { font-size: 12px; flex: 0 1 auto; max-width: 230px; color: var(--muted); }
 .frame-current .remaining { font-size: 11px; color: var(--muted); }
@@ -105,46 +103,39 @@
 .song-identity-frame path { fill: none; stroke: url(#song-identity-phosphor); stroke-width: 1.5; stroke-linejoin: miter; vector-effect: non-scaling-stroke; }
 .game-identity .current-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; flex: none; white-space: normal; overflow-wrap: anywhere; font-size: var(--title-size); line-height: 34px; }
 .song-credits { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--muted); font-size: 13px; line-height: 20px; }
-.game-charts { display: flex; gap: 24px; flex: none; height: 118px; }
-/* Match the density stack; the notes line shares its time-axis baseline. */
+.game-charts { display: flex; gap: 24px; flex: none; height: 118px; padding-bottom: 22px; }
+/* Reserve the density time-axis height so the keyboard bottoms share its plot baseline. */
 .game-charts:has(.game-chart:nth-child(2)) { height: 160px; }
-.game-chart { min-width: 175px; display: flex; flex-direction: column; }
-.chart-summary { display: flex; flex: 1; flex-direction: column; justify-content: space-between; gap: 18px; align-items: flex-start; white-space: nowrap; }
-.frame-current .game-chart .chart { font-size: 26px; line-height: 30px; gap: .35em; opacity: 1; }
-.game-chart .chart-side { opacity: .85; }
-/* Dark lettering cuts through an unevenly lit honeycomb phosphor plate. */
-.game-chart .chart-difficulty {
-  --difficulty-core: #aeffe9; --difficulty-edge: #49ab96; --difficulty-glow: 112, 245, 215;
-  position: relative; isolation: isolate; padding: 4px 14px;
-  color: #061018; font-family: "Arial Black", "Segoe UI Black", sans-serif; font-weight: 900; text-shadow: none;
-  filter: drop-shadow(0 0 2px rgba(var(--difficulty-glow), .3)) drop-shadow(0 0 5px rgba(var(--difficulty-glow), .14));
-}
-.game-chart .chart-difficulty::before {
-  content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
-  clip-path: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%);
+.game-chart { width: 184px; display: flex; flex-direction: column; gap: 8px; }
+.lane-orders { margin-top: auto; display: flex; flex-direction: column; gap: 6px; }
+.lane-order { min-width: 0; filter: drop-shadow(0 0 2px #70f5d750) drop-shadow(0 0 5px #70f5d725); }
+.lane-keys {
+  display: grid; grid-template-columns: repeat(7, 1fr); padding: 3px 9px;
+  border-radius: 3px;
+  color: #061018; text-shadow: none; font: 900 25px/32px "Arial Black", "Segoe UI Black", sans-serif;
   background-image: url("./phosphor-honeycomb.svg"),
     radial-gradient(ellipse at 18% 16%, #ffffff26, transparent 65%),
     radial-gradient(ellipse at 76% 82%, #00080f57, transparent 60%),
-    linear-gradient(166deg, var(--difficulty-core), var(--difficulty-edge) 42%, var(--difficulty-core) 67%, var(--difficulty-edge));
+    linear-gradient(166deg, #a6ffe3, #63c7ac 42%, #a6ffe3 67%, #63c7ac);
   background-size: 12px 7px, 100% 100%, 100% 100%, 100% 100%;
   background-repeat: repeat, no-repeat, no-repeat, no-repeat;
 }
-.game-chart .chart[data-tone="green"] .chart-difficulty { --difficulty-core: #c5ffda; --difficulty-edge: #65df92; --difficulty-glow: 84, 235, 136; }
-.game-chart .chart[data-tone="blue"] .chart-difficulty { --difficulty-core: #537bed; --difficulty-edge: #2e4baa; --difficulty-glow: 55, 95, 220; }
-.game-chart .chart[data-tone="amber"] .chart-difficulty { --difficulty-core: #ffdd4e; --difficulty-edge: #e5ab14; --difficulty-glow: 255, 185, 19; }
-.game-chart .chart[data-tone="red"] .chart-difficulty { --difficulty-core: #ff521d; --difficulty-edge: #d6270c; --difficulty-glow: 255, 61, 18; }
-.game-chart .chart[data-tone="purple"] .chart-difficulty { --difficulty-core: #ebcdff; --difficulty-edge: #b38ae8; --difficulty-glow: 183, 114, 244; }
+.lane-key { text-align: center; }
+.lane-caption { font-size: 14px; line-height: 22px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left; }
+.lane-order[data-ready="false"] .lane-keys { opacity: .3; }
+.game-chart[data-double="true"] { width: 392px; }
+.game-chart[data-double="true"] .lane-orders { flex-direction: row; gap: 24px; }
+.game-chart[data-double="true"] .lane-order { flex: 1; }
 .song-bpm { display: inline-flex; align-items: center; gap: 7px; font-size: 11px; color: var(--accent); }
-.song-notes { font-size: 11px; line-height: 22px; color: var(--muted); white-space: nowrap; }
 /* The right end of the glass is lower than the rest of the display. */
-.song-radar { display: flex; align-items: center; gap: 12px; flex: 0 0 402px; margin-top: 32px; }
+.song-radar { display: flex; align-items: center; gap: 12px; flex: 0 0 420px; margin-top: 32px; }
 .song-radar svg { width: 116px; height: 116px; flex: none; }
 .radar-ring { fill: none; stroke: #63d9bc50; stroke-width: .5; }
 .radar-value { fill: #70f5d726; stroke: #a2ffe3; stroke-width: 1; filter: drop-shadow(0 0 2px #67ffd06b); }
-.radar-data { flex: 1; display: grid; grid-template-columns: 1fr 1fr; column-gap: 16px; row-gap: 7px; }
-.radar-caption { grid-column: 1 / -1; color: var(--muted); font-size: 9px; letter-spacing: .12em; }
-.radar-axis { display: flex; gap: 6px; justify-content: space-between; font-size: 10px; color: var(--muted); }
-.radar-axis b { font-size: 11px; font-weight: 400; color: var(--text); }
+.radar-data { flex: 1; min-width: 0; margin-top: 12px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 12px; row-gap: 7px; }
+.radar-caption { grid-column: 1 / -1; color: var(--muted); font-size: 14px; line-height: 20px; letter-spacing: .1em; }
+.radar-axis { display: flex; gap: 6px; justify-content: space-between; font-size: 14px; line-height: 22px; color: var(--muted); }
+.radar-axis b { font-size: 15px; font-weight: 400; color: var(--text); }
 .song-densities { flex: 0 0 380px; display: flex; flex-direction: column; gap: 8px; }
 .song-density { min-width: 0; }
 .density-heading, .density-axis { display: flex; align-items: center; justify-content: space-between; gap: 8px; white-space: nowrap; }

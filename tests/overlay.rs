@@ -314,7 +314,9 @@ async fn serves_static_assets_live_snapshots_and_releases_port_on_shutdown() {
     // Game metadata remains available before the request-engine catalog exists.
     updated["now_playing"] = serde_json::json!({
         "phase": "playing", "song": {"id": 11040, "title": "AA", "artist": "D.J.Amuro"},
-        "players": [{"side": 2, "chart": {"mode": "SP", "id": "SPA"}}]
+        "players": [{"side": 2, "chart": {"mode": "SP", "id": "SPA"}}],
+        "lane_order": [{"side": 2, "random": "random", "mirror": false,
+                        "status": "ready", "keys": [3, 4, 5, 2, 1, 6, 7]}]
     });
     server.publish(&updated);
     let playing = client
@@ -361,7 +363,7 @@ async fn serves_static_assets_live_snapshots_and_releases_port_on_shutdown() {
             .json::<serde_json::Value>()
             .await
             .unwrap(),
-        serde_json::json!({"phase": "idle", "song": null, "players": []})
+        serde_json::json!({"phase": "idle", "song": null, "players": [], "lane_order": []})
     );
     for private in [
         "bilimani.toml",

@@ -47,6 +47,8 @@ struct Adapter {
     base: usize,
     hooks: Vec<Hook>,
     input_chain: String,
+    lane_order_enabled: bool,
+    lane_order_status: String,
 }
 static ADAPTER: OnceLock<Adapter> = OnceLock::new();
 pub static DISABLED: AtomicBool = AtomicBool::new(false);
@@ -80,6 +82,49 @@ pub fn input_chain() -> &'static str {
     ADAPTER
         .get()
         .map_or("not installed", |adapter| adapter.input_chain.as_str())
+}
+
+pub fn lane_order_status() -> &'static str {
+    ADAPTER.get().map_or("not installed", |adapter| {
+        adapter.lane_order_status.as_str()
+    })
+}
+
+fn inspect_lane_order(base: usize) -> Result<String> {
+    let mut status = "Lane-order sampling enabled".to_owned();
+    for &(rva, expected) in super::lane_order::GUARDS {
+        let observed = read_memory(base + rva, 16)?;
+        if rva == super::lane_order::GENERATOR_RVA {
+            // We neither call nor hook the generator. Other plugins can supply
+            // a permutation; the guarded consumer still uses the same table.
+            if observed != hex::decode(expected)? {
+                status.push_str(&format!(
+                    "; patched RANDOM generator at RVA {rva:x}, observed={}; reading its validated output table",
+                    hex::encode(&observed)
+                ));
+            }
+            continue;
+        }
+        ensure!(
+            observed == hex::decode(expected)?,
+            "Lane-order function at RVA {rva:x} was changed; observed={}",
+            hex::encode(&observed)
+        );
+    }
+    for &table in STAGES {
+        let target = read_memory(base + table + 15 * 8, 8)?;
+        let observed = usize::from_le_bytes(target.try_into().unwrap());
+        let expected = if table == 0xdae728 {
+            0x8d2350
+        } else {
+            0x9336a0
+        };
+        ensure!(
+            observed == base + expected,
+            "Unexpected stage update at vtable RVA {table:x}; observed={observed:x}"
+        );
+    }
+    Ok(status)
 }
 
 /// Read-only diagnostics. Native callbacks update counters; disk IO stays on the worker.
@@ -120,6 +165,7 @@ pub struct Mailbox {
     pub snapshot: Snapshot,
     pub now_playing: NowPlaying,
     song_sample_at: Option<Instant>,
+    lane_sample_at: Option<Instant>,
     pub plays: u64,
     pub command: Option<Selection>,
     pub ack: Option<Ack>,
@@ -139,8 +185,10 @@ pub static MAILBOX: Mutex<Mailbox> = Mutex::new(Mailbox {
         phase: SongPhase::Idle,
         song: None,
         players: Vec::new(),
+        lane_order: Vec::new(),
     },
     song_sample_at: None,
+    lane_sample_at: None,
     plays: 0,
     command: None,
     ack: None,
@@ -187,6 +235,14 @@ pub fn install(image: ModuleImage) -> Result<()> {
             hex::encode(&observed)
         );
     }
+    // Optional lane display must not take down requests, chat or the web server.
+    let (lane_order_enabled, lane_order_status) = match inspect_lane_order(base) {
+        Ok(status) => (true, status),
+        Err(error) => (
+            false,
+            format!("Lane-order sampling disabled: {error:#}; other features remain available"),
+        ),
+    };
     let input_chain = super::input_hook::inspect(
         base + super::input_hook::RVA,
         read_memory,
@@ -202,10 +258,15 @@ pub fn install(image: ModuleImage) -> Result<()> {
     })?
     .map_or_else(|| "native".into(), |module| format!("MinHook -> {module}"));
     let mut hooks = Vec::new();
+    let stage_slots: &[usize] = if lane_order_enabled {
+        &[13, 14, 15]
+    } else {
+        &[13, 14]
+    };
     for (table, slots) in std::iter::once((SELECT_VTABLE, &[13usize, 14, 15][..]))
         .chain(std::iter::once((TITLE_DICTIONARY_VTABLE, &[1usize][..])))
         .chain(std::iter::once((INPUT_VTABLE, &[3usize][..])))
-        .chain(STAGES.iter().map(|&r| (r, &[13usize, 14][..])))
+        .chain(STAGES.iter().map(|&r| (r, stage_slots)))
     {
         for &slot in slots {
             let bytes = read_memory(base + table + slot * 8, 8)?;
@@ -238,6 +299,8 @@ pub fn install(image: ModuleImage) -> Result<()> {
             base,
             hooks,
             input_chain,
+            lane_order_enabled,
+            lane_order_status,
         })
         .map_err(|_| anyhow::anyhow!("Hooks already installed"))?;
     let adapter = ADAPTER.get().unwrap();
@@ -254,6 +317,8 @@ pub fn install(image: ModuleImage) -> Result<()> {
             input_poll as *const () as usize
         } else if hook.slot == 14 {
             stage_exit as *const () as usize
+        } else if hook.slot == 15 {
+            stage_update as *const () as usize
         } else {
             stage_init as *const () as usize
         };
@@ -568,6 +633,7 @@ unsafe extern "system" fn stage_init(this: usize, a2: usize, a3: usize, a4: usiz
         m.plays += 1;
         m.snapshot.phase = Phase::Playing;
         m.now_playing = NowPlaying::default();
+        m.lane_sample_at = None;
         cancel_command(&mut m);
         reset_input(&mut m);
     });
@@ -599,10 +665,40 @@ unsafe extern "system" fn stage_init(this: usize, a2: usize, a3: usize, a4: usiz
     result
 }
 
+unsafe extern "system" fn stage_update(this: usize, a2: usize, a3: usize, a4: usize) -> usize {
+    let result = original(this, 15)(this, a2, a3, a4);
+    guard(|| {
+        let now = Instant::now();
+        let players = {
+            let mut m = MAILBOX.lock().unwrap();
+            if m.now_playing.phase != SongPhase::Playing
+                || m.lane_sample_at
+                    .is_some_and(|last| now.duration_since(last) < Duration::from_millis(250))
+            {
+                return;
+            }
+            m.lane_sample_at = Some(now);
+            m.now_playing.players.clone()
+        };
+        // Retry can generate a different permutation without leaving the stage.
+        // Sample after the game update; only owned arrays reach HTTP.
+        let lanes = super::lane_order::capture(
+            ADAPTER.get().unwrap().base,
+            SongPhase::Playing,
+            &players,
+            read_memory,
+        )
+        .unwrap_or_default();
+        MAILBOX.lock().unwrap().now_playing.lane_order = lanes;
+    });
+    result
+}
+
 unsafe extern "system" fn stage_exit(this: usize, a2: usize, a3: usize, a4: usize) -> usize {
     guard(|| {
         let mut m = MAILBOX.lock().unwrap();
         m.now_playing = NowPlaying::default();
+        m.lane_sample_at = None;
         m.snapshot.phase = Phase::Other;
         m.snapshot.can_skip = false;
     });
@@ -637,6 +733,9 @@ unsafe fn decode_song(
             song,
             phase == SongPhase::Selecting,
         );
+    }
+    if ADAPTER.get().unwrap().lane_order_enabled {
+        super::lane_order::apply(ADAPTER.get().unwrap().base, &mut playing, read_memory);
     }
     Ok(playing)
 }

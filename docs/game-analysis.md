@@ -220,6 +220,93 @@ objects to test the actual request lock/unlock ABI, busy publication lock,
 asynchronous publication, cached stage data, and stale-song rejection. It does
 not execute the game's file loader or validate a live gameplay session.
 
+## Native RANDOM lane order
+
+Implementation: `lane_order.rs`. All addresses below belong to the same guarded
+IIDX 33 image described above. IDA/Hex-Rays connects the gameplay transform and
+the game's result-screen lane string; no random function is invoked by the DLL.
+
+| RVA | Finding |
+| --- | --- |
+| `0x8234b0` | Getter for the lane-transform singleton at `0xa7ef570` |
+| `0xa7ef580` | Singleton +16: two `u32[8]` source-to-destination maps, stride 32 bytes |
+| `0x823230` | Resets both maps to identity and initializes RNG state |
+| `0x8236e0` | Generates RANDOM/R-RANDOM and applies ordinary MIRROR to the maps |
+| `0x822b20` | Per-note lookup; fixed table except S-RANDOM / BEGINNER helper branches |
+| `0x8229f0` | S-RANDOM consumes RNG and updates per-lane deadlines; has no fixed permutation |
+| `0x822670` | BEGINNER helper's stateful per-note transform |
+| `0x8854a0` | Getter for `COptionGameData`, pointer at `0xaab3aa8`, vtable `0xd54e60` |
+| `0x897800` / `0x897830` | Option block index and address: object +8 +180*index; SP side 0/1, DP index 2 |
+| `0x897890` | Random enum at block +48 +4*side: 0 OFF, 1 RANDOM, 2 R-RANDOM, 3 S-RANDOM |
+| `0x8960b0` | MIRROR boolean at block +56 +4*side |
+| `0x823440` / `0x897d30` | Extra post-table reflections used by special/battle modes |
+| `0x92b590` | Result UI inverts the transform by writing each source digit at its destination |
+| `0x90f310` / `0x8245c0` | Stage prepare loads the chart and generates maps before stage initialization returns |
+| `0x90f420` | Retry regenerates maps through the same loader without necessarily leaving the scene |
+
+The table contains zero-based **source -> destination**, including scratch index 7.
+The API instead reports one-based source digits at each physical destination,
+left to right, matching `0x92b590`. Thus `[4,3,0,1,2,5,6,7]` becomes `3452167`.
+All seven keys must be a permutation of 0..6 and scratch must remain 7. Ordinary
+MIRROR is already included in the generated table and must not be applied again.
+
+The post-table reflections in `0x822b20` both use the `6,5,4,3,2,1,0,7` lookup.
+`0x823440` requires game kind 7/8, participant count/layout equal to 1, side 2,
+SP and random enum nonzero. `0x897d30` requires option block +156 equal to 1,
+participant count/layout not equal to 1, SP and random enum nonzero. The sampler
+reproduces their XOR without invoking the consuming lookup. Context at `0xacd79a0`
+contains six u32 fields: game kind, DP flag, two difficulties, two joined flags.
+`0x949480` uses joined count, with DP normalized to 1.
+
+At selection, only OFF/MIRROR has a known arrangement; random options return
+`pending` until stage initialization finishes. Playing snapshots validate the
+current table throughout the scene's lifetime. Stage vtable slot 15 is sampled
+after its original callback every 250ms, covering retry. The 13 supported stage
+tables use `0x9336a0`, except table `0xdae728`, which uses `0x8d2350`; both
+entry points and all slot targets are guarded. Cleanup clears the snapshot.
+
+Do not gate lane sampling on `0xaab19ae`. A live regression showed the layout
+only during initial loading, followed by `unavailable` during normal play.
+Although `0x90f310` sets this byte on preparation failure, `0x90ffc0` also sets
+it on **successful** sound loading before transitioning to `0x910350`, and
+`0x9103a0` sets it in normal stage flow. Other transitions clear it again.
+It is a shared stage-control flag, not a persistent load-error indicator.
+The sampler ignores it; invalid/unreadable maps still clear the displayed keys,
+retry still reads the newly generated map, and stage cleanup clears all data.
+
+The RANDOM generator itself (`0x8236e0`) may be patched by an installed plugin.
+The live installation reported this on 2026-10-10; treating it as a fatal adapter
+error also prevented the HTTP listener from starting. The sampler does not call
+or hook that generator, so its original bytes remain file-analysis evidence only.
+A runtime difference is logged and its final table is still sampled, provided
+the consuming lookup, layout/option guards and stage callbacks match. Every
+sample still validates all seven destinations and scratch. Other lane guard or
+stage-update target failures disable only lane sampling and skip the new stage
+update hooks; existing song metadata, requests, chat and HTTP remain available.
+Diagnostics include observed bytes/targets to distinguish future incompatibilities.
+
+Only bounded `ReadProcessMemory` reads are performed: option bytes, context and
+64 bytes of mapping. The HTTP API receives owned arrays. S-RANDOM returns
+`dynamic` with null keys; calling its transform merely to display it would alter
+gameplay RNG. SP BEGINNER checks the optional helper flag at
+`*[0xaab3c20] +8 +side`; a set or unreadable flag conservatively makes the fixed
+map unavailable. This can hide a map when native helper eligibility would have
+rejected another condition, but avoids claiming a fixed map for a dynamic chart.
+Unknown options, invalid tables and read errors never produce a guessed mapping.
+
+`tests/lane_order.rs` exercises inverse direction, options, SP/DP, reflections,
+dynamic and invalid states. `smoke-dll.py --song-info` runs the actual scene hooks
+against synthetic data, including retry and API clearing. `check-frame.py` covers
+the seven-digit display, option labels, DP, missing data and text escaping. These
+checks do not replace testing the new DLL during a real gameplay session.
+Additional DLL regressions use `--song-info --lane-generator-patch --input-detour`
+to exercise existing generator/input patches and `--song-info --bad-lane-layout`
+or `--song-info --bad-lane-update` to verify web/metadata availability when lane
+sampling is disabled. No test overwrites or executes the live game's code.
+The unit regression toggles `0xaab19ae` through normal loading/play states and
+failed against the old gate. The DLL smoke test keeps it set across repeated
+stage updates and a changed retry map, verifying published API keys stay valid.
+
 ## Opposite-Start input eligibility
 
 The shortcut reads `0x9493e0(0/1)` on selection frames and requires exactly one

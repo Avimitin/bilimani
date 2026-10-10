@@ -96,6 +96,7 @@ pub fn decode(
             charts,
         }),
         players,
+        lane_order: Vec::new(),
     })
 }
 

@@ -3,6 +3,7 @@ pub mod catalog;
 pub mod density;
 #[cfg(windows)]
 mod input_hook;
+pub mod lane_order;
 #[cfg(windows)]
 mod native;
 #[cfg(windows)]
@@ -63,6 +64,7 @@ impl crate::game::GameAdapter for Adapter {
                 "input",
                 format!("Input poll chain: {}", native::input_chain()),
             ),
+            ("lane", native::lane_order_status().into()),
         ]
     }
     fn catalog(

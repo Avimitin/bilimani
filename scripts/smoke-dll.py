@@ -3,6 +3,8 @@
 Usage: py scripts/smoke-dll.py [--reject | --input-detour | --bad-input-detour]
 Additional options: --occupied-port --no-sdk-input --sdk-renderer --profiles
 --song-info exercises song callbacks with synthetic records and stubbed originals.
+--lane-generator-patch simulates an existing hook on the RANDOM generator.
+--bad-lane-layout / --bad-lane-update verify optional lane-only degradation.
 Requires the built release DLL and the ignored local game copy for positive mode.
 Artifacts remain under analysis/smoke-* for inspection.
 """
@@ -25,6 +27,10 @@ reject = "--reject" in sys.argv
 occupied_port = "--occupied-port" in sys.argv
 profiles = "--profiles" in sys.argv
 song_info = "--song-info" in sys.argv
+lane_generator_patch = "--lane-generator-patch" in sys.argv
+bad_lane_layout = "--bad-lane-layout" in sys.argv
+bad_lane_update = "--bad-lane-update" in sys.argv
+lane_disabled = bad_lane_layout or bad_lane_update
 bad_input_detour = "--bad-input-detour" in sys.argv
 input_detour = "--input-detour" in sys.argv or bad_input_detour
 startup_rejected = reject or bad_input_detour
@@ -61,7 +67,7 @@ if not reject:
     # callbacks and the game entry point from running. Never call game exports.
     game = kernel.LoadLibraryExW(str(root / "analysis/bm2dx.dll"), None, 1)
     assert game, ctypes.WinError(ctypes.get_last_error())
-if input_detour or song_info:
+if input_detour or song_info or lane_generator_patch or lane_disabled:
     # Synthetic MinHook x64 entry + relay in this process's private image.
     # Route to a real loaded executable module, never to the game body.
     kernel.VirtualProtect.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_uint32,
@@ -94,6 +100,16 @@ if input_detour:
     relay_code = bytes.fromhex("ff2500000000") + struct.pack("<Q", input_target)
     patch(input_relay, relay_code)
     patch(input_entry, patched_entry)
+if lane_generator_patch:
+    lane_generator = game + 0x8236e0
+    # A ret stub stands in for a plugin-owned generator. Display sampling must
+    # never execute it, and must accept a valid table written by that plugin.
+    generator_patch = b'\xc3' + ctypes.string_at(lane_generator + 1, 15)
+    patch(lane_generator, generator_patch)
+if bad_lane_layout:
+    patch(game + 0x897890, b'\xc3')
+if bad_lane_update:
+    patch(game + 0xda50a8 + 15 * 8, struct.pack('<Q', game + 0x933640))
 plugin = ctypes.CDLL(str(dll_path))
 plugin.bilimani_shutdown.argtypes = []
 plugin.bilimani_shutdown.restype = None
@@ -102,7 +118,7 @@ deadline = time.monotonic() + 20
 logfile = work / "bilimani.log"
 while time.monotonic() < deadline:
     text = logfile.read_text(encoding="utf-8") if logfile.exists() else ""
-    if "Startup failed" in text or ("Native hooks installed" in text and "[status]" in text):
+    if "Startup failed" in text or ("Native hooks installed" in text and "[status]" in text and "select_updates=0" in text):
         break
     time.sleep(0.05)
 else:
@@ -140,13 +156,26 @@ else:
             assert state["ready"] is False and state["queue"] == []
             assert state["feed"] == [] and state["feed_limit"] == 10
         with urllib.request.urlopen(f"http://127.0.0.1:{overlay_port}/api/now-playing", timeout=3) as response:
-            assert json.load(response) == state["now_playing"] == dict(phase="idle", song=None, players=[])
+            assert json.load(response) == state["now_playing"] == dict(phase="idle", song=None, players=[], lane_order=[])
     for table, slot, rva in [(0xd84788, 13, 0x8eb820), (0xd84788, 14, 0x8ebeb0),
                              (0xd84788, 15, 0x8ec1f0), (0xce9f40, 1, 0x7f2fd0),
-                             (0xdd05c0, 3, 0xa7a2f0), (0xda50a8, 14, 0x933640)]:
+                             (0xdd05c0, 3, 0xa7a2f0), (0xda50a8, 14, 0x933640),
+                             (0xda50a8, 15, 0x9336a0), (0xdae728, 15, 0x8d2350)]:
         hooked = ctypes.c_void_p.from_address(game + table + slot*8).value
+        if lane_disabled and table in (0xda50a8, 0xdae728) and slot == 15:
+            expected = 0x933640 if bad_lane_update and table == 0xda50a8 else rva
+            assert hooked == game + expected, 'Disabled lane sampler modified a stage update'
+            continue
         assert hooked != game+rva, f"Slot {slot} was not patched"
         assert abs(hooked-plugin._handle) < 0x4000000, "Hook is not inside plugin image"
+    if lane_disabled:
+        assert 'Lane-order sampling disabled:' in text and 'other features remain available' in text, text
+        assert 'observed=' in text, text
+    elif lane_generator_patch:
+        assert 'patched RANDOM generator at RVA 8236e0' in text, text
+        assert ctypes.string_at(lane_generator, 16) == generator_patch
+    else:
+        assert 'Lane-order sampling enabled' in text, text
     if input_detour:
         assert "Input poll chain: MinHook -> " in text, text
         assert ctypes.string_at(input_entry, 16) == patched_entry
@@ -233,7 +262,7 @@ if song_info:
     reservation[8] = b'\x01'
     reservation[9] = b'\x01'
     for rva, value in [(0x8eb820, 71), (0x8ebeb0, 72), (0x8ec1f0, 73),
-                       (0x9335d0, 74), (0x933640, 75), (0x82ded0, 0),
+                       (0x9335d0, 74), (0x933640, 75), (0x9336a0, 76), (0x82ded0, 0),
                        (0x806f60, 0), (0x7d60e0, ctypes.addressof(reservation)),
                        (0x606e60, 1), (0x606fd0, ctypes.addressof(selected_record)),
                        (0x607030, 3), (0x9493e0, 1)]:
@@ -252,6 +281,17 @@ if song_info:
     ctypes.c_void_p.from_address(game + 0xabac028).value = ctypes.addressof(stage_record)
     for side in range(2):
         ctypes.c_uint32.from_address(game + 0xacd79a8 + side * 4).value = 3
+        ctypes.c_uint32.from_address(game + 0xacd79b0 + side * 4).value = 1
+    options = ctypes.create_string_buffer(548)
+    ctypes.c_void_p.from_buffer(options).value = game + 0xd54e60
+    ctypes.c_void_p.from_address(game + 0xaab3aa8).value = ctypes.addressof(options)
+
+    def lane_table(side, values):
+        for key, destination in enumerate(values):
+            ctypes.c_uint32.from_address(game + 0xa7ef580 + side * 32 + key * 4).value = destination
+
+    for side in range(2):
+        lane_table(side, range(8))
     callback = ctypes.CFUNCTYPE(ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_size_t, ctypes.c_size_t)
 
     def invoke(instance, slot):
@@ -259,13 +299,15 @@ if song_info:
         address = ctypes.c_void_p.from_address(table + slot * 8).value
         return callback(address)(ctypes.addressof(instance), 0, 0, 0)
 
-    def wait_song(phase, title, chart_id=None):
+    def wait_song(phase, title, chart_id=None, keys=None, lane_status=None):
         deadline = time.monotonic() + 3
         while time.monotonic() < deadline:
             with urllib.request.urlopen(f'http://127.0.0.1:{overlay_port}/api/now-playing', timeout=2) as response:
                 data = json.load(response)
             if (data['phase'] == phase and (data['song'] or {}).get('title') == title
-                    and (chart_id is None or data['players'][0]['chart']['id'] == chart_id)):
+                    and (chart_id is None or data['players'][0]['chart']['id'] == chart_id)
+                    and (keys is None or data['lane_order'][0]['keys'] == keys)
+                    and (lane_status is None or data['lane_order'][0]['status'] == lane_status)):
                 return data
             time.sleep(.05)
         raise AssertionError(f'Song snapshot not published: {phase} {title}: {data}')
@@ -278,6 +320,11 @@ if song_info:
     assert chart['bpm'] == dict(min=100, max=200) and chart['note_count'] == 1234
     assert chart['radar']['notes'] == 150.25
     assert chart['density'] is None
+    if lane_disabled:
+        assert data['lane_order'] == []
+    else:
+        assert data['lane_order'][0]['keys'] == [1, 2, 3, 4, 5, 6, 7]
+        assert data['lane_order'][0]['random'] == 'off'
     # Reuse the native background request ABI without running any game code.
     detail_thread = ctypes.create_string_buffer(56)
     ctypes.c_void_p.from_buffer(detail_thread).value = game + 0xcb5cd0
@@ -350,20 +397,53 @@ if song_info:
     assert invoke(scene, 15) == 73
     wait_song('selecting', None)
     assert invoke(scene, 14) == 72
-    wait_song('idle', None)
+    assert wait_song('idle', None)['lane_order'] == []
     ctypes.c_void_p.from_address(game + 0xabac028).value = ctypes.addressof(selected_record)
+    ctypes.c_uint32.from_buffer(options, 8 + 48).value = 1
+    lane_table(0, [4, 3, 0, 1, 2, 5, 6, 7])
     assert invoke(stage, 13) == 74
     cached = wait_song('playing', 'Manual selection fixture')
     assert cached['song']['charts'][0]['density']['notes'] == [0, 2, 42, 1]
+    if lane_disabled:
+        assert cached['lane_order'] == []
+    else:
+        assert cached['lane_order'][0]['keys'] == [3, 4, 5, 2, 1, 6, 7]
+        assert cached['lane_order'][0]['random'] == 'random'
+        # Successful sound loading also sets this general stage flag to 1.
+        # Several subsequent gameplay samples must retain the current layout.
+        ctypes.c_ubyte.from_address(game + 0xaab19ae).value = 1
+        for _ in range(3):
+            time.sleep(.3)
+            assert invoke(stage, 15) == 76
+        time.sleep(.2)  # Let the worker publish the post-update snapshot.
+        wait_song('playing', 'Manual selection fixture', keys=[3, 4, 5, 2, 1, 6, 7], lane_status='ready')
+        # Same-stage retry replaces the owned map; an invalid read clears it.
+        lane_table(0, [6, 5, 4, 3, 2, 1, 0, 7])
+        time.sleep(.3)
+        assert invoke(stage, 15) == 76
+        wait_song('playing', 'Manual selection fixture', keys=[7, 6, 5, 4, 3, 2, 1])
+        lane_table(0, [0] * 8)
+        time.sleep(.3)
+        assert invoke(stage, 15) == 76
+        invalid = wait_song('playing', 'Manual selection fixture', lane_status='unavailable')
+        assert invalid['lane_order'][0]['keys'] is None
+        ctypes.c_uint32.from_buffer(options, 8 + 48).value = 3
+        time.sleep(.3)
+        invoke(stage, 15)
+        dynamic = wait_song('playing', 'Manual selection fixture', lane_status='dynamic')
+        assert dynamic['lane_order'][0]['keys'] is None
     assert invoke(stage, 14) == 75
-    wait_song('idle', None)
+    assert wait_song('idle', None)['lane_order'] == []
     ctypes.c_void_p.from_address(game + 0xabac028).value = ctypes.addressof(stage_record)
     assert invoke(stage, 13) == 74
     different = wait_song('playing', 'Actual stage fixture')
     assert all(c['density'] is None for c in different['song']['charts'])
     assert invoke(stage, 14) == 75
     wait_song('idle', None)
-    print('PASS: real DLL callbacks -> live song/density JSON, async request ABI, busy lock, SP/DP, cached stage, folders, distinct stage record, cleanup and preserved returns')
+    if lane_disabled:
+        print('PASS: incompatible lane sampler isolated; web, song/density callbacks, stage cleanup and core hooks remain available')
+    else:
+        print('PASS: real DLL callbacks -> song/density/lane JSON, mapping direction, sustained gameplay after sound loading, same-stage retry, invalid/dynamic lane clearing, async request ABI, busy lock, SP/DP, cached stage, folders, cleanup and preserved returns')
 
 # Simulate Spice's documented SDK initialization/shutdown callback ABI.
 destroy_callback = None

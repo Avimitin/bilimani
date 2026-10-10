@@ -1,6 +1,7 @@
 """Read-only verification of the supported game image. No third-party Python packages."""
 import hashlib
 import pathlib
+import re
 import struct
 import sys
 
@@ -46,6 +47,8 @@ guards = {
     0xaf158c: "6690f00fba2d8dadfb0a0072f5c3cccc",
     0xaf159c: "f00fba357fadfb0a00c3cccc4883ec28",
 }
+lane_source = pathlib.Path(__file__).resolve().parent.parent / 'src/games/iidx/v33/lane_order.rs'
+guards.update({int(rva, 16): code for rva, code in re.findall(r'\(0x([0-9a-f]+), "([0-9a-f]+)"\)', lane_source.read_text(encoding='utf-8'))})
 for rva, expected in guards.items():
     assert read(rva, 16).hex() == expected, f"Function guard mismatch at {rva:x}"
 for slot, expected in [(13, 0x8eb820), (14, 0x8ebeb0), (15, 0x8ec1f0)]:
@@ -53,4 +56,8 @@ for slot, expected in [(13, 0x8eb820), (14, 0x8ebeb0), (15, 0x8ec1f0)]:
 assert read(0x951fd0, 8).hex() == "488d052969380ac3", "Database accessor mismatch"
 assert struct.unpack("<Q", read(0xce9f40+8, 8))[0] == image_base+0x7f2fd0, "Title dictionary loader mismatch"
 assert struct.unpack("<Q", read(0xdd05c0+3*8, 8))[0] == image_base+0xa7a2f0, "Input poll mismatch"
+for table in [0xda50a8, 0xda5188, 0xda5268, 0xda5348, 0xda5428, 0xda5508, 0xda55e8, 0xda56c8,
+              0xdae1e8, 0xdae2c8, 0xdae3a8, 0xdae488, 0xdae728]:
+    update = 0x8d2350 if table == 0xdae728 else 0x9336a0
+    assert struct.unpack('<Q', read(table + 15 * 8, 8))[0] == image_base + update, 'Stage update mismatch'
 print(f"Verified x64 image, SHA-256, {len(guards)} entry-point guards, database accessor, selection and search vtable slots.")

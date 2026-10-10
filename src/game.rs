@@ -46,6 +46,36 @@ pub struct NowPlaying {
     pub song: Option<SongInfo>,
     /// One entry per participating player; side is one-based.
     pub players: Vec<PlayerChart>,
+    /// Physical lanes, left to right; empty when the adapter cannot sample them.
+    pub lane_order: Vec<LaneOrder>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct LaneOrder {
+    pub side: u8,
+    pub random: RandomMode,
+    pub mirror: bool,
+    pub status: LaneOrderStatus,
+    /// Original chart key at each physical key, one-based. Scratch is excluded.
+    pub keys: Option<[u8; 7]>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RandomMode {
+    Off,
+    Random,
+    RRandom,
+    SRandom,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LaneOrderStatus {
+    Ready,
+    Pending,
+    Dynamic,
+    Unavailable,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]

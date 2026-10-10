@@ -49,8 +49,7 @@ with sync_playwright() as p:
     page.goto(args.url + '/queue')
     expect(page.locator('.current-title')).to_have_text('X-DEN')
     title_box = page.locator('.current-title').bounding_box()
-    chart_box = page.locator('.current-song .chart').bounding_box()
-    assert 0 <= chart_box['x'] - title_box['x'] - title_box['width'] <= 20
+    expect(page.locator('.current-song .chart')).to_have_count(0)
     expect(page.locator('#activity-list .activity-row')).to_have_count(3)
     expect(page.locator('#event-list .activity-row')).to_have_count(3)
     expect(page.locator('#queue-more')).to_have_text('另有 1 首等待中')
@@ -183,7 +182,7 @@ with sync_playwright() as p:
     assert page.locator('img').count() == 0 and not page.evaluate('Boolean(window.injected)')
     bounded()
     payload['current']['chart'] = None
-    expect(page.locator('.current-song .chart')).to_have_text('SP · 当前难度')
+    expect(page.locator('.current-song .chart')).to_have_count(0)
     bounded()
     payload['current'] = copy.deepcopy(song)
     payload['feed'] = copy.deepcopy(live['feed'])
@@ -375,19 +374,22 @@ with sync_playwright() as p:
                       radar=dict(notes=180.25, peak=145.50, scratch=65.75, soflan=120, charge=0, chord=150.01))
     game_song = dict(id=11040, title='手动选曲 · Manual selection', artist='テスト Artist', genre='TEST GENRE',
                      game_version=11, charts=[live_chart])
-    game = dict(phase='selecting', song=game_song, players=[dict(side=2, chart=live_chart['chart'])])
+    game = dict(phase='selecting', song=game_song, players=[dict(side=2, chart=live_chart['chart'])],
+                lane_order=[dict(side=2, random='off', mirror=False, status='ready', keys=[1,2,3,4,5,6,7])])
     payload['now_playing'] = copy.deepcopy(game)
     expect(page.locator('.current-title')).to_have_text(game_song['title'])
     expect(page.locator('.station-header #request-hint')).to_have_text('点歌 <曲名> [难度]')
     expect(page.locator('.queue-panel #request-hint')).to_have_count(0)
-    expect(page.locator('.game-chart .chart')).to_have_text('2P SPA 12')
+    expect(page.locator('.game-chart .chart, .chart-difficulty, .song-notes')).to_have_count(0)
     expect(page.locator('.song-bpm')).to_have_text('BPM 100–200')
-    expect(page.locator('.game-chart .chart')).to_have_css('font-size', '26px')
+    expect(page.locator('.lane-keys')).to_have_text('1234567')
+    expect(page.locator('.lane-caption')).to_have_text('RANDOM OFF')
+    expect(page.locator('.lane-keys')).to_have_css('color', 'rgb(6, 16, 24)')
+    expect(page.locator('.lane-keys')).to_have_css('text-shadow', 'none')
     bpm_box = page.locator('.song-bpm').bounding_box()
-    difficulty_box = page.locator('.game-chart .chart').bounding_box()
-    assert bpm_box['y'] + bpm_box['height'] <= difficulty_box['y']
+    keys_box = page.locator('.lane-keys').bounding_box()
+    assert bpm_box['y'] + bpm_box['height'] < keys_box['y']
     expect(page.locator('.song-credits')).to_have_text('TEST GENRE / テスト Artist')
-    expect(page.locator('.song-notes')).to_contain_text('2000 NOTES')
     expect(page.locator('.radar-axis')).to_have_count(6)
     expect(page.locator('.song-radar svg')).to_have_count(1)
     assert page.locator('.song-radar svg').bounding_box()['height'] == 116
@@ -426,6 +428,28 @@ with sync_playwright() as p:
         }'''), 'Radar content crosses the glass outline'
     metadata_bounded()
     (shots / 'frame-game-song.png').write_bytes(transparent())
+    payload['now_playing']['phase'] = 'playing'
+    order = payload['now_playing']['lane_order'][0]
+    order.update(random='random', keys=[3,4,5,2,1,6,7])
+    expect(page.locator('.lane-keys')).to_have_text('3452167')
+    expect(page.locator('.lane-caption')).to_have_text('RANDOM')
+    page.locator('.frame-current').screenshot(path=str(shots / 'frame-random.png'), omit_background=True)
+    order.update(random='r_random', mirror=True)
+    expect(page.locator('.lane-caption')).to_have_text('R-RANDOM + MIRROR')
+    assert page.locator('.lane-caption').evaluate('(el) => el.scrollWidth <= el.clientWidth')
+    for state, option in [('dynamic', 's_random'), ('pending', 'random'), ('unavailable', 'random')]:
+        order.update(status=state, random=option, keys=None)
+        expect(page.locator('.lane-order')).to_have_attribute('data-ready', 'false')
+        expect(page.locator('.lane-keys')).to_have_text('———————')
+        expect(page.locator('.lane-caption')).to_have_text('S-RANDOM + MIRROR' if state == 'dynamic' else 'RANDOM + MIRROR')
+    for invalid in [[1,1,2,3,4,5,6], [1,2,3,4,5,6,8], [1,2,3,4,5,6], ['<img src=x onerror=alert(1)>']*7]:
+        order.update(status='ready', keys=invalid)
+        expect(page.locator('.lane-order')).to_have_attribute('data-ready', 'false')
+    assert page.locator('img').count() == 0
+    del payload['now_playing']['lane_order']
+    expect(page.locator('.lane-caption')).to_have_text('等待键位数据')
+    expect(page.locator('.lane-keys')).to_have_text('———————')
+    payload['now_playing'] = copy.deepcopy(game)
     # Longer songs use 10s windows. Divide a partial ending by its own duration,
     # not by ten seconds, and retain the native peak independently of the bars.
     payload['now_playing']['song']['charts'][0]['density'] = dict(
@@ -456,6 +480,23 @@ with sync_playwright() as p:
         metadata_bounded()
     page.set_viewport_size(dict(width=1920, height=1080))
     page.screenshot(path=str(shots / 'frame-density-two-players.png'), omit_background=True)
+    payload['now_playing'] = copy.deepcopy(game)
+    payload['now_playing']['song']['charts'][0]['chart'] = dict(mode='DP', id='DPA')
+    payload['now_playing']['players'][0]['chart'] = dict(mode='DP', id='DPA')
+    payload['now_playing']['lane_order'] = [dict(side=i, random='random', mirror=False, status='ready', keys=[3,4,5,2,1,6,7]) for i in [1,2]]
+    expect(page.locator('.lane-keys')).to_have_count(2)
+    expect(page.locator('.lane-caption')).to_have_text(['1P · RANDOM', '2P · RANDOM'])
+    metadata_bounded()
+    page.locator('.frame-current').screenshot(path=str(shots / 'frame-random-dp.png'), omit_background=True)
+    payload['now_playing']['players'].append(dict(side=1, chart=dict(mode='DP', id='DPA')))
+    expect(page.locator('.game-chart')).to_have_count(1)
+    expect(page.locator('.lane-keys')).to_have_count(2)
+    expect(page.locator('.song-density svg')).to_have_count(1)
+    for order in payload['now_playing']['lane_order']:
+        order.update(random='r_random', mirror=True, status='pending', keys=None)
+    expect(page.locator('.lane-caption')).to_have_text(['1P · R-RANDOM + MIRROR', '2P · R-RANDOM + MIRROR'])
+    for caption in page.locator('.lane-caption').all():
+        assert caption.evaluate('(el) => el.scrollWidth <= el.clientWidth')
     # Invalid and old DLL data must clear a previously rendered plot.
     for bad in [None, dict(bin_ms=1000, duration_ms=0, notes=[1], scratch=[0]),
                 dict(bin_ms=1000, duration_ms=1000, notes=[1], scratch=[2])]:
@@ -485,5 +526,5 @@ with sync_playwright() as p:
     expect(page.locator('.song-densities')).to_have_count(0)
     assert not errors, errors
     browser.close()
-print('PASS: exact 1504x846 16:9 capture at (40,24), thin top rail, raised bottom display, embedded turntable, transparency outside its corner at three scales, contained scan, larger expanding chat, pinned events, live density/metadata, candidate paging and reload, viewer rotation and focus, escaping, offline recovery, scaling, and empty states.')
+print('PASS: exact 1504x846 16:9 capture at (40,24), thin top rail, raised bottom display, embedded turntable, transparency outside its corner at three scales, contained scan, larger expanding chat, pinned events, live density/metadata, cutout lane order and SP/DP random captions, candidate paging and reload, viewer rotation and focus, escaping, offline recovery, scaling, and empty states.')
 print(f'Screenshots: {shots}')

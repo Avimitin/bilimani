@@ -135,20 +135,25 @@
       credits.title = credits.textContent;
       identity.append(identityFrame, title, credits);
       const charts = node("div", "game-charts");
-      const selected = (game.players || []).map((player) => ({player, info: song.charts.find((c) => c.chart.id === player.chart.id)})).filter(({info}) => info);
+      const selected = (game.players || []).map((player) => ({player, info: song.charts.find((c) => c.chart.id === player.chart.id)}))
+        .filter(({info}) => info)
+        // DP may report both joined sides, but they share one chart and two keyboards.
+        .filter(({info}, index, rows) => info.chart.mode !== "DP" || rows.findIndex((r) => r.info.chart.id === info.chart.id) === index);
       selected.forEach(({player, info}) => {
         const group = node("div", "game-chart");
-        const badge = chart({chart: `${player.side}P ${info.chart.id} ${info.level}`, chart_style: info.style});
-        badge.replaceChildren(node("span", "chart-side", `${player.side}P`), document.createTextNode(" "),
-          node("span", "chart-difficulty", `${info.chart.id} ${info.level}`));
         const bpm = info.bpm ? (info.bpm.min === info.bpm.max ? String(info.bpm.max) : `${info.bpm.min}–${info.bpm.max}`) : "—";
-        const top = node("div", "chart-summary");
         const bpmDisplay = node("span", "song-bpm");
         const digits = node("span", "");
         vfdNumber(digits, bpm);
         bpmDisplay.append(document.createTextNode("BPM "), digits);
-        top.append(bpmDisplay, badge);
-        group.append(top, node("div", "song-notes", `${info.difficulty} · ${info.note_count ?? "—"} NOTES`));
+        const orders = node("div", "lane-orders");
+        const sides = info.chart.mode === "DP" ? [1, 2] : [player.side];
+        group.dataset.double = String(sides.length === 2);
+        sides.forEach((side) => {
+          const order = Array.isArray(game.lane_order) ? game.lane_order.find((v) => v.side === side) : null;
+          orders.append(laneOrder(order, side, sides.length === 2 || selected.length > 1));
+        });
+        group.append(bpmDisplay, orders);
         charts.append(group);
       });
       box.append(identity, charts);
@@ -160,6 +165,29 @@
       if (selected.length) box.append(radar(selected[0].info.radar, selected[0].player.side));
     });
     progress($("current-progress"), 0, 1);
+  }
+  function laneOrder(value, side, showSide) {
+    const wrap = node("div", "lane-order");
+    const modes = {off: "RANDOM OFF", random: "RANDOM", r_random: "R-RANDOM", s_random: "S-RANDOM"};
+    const known = value && Object.hasOwn(modes, value.random);
+    let option = known ? modes[value.random] : "等待键位数据";
+    if (known && value.mirror === true) option = value.random === "off" ? "MIRROR" : `${option} + MIRROR`;
+    const valid = known && value.status === "ready" && Array.isArray(value.keys)
+      && value.keys.length === 7 && new Set(value.keys).size === 7
+      && value.keys.every((n) => Number.isInteger(n) && n >= 1 && n <= 7);
+    const keys = node("div", "lane-keys");
+    keys.setAttribute("role", "img");
+    keys.setAttribute("aria-label", `${side}P 键位：${valid ? value.keys.join("") : "暂无固定排列"}`);
+    (valid ? value.keys : Array(7).fill("—")).forEach((n) => keys.append(node("span", "lane-key", n)));
+    wrap.dataset.ready = String(valid);
+    const caption = node("div", "lane-caption", `${showSide ? `${side}P · ` : ""}${option}`);
+    caption.title = caption.textContent;
+    wrap.title = known && value.status === "dynamic" ? "S-RANDOM 按音符改变落点，没有整首固定的七键排列。"
+      : known && value.status === "pending" ? "等待开曲：游戏尚未生成本次谱面的随机键位。"
+      : valid ? "从左到右为实际 1–7 键，每个数字表示落到该位置的原谱键位；转盘不参与排列。"
+      : "等待游戏提供本次谱面的键位排列。";
+    wrap.append(caption, keys);
+    return wrap;
   }
   function density(values, side, chartId) {
     const wrap = node("div", "song-density");
@@ -301,7 +329,7 @@
           time.append(node("b", "", ""), document.createTextNode(" 后跳过"));
           if (frame) {
             const song = node("div", "current-song");
-            song.append(title, chart(c));
+            song.append(title);
             box.append(song);
           } else {
             box.append(title);
