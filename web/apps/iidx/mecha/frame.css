@@ -197,34 +197,6 @@ body[data-vfd-effects="true"] .identity-viewport[data-reset="true"] .identity-tr
 .density-empty { font-size: 15px; line-height: 72px; color: var(--muted); }
 .song-densities:has(.song-density:nth-child(2)) .song-density svg { height: 30px; }
 .song-densities:has(.song-density:nth-child(2)) .density-empty { line-height: 30px; }
-/* A phosphor scan travels over interlaced rows, beneath steady choice text. */
-.stream-frame .queue-panel.choosing { --text: #c5ffef; --muted: #80cdb8; --border: #70f5d755; background: transparent; }
-/* Only this glass effect is clipped. Its outline is shared with the visible glass;
-   the moving band never carries its own moving corner mask. */
-.choice-scan-surface { display: none; pointer-events: none; }
-.sidebar:has(.queue-panel.choosing) .choice-scan-surface { display: block; }
-.sidebar:has(.queue-panel.choosing) .choice-scan-band { animation: choice-scan 2.6s linear infinite; }
-@keyframes choice-scan {
-  from { transform: translateY(0); }
-  to { transform: translateY(481px); }
-}
-/* OBS can inherit Windows' reduced-motion setting; keep this input cue visible at a slower pace. */
-@media (prefers-reduced-motion: reduce) {
-  .sidebar:has(.queue-panel.choosing) .choice-scan-band { animation: choice-scan 8s linear infinite !important; }
-}
-.stream-frame .choosing .queue-banner { padding-inline: 8px; }
-.stream-frame .choosing #pending-area { padding-inline: 8px; }
-.stream-frame .choosing .choice-prompt { color: #c5ffef; text-shadow: 0 0 2px #95ffdcaa, 0 0 7px #70ffd066; }
-.stream-frame .choosing .eyebrow, .stream-frame .choosing .countdown, .stream-frame .choosing .candidate-number, .stream-frame .choosing .choice-help strong { color: var(--accent); }
-.stream-frame #pending-area { padding: 0 0 12px; }
-.stream-frame .choice-prompt { font-size: 14px; padding: 3px 0; margin-bottom: 7px; border: none; background: none; }
-.stream-frame .choice-heading { margin-bottom: 8px; gap: 5px; }
-.stream-frame .choice-heading h2 { font-size: 12px; }
-.stream-frame .candidate { border: none; border-radius: 0; background: transparent; padding: 0; }
-.stream-frame .candidate-number { background: transparent; width: 22px; font-size: 13px; }
-.stream-frame .candidate-title { display: block; font-size: 15px; white-space: nowrap; text-overflow: ellipsis; }
-.stream-frame .choosing .unavailable-note, .stream-frame .choosing .countdown.urgent { color: #ff886c; }
-.stream-frame .choice-help { font-size: 9px; margin-top: 7px; }
 .choice-pagination { display: flex; justify-content: space-between; align-items: center; flex: none; padding: 2px 0 7px; font-size: 11px; color: var(--accent); }
 .choice-pagination .at-boundary { color: var(--vfd-dim); text-shadow: none; }
 .candidate-page { color: var(--text); font-variant-numeric: tabular-nums; }

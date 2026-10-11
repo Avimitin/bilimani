@@ -64,6 +64,10 @@ npm run test:browser
 
 也可设置 PLAYWRIGHT_CHROMIUM_EXECUTABLE 为本机 Chrome 完整路径。BILIMANI_TEST_URL 可替换默认 32134 地址。测试使用生产 bundle 和真实 Rust API，模拟外部平台 HTTP/WebSocket，以及玩家接口的数据缺失/故障；验证 URL 身份码、弹幕搜索确认、队列增删、OBS 停用/激活、刷新保留队列、配置错误、玩家轮换、页面动效设置及图表 DOM 不随轮换重建，截图在忽略目录 analysis/browser/。浏览器测试会清理预览队列，应在专用预览进程运行。
 
+机械臂候选屏可单独运行 `npm run test:browser:arm`，使用同一预览地址和 Chrome 设置。它从 Rust 预览读取合成曲库/遥测并加载生产页面，在浏览器内拦截所有后续游戏及平台请求，不修改预览队列；检查弹幕区域尺寸、1P/2P/DP 方向、分段收放、翻页、多观众切换、超时、中途取消/重新展开和关闭动效。截图保存为 `analysis/browser/arm-*.png`。纯动画状态和方向判断另由 `npm test` 验证。
+
+要直接观看动画，运行 `npm run test:browser:arm -- --headed`：测试会打开可见的浏览器窗口，自动演示并检查上述场景，结束后关闭窗口。只需预览服务，无需游戏或真实直播间；无需在预览终端输入 `add`，该命令直接入队，不会产生前端候选。
+
 开发热更新使用 npm run dev。默认连接 32133 的 DLL；假游戏可设置 BILIMANI_API_URL=http://127.0.0.1:32134。从 Vite 打开的 /card/、/mecha/ 使用对应 dist/web/iidx/<style>/config.json，与 DLL 反代读取同一份配置。部署目录为其他路径时设置 BILIMANI_WEB_ROOT。Vite 转发重写 Origin/Host 以匹配本地 API，生产部署无需此开发代理。
 
 ## 原生边界验证

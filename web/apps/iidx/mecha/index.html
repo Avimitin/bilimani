@@ -7,6 +7,7 @@
   <title>MECHA · 直播框架</title>
   <link rel="stylesheet" href="./overlay.css">
   <link rel="stylesheet" href="./frame.css">
+  <link rel="stylesheet" href="./choice-arm.css">
   <script type="module" src="./overlay.js"></script>
 </head>
 <body data-layout="frame">
@@ -255,31 +256,10 @@
     <aside class="sidebar" data-queue-visible="false" aria-label="直播互动">
       <svg class="display-surface sidebar-face" viewBox="0 0 290 760" aria-hidden="true">
         <defs>
-          <!-- Glass and scan share this exact outline, including the recessed mounts. -->
           <path id="sidebar-glass-shape" d="M19 4H286V324h-9v54h9v358l-20 20H4V590h7v-42H4V19Z"/>
-          <clipPath id="sidebar-glass-clip"><use href="#sidebar-glass-shape"/></clipPath>
-          <clipPath id="choice-area-clip"><rect width="290" height="370"/></clipPath>
-          <linearGradient id="choice-scan-glow" x1="0" y1="0" x2="0" y2="1">
-            <stop stop-color="#50eabe" stop-opacity="0"/>
-            <stop offset=".35" stop-color="#50eabe" stop-opacity=".22"/>
-            <stop offset=".8" stop-color="#75ffd5" stop-opacity=".44"/>
-            <stop offset=".94" stop-color="#b2ffdd" stop-opacity=".8"/>
-            <stop offset="1" stop-color="#b2ffdd" stop-opacity="0"/>
-          </linearGradient>
-          <pattern id="choice-scan-rows" width="1" height="3" patternUnits="userSpaceOnUse"><rect width="1" height="1" fill="white"/></pattern>
-          <mask id="choice-scan-mask" maskUnits="userSpaceOnUse" x="0" y="0" width="290" height="370"><rect width="290" height="370" fill="url(#choice-scan-rows)"/></mask>
         </defs>
         <path class="screen-bezel" d="M18 1H289V327h-9v48h9v363l-21 21H1V587h7v-36H1V18Z"/>
         <use class="screen-glass" href="#sidebar-glass-shape"/>
-        <g class="choice-scan-surface" clip-path="url(#sidebar-glass-clip)">
-          <g clip-path="url(#choice-area-clip)">
-            <rect width="290" height="370" fill="#52ffd0" fill-opacity=".028"/>
-            <g mask="url(#choice-scan-mask)">
-              <rect width="290" height="370" fill="#72ffd0" fill-opacity=".047"/>
-              <rect class="choice-scan-band" y="-111" width="290" height="111" fill="url(#choice-scan-glow)"/>
-            </g>
-          </g>
-        </g>
         <path class="screen-highlight" d="M7 21 21 7h262 M283 321h-9v60h9 M14 545v48H7 M283 735l-18 18H7"/>
       </svg>
       <section class="panel queue-panel" hidden>
@@ -290,7 +270,6 @@
             <div id="queue-more" class="overflow-note"></div>
           </div>
         </div>
-        <div id="pending-area" aria-label="等待观众选择歌曲" hidden><div id="pending-list"></div><div id="pending-page" class="page-note" hidden></div></div>
       </section>
       <section id="activity-panel" class="panel activity-panel" data-feed-state="collapsed" aria-label="实时弹幕">
         <header class="panel-heading"><h2>实时弹幕</h2><span id="feed-count" class="count-label">0 / 0</span></header>
@@ -304,6 +283,27 @@
         <div id="event-empty" class="empty-state">暂无点歌事件</div>
       </section>
     </aside>
+    <section id="choice-arm" class="choice-arm" data-stage="stowed" aria-label="机械臂选歌屏" aria-hidden="true" hidden>
+      <svg class="arm-mechanism" viewBox="0 0 1920 1080" aria-hidden="true">
+        <defs>
+          <linearGradient id="arm-metal" x2="0" y2="1"><stop stop-color="#72818a"/><stop offset=".12" stop-color="#47535d"/><stop offset=".48" stop-color="#26343e"/><stop offset=".8" stop-color="#17242c"/><stop offset="1" stop-color="#4c5b64"/></linearGradient>
+          <linearGradient id="arm-cuff" x2="1" y2="0"><stop stop-color="#65757c"/><stop offset=".3" stop-color="#3b4b54"/><stop offset="1" stop-color="#17272f"/></linearGradient>
+        </defs>
+        <g class="arm-mount">
+          <rect x="-13" y="0" width="8" height="18" fill="url(#arm-metal)" stroke="#0b151b"/>
+          <rect x="5" y="0" width="8" height="18" fill="url(#arm-metal)" stroke="#0b151b"/>
+          <rect x="-1" y="0" width="2" height="18" fill="#71cdb6" fill-opacity=".5"/>
+        </g>
+        <g class="arm-rails"/>
+      </svg>
+      <div class="arm-screen">
+        <div class="arm-housing" aria-hidden="true"><span>SONG SELECT</span></div>
+        <div class="arm-glass">
+          <div id="pending-area" aria-label="等待观众选择歌曲" hidden><div id="pending-list"></div><div id="pending-page" class="page-note" hidden></div></div>
+        </div>
+        <div class="arm-bottom" aria-hidden="true"></div>
+      </div>
+    </section>
   </main>
 </body>
 </html>

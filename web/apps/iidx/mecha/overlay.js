@@ -1,5 +1,7 @@
 import { startPage } from "../bootstrap";
 import { createIdentityRenderer, startVfdInstability } from './identity';
+import { createChoiceArm } from './choice-arm';
+import { choiceOrigin } from './choice-arm-motion';
 "use strict";
 (() => {
   let state = null;
@@ -13,6 +15,11 @@ import { createIdentityRenderer, startVfdInstability } from './identity';
   const signatures = new Map();
   const $ = (id) => document.getElementById(id);
   const frame = document.body.dataset.layout === "frame";
+  const moveChoiceArm = frame ? createChoiceArm($("choice-arm"), () => {
+    $("pending-area").hidden = true;
+    $("pending-list").replaceChildren();
+    signatures.delete("pending");
+  }) : null;
   if (frame) {
     const resize = () => document.querySelector(".stream-frame").style.setProperty("--frame-scale", Math.min(innerWidth / 1920, innerHeight / 1080));
     window.addEventListener("resize", resize);
@@ -419,70 +426,75 @@ import { createIdentityRenderer, startVfdInstability } from './identity';
     if (performance.now() - pageSince > 6000) { pageIndex = (pageIndex + 1) % Math.max(1, pages); pageSince = performance.now(); }
     activeChoice = pages ? choiceKey(choices[pageIndex]) : null;
     const pending = choices.slice(pageIndex, pageIndex + 1);
-    const queueState = pages || s.queue.length ? "expanded" : c ? "current" : "collapsed";
+    const inlineChoices = !frame && pages > 0;
+    const queueState = inlineChoices || s.queue.length ? "expanded" : c ? "current" : "collapsed";
     document.querySelector(".overlay").dataset.queueState = queueState;
-    const queueVisible = !frame || pages > 0 || s.queue.length > 0;
+    const queueVisible = !frame || s.queue.length > 0;
     const queuePanel = document.querySelector(".queue-panel");
     queuePanel.hidden = !queueVisible;
     if (frame) document.querySelector(".sidebar").dataset.queueVisible = String(queueVisible);
-    $("pending-area").hidden = !pages;
-    $("queue-area").hidden = pages > 0;
-    $("queue-area").setAttribute("aria-hidden", String(!queueVisible || pages > 0 || (!frame && queueState === "collapsed")));
-    $("waiting-area").setAttribute("aria-hidden", String(!queueVisible || pages > 0 || (!frame && !s.queue.length)));
-    queuePanel.classList.toggle("choosing", pages > 0);
-    changed("pending", [pageIndex, pending.map(({remaining, ...p}) => p)], () => {
-      $("pending-list").replaceChildren(...pending.map((p) => {
-        const card = node("section", "choice-panel");
-        const count = p.candidates.length;
-        const currentPage = candidatePage(p);
-        const pageCount = Math.ceil(count / candidatePageSize);
-        const first = currentPage * candidatePageSize;
-        const last = Math.min(first + candidatePageSize, count);
-        card.style.setProperty("--choice-columns", 1);
-        card.style.setProperty("--choice-rows", Math.min(count, candidatePageSize));
-        const prompt = node("p", "choice-prompt", "请在弹幕发送编号选歌");
-        const heading = node("div", "choice-heading");
-        const person = node("div", "");
-        const name = node("h2", "", `${p.requester}，请选择`);
-        name.title = p.requester;
-        person.append(name);
-        const countdown = node("div", "countdown");
-        countdown.append(node("b", "", ""), node("span", "", "秒"));
-        heading.append(person, chart(p), countdown);
-        const list = node("ol", "candidates");
-        list.append(...p.candidates.slice(first, last).map((song, i) => {
-          const row = node("li", `candidate${song.available ? "" : " unavailable"}`);
-          const name = node("div", "candidate-title", song.title);
-          name.title = song.title;
-          if (!song.available) name.append(node("span", "unavailable-note", "所请求谱面不存在"));
-          row.append(node("span", "candidate-number", first + i + 1), name);
-          return row;
+    if (pages || !frame) $("pending-area").hidden = !pages;
+    $("queue-area").hidden = inlineChoices;
+    $("queue-area").setAttribute("aria-hidden", String(!queueVisible || inlineChoices || (!frame && queueState === "collapsed")));
+    $("waiting-area").setAttribute("aria-hidden", String(!queueVisible || inlineChoices || (!frame && !s.queue.length)));
+    queuePanel.classList.toggle("choosing", inlineChoices);
+    // Keep the last image on the glass until the retraction has completed.
+    if (pages || !frame) {
+      changed("pending", [pageIndex, pending.map(({remaining, ...p}) => p)], () => {
+        $("pending-list").replaceChildren(...pending.map((p) => {
+          const card = node("section", "choice-panel");
+          const count = p.candidates.length;
+          const currentPage = candidatePage(p);
+          const pageCount = Math.ceil(count / candidatePageSize);
+          const first = currentPage * candidatePageSize;
+          const last = Math.min(first + candidatePageSize, count);
+          card.style.setProperty("--choice-columns", 1);
+          card.style.setProperty("--choice-rows", Math.min(count, candidatePageSize));
+          const prompt = node("p", "choice-prompt", "请在弹幕发送编号选歌");
+          const heading = node("div", "choice-heading");
+          const person = node("div", "");
+          const name = node("h2", "", `${p.requester}，请选择`);
+          name.title = p.requester;
+          person.append(name);
+          const countdown = node("div", "countdown");
+          countdown.append(node("b", "", ""), node("span", "", "秒"));
+          heading.append(person, chart(p), countdown);
+          const list = node("ol", "candidates");
+          list.append(...p.candidates.slice(first, last).map((song, i) => {
+            const row = node("li", `candidate${song.available ? "" : " unavailable"}`);
+            const name = node("div", "candidate-title", song.title);
+            name.title = song.title;
+            if (!song.available) name.append(node("span", "unavailable-note", "所请求谱面不存在"));
+            row.append(node("span", "candidate-number", first + i + 1), name);
+            return row;
+          }));
+          const track = node("div", "time-track");
+          track.append(node("span", ""));
+          const help = node("p", "choice-help");
+          help.append(document.createTextNode("发送 "), node("strong", "", first + 1 === last ? String(last) : `${first + 1}–${last}`), document.createTextNode(" 选歌 · 由点歌本人回复"));
+          card.append(prompt, heading, list, help);
+          if (pageCount > 1) {
+            const pager = node("div", "choice-pagination");
+            const previous = node("span", "", "p 上一页");
+            const next = node("span", "", "n 下一页");
+            previous.classList.toggle("at-boundary", currentPage === 0);
+            next.classList.toggle("at-boundary", currentPage === pageCount - 1);
+            pager.append(previous, node("span", "candidate-page", `${currentPage + 1} / ${pageCount}`), next);
+            card.append(pager);
+          }
+          card.append(track);
+          return card;
         }));
-        const track = node("div", "time-track");
-        track.append(node("span", ""));
-        const help = node("p", "choice-help");
-        help.append(document.createTextNode("发送 "), node("strong", "", first + 1 === last ? String(last) : `${first + 1}–${last}`), document.createTextNode(" 选歌 · 由点歌本人回复"));
-        card.append(prompt, heading, list, help);
-        if (pageCount > 1) {
-          const pager = node("div", "choice-pagination");
-          const previous = node("span", "", "p 上一页");
-          const next = node("span", "", "n 下一页");
-          previous.classList.toggle("at-boundary", currentPage === 0);
-          next.classList.toggle("at-boundary", currentPage === pageCount - 1);
-          pager.append(previous, node("span", "candidate-page", `${currentPage + 1} / ${pageCount}`), next);
-          card.append(pager);
-        }
-        card.append(track);
-        return card;
-      }));
-    });
-    $("pending-list").querySelectorAll(".choice-panel").forEach((card, i) => {
-      vfdNumber(card.querySelector(".countdown b"), pad(pending[i].remaining));
-      card.querySelector(".countdown").classList.toggle("urgent", pending[i].remaining <= 10);
-      progress(card.querySelector(".time-track span"), pending[i].remaining, pending[i].duration);
-    });
-    $("pending-page").hidden = pages <= 1;
-    text($("pending-page"), `待选观众 ${pageIndex + 1} / ${pages} · 每 6 秒轮换`);
+      });
+      $("pending-list").querySelectorAll(".choice-panel").forEach((card, i) => {
+        vfdNumber(card.querySelector(".countdown b"), pad(pending[i].remaining));
+        card.querySelector(".countdown").classList.toggle("urgent", pending[i].remaining <= 10);
+        progress(card.querySelector(".time-track span"), pending[i].remaining, pending[i].duration);
+      });
+      $("pending-page").hidden = pages <= 1;
+      text($("pending-page"), `待选观众 ${pageIndex + 1} / ${pages} · 每 6 秒轮换`);
+    }
+    moveChoiceArm?.({ open: pages > 0, origin: choiceOrigin(s), animate: document.body.dataset.vfdEffects !== 'false' });
     renderQueue(s);
 
     const limit = Math.max(1, Math.min(100, Number(s.feed_limit) || 10));

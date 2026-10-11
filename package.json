@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit",
     "test": "tsx --test web/tests/*.test.ts",
     "test:browser": "node web/tests/browser.mjs",
+    "test:browser:arm": "node web/tests/choice-arm.browser.mjs",
     "dev": "npm run dev -w @bilimani/iidx"
   },
   "devDependencies": {

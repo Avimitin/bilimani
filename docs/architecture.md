@@ -97,6 +97,8 @@ HTTP handler 不调用游戏函数，不读取原生指针。它读取快照，�
 
 段位、DJ POINT 和周统计属于 IIDX 专属协议；通用 TypeScript 控制器不解释这些字段。IIDX 页面单独读取用户 API，资料暂时不可用不影响点歌。Mecha 页的左下角轮换歌曲和玩家资料，时间与动画由页面负责。
 
+Mecha 的候选列表由独立机械臂荧光屏展示，不参与侧栏布局。通用控制器只透传当前模式，IIDX 页面结合 now_playing.players 和用户 active_side 判断方向：SP 1P、DP 从右侧，SP 2P 从左侧；资料缺失时默认右侧。纯函数 choice-arm-motion.ts 决定方向和可逆的分段动画，choice-arm.ts 负责 DOM/逐帧绘制。收起期间保留的文字只是最后一帧视觉内容，候选是否有效仍由控制器的超时/确认状态决定；切换方向先完全收回，翻页和观众轮换不重启动画。没有新增 DLL 状态或 API。
+
 ## 配置与静态目录
 
 每个可运行页面的 index.html 旁边都有自己的 config.json。它是运行时文件，不 import 进 JS、不进入 hash 资源图。页面只在启动时读取一次，禁用缓存，校验成功后才启动控制器。文件缺失或格式错误显示明确错误；不回退到 localStorage 或旧配置。

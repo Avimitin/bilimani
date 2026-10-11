@@ -146,7 +146,8 @@ export class Controller {
       pending: [...this.pending.values()].map(p => ({ requester: p.name, mode: p.mode, chart: p.chart ?? null, chart_style: this.rules.chartStyle(p.chart),
         remaining: remaining(p.until), duration: this.policy.selectionTimeoutSeconds, page: p.page, page_size: 5, page_count: Math.ceil(p.songs.length / 5),
         candidates: p.songs.map(song => ({ title: song.title, available: supports(song, p) })) })),
-      feed: this.feed.slice(), feed_limit: this.feedLimit, now_playing: this.online ? this.game.now_playing : emptyGame().now_playing,
+      feed: this.feed.slice(), feed_limit: this.feedLimit, mode: this.online ? this.game.mode : null,
+      now_playing: this.online ? this.game.now_playing : emptyGame().now_playing,
     };
   }
 }

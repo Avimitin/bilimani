@@ -1,0 +1,32 @@
+/* Independent stage above the game capture. It never participates in sidebar layout. */
+.choice-arm { position: absolute; inset: 0; z-index: 8; pointer-events: none; overflow: hidden; }
+.arm-mechanism { position: absolute; inset: 0; width: 1920px; height: 1080px; overflow: visible; }
+.arm-screen { position: absolute; left: 0; top: 0; width: 500px; filter: drop-shadow(0 5px 8px #0009); }
+.arm-housing { position: absolute; z-index: 2; top: -8px; height: 32px; overflow: hidden; border: 2px solid #10171b; border-radius: 5px 5px 2px 2px; background: linear-gradient(#7a868e, #3d4951 16%, #1a252d 66%, #46565b 70%, #151f25 82%); box-shadow: inset 0 1px #b2c3c966, 0 2px 2px #000b; }
+.arm-housing::before, .arm-housing::after { content: ''; position: absolute; top: 5px; bottom: 5px; width: 24px; border-inline: 2px solid #0b1419; background: repeating-linear-gradient(115deg, #728780 0 3px, #243734 3px 8px); opacity: .65; }
+.arm-housing::before { left: 10px; } .arm-housing::after { right: 10px; }
+.arm-housing span { position: absolute; width: 180px; left: 50%; transform: translateX(-50%); top: 5px; color: #91c6b9; font: 10px/14px Consolas, monospace; letter-spacing: 3px; text-align: center; white-space: nowrap; }
+.arm-glass { position: absolute; top: 24px; left: 6px; width: 488px; height: 0; overflow: hidden; background: linear-gradient(110deg, #08261df5, #020d0bf7 48%, #071c17f5); border-inline: 1px solid #71efc977; box-shadow: inset 3px 0 8px #5affe81a, inset -3px 0 8px #5affe81a; }
+.arm-glass::after { content: ''; position: absolute; inset: 0; pointer-events: none; background: repeating-linear-gradient(transparent 0 3px, #7affcf0a 3px 4px); }
+.arm-bottom { position: absolute; top: 24px; left: 3px; width: 494px; height: 12px; border: 1px solid #182b2b; background: linear-gradient(#a5e6cd, #415b55 18%, #1b2b2c 42%, #475b5a 58%, #192323); box-shadow: 0 -2px 6px #7affce44; }
+.stream-frame .choice-arm #pending-area { height: var(--arm-screen-height); padding: 17px 19px 14px; background: none; color: #baffdf; text-shadow: 0 0 2px #88ffd799, 0 0 8px #6cffce3d; }
+.stream-frame .choice-arm .choice-prompt { margin: 0 0 12px; padding: 0 0 10px; border: 0; border-bottom: 1px solid #77e9be55; border-radius: 0; background: none; font-size: 21px; font-weight: 600; letter-spacing: 1px; color: #c4ffe8; }
+.stream-frame .choice-arm .choice-heading { gap: 10px; margin-bottom: 12px; min-height: 34px; }
+.stream-frame .choice-arm .choice-heading h2 { font-size: 16px; }
+.stream-frame .choice-arm .chart { flex: none; font-size: 12px; }
+.stream-frame .choice-arm .candidates { gap: 5px; }
+.stream-frame .choice-arm .candidate { padding: 4px 7px; gap: 12px; border: 1px solid #74e6b932; background: #53f5b805; }
+.stream-frame .choice-arm .candidate-number { width: 32px; height: 32px; font-size: 23px; font-weight: 500; color: #8affca; border-right: 1px solid #80f7bf44; border-radius: 0; }
+.stream-frame .choice-arm .candidate-title { font-size: 20px; line-height: 1.3; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.stream-frame .choice-arm .candidate.unavailable .candidate-title { color: #88a999; }
+.stream-frame .choice-arm .unavailable-note { font-size: 11px; color: #e4b38e; text-shadow: none; }
+.stream-frame .choice-arm .choice-help { font-size: 13px; margin: 11px 0 7px; color: #8cb8a7; }
+.stream-frame .choice-arm .choice-help strong { color: #baffdf; }
+.stream-frame .choice-arm .choice-pagination { font-size: 13px; padding: 2px 0 9px; }
+.stream-frame .choice-arm .countdown { gap: 3px; color: #8affca; }
+.stream-frame .choice-arm .countdown.urgent { color: #ffbc87; }
+.stream-frame .choice-arm .countdown .vfd-digits { height: 28px; width: auto; }
+.stream-frame .choice-arm .countdown span { color: inherit; }
+.stream-frame .choice-arm .time-track { height: 2px; background: #72e9b51f; }
+.stream-frame .choice-arm .time-track span { background: #88ffd0; box-shadow: 0 0 5px #64ffc88c; }
+.stream-frame .choice-arm .page-note { padding: 7px 0 0; margin: 0; font-size: 12px; color: #8cb8a7; }
