@@ -8,10 +8,11 @@
   <link rel="stylesheet" href="./overlay.css">
   <link rel="stylesheet" href="./frame.css">
   <link rel="stylesheet" href="./choice-arm.css">
+  <link rel="stylesheet" href="./startup.css">
   <script type="module" src="./overlay.js"></script>
 </head>
 <body data-layout="frame">
-  <main class="stream-frame overlay" data-queue-state="collapsed" aria-label="直播框架">
+  <main class="stream-frame overlay" data-queue-state="collapsed" data-loading="true" aria-label="直播框架">
     <!-- Fully vector mecha chassis: layered top bar, side columns, interaction
          backing and the bottom bar share one armor language of beveled plates,
          seams, screws and cyan lamps. The turntable overlaps the lower-left. -->
@@ -304,6 +305,19 @@
         <div class="arm-bottom" aria-hidden="true"></div>
       </div>
     </section>
+    <section id="login-overlay" class="login-overlay" data-stage="waiting" data-pattern="plus" aria-label="游戏登录状态">
+      <svg class="login-grid" viewBox="0 0 1920 1080" aria-hidden="true">
+        <defs><path id="login-cross" d="M-3-38H3V-3H38V3H3V38H-3V3H-38V-3H-3Z"/></defs>
+        <g class="login-markers"/>
+      </svg>
+      <div class="login-label" role="status"><span class="login-message">正在等待登录中</span></div>
+    </section>
+    <div id="loading-strip" class="loading-strip" role="img" aria-label="等待游戏数据的蜂巢动画，不代表实际进度" hidden>
+      <svg viewBox="0 0 1592 178" aria-hidden="true">
+        <defs><clipPath id="loading-glass"><path d="M24 6h1248l24 48h290v100l-18 18H6V24Z"/></clipPath></defs>
+        <g class="loading-cells" clip-path="url(#loading-glass)"/>
+      </svg>
+    </div>
   </main>
 </body>
 </html>

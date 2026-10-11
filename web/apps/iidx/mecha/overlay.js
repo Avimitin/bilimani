@@ -2,6 +2,7 @@ import { startPage } from "../bootstrap";
 import { createIdentityRenderer, startVfdInstability } from './identity';
 import { createChoiceArm } from './choice-arm';
 import { choiceOrigin } from './choice-arm-motion';
+import { createStartupDisplay } from './startup';
 "use strict";
 (() => {
   let state = null;
@@ -15,6 +16,7 @@ import { choiceOrigin } from './choice-arm-motion';
   const signatures = new Map();
   const $ = (id) => document.getElementById(id);
   const frame = document.body.dataset.layout === "frame";
+  const renderStartup = frame ? createStartupDisplay($("login-overlay"), $("loading-strip"), document.querySelector(".stream-frame")) : null;
   const moveChoiceArm = frame ? createChoiceArm($("choice-arm"), () => {
     $("pending-area").hidden = true;
     $("pending-list").replaceChildren();
@@ -569,5 +571,6 @@ import { choiceOrigin } from './choice-arm-motion';
     rotationSeconds = display.infoRotationSeconds;
     document.body.dataset.vfdEffects = String(display.vfdEffects);
     render(state);
+    renderStartup?.(state, display.vfdEffects);
   }, { user: frame });
 })();

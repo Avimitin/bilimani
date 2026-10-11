@@ -10,7 +10,7 @@ async fn main() -> anyhow::Result<()> {
     let root = std::env::args_os()
         .nth(1)
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("dist/web"));
+        .unwrap_or_else(|| PathBuf::from("dist/preview"));
     let (server, mut commands) =
         bilimani_api::Server::start(([127, 0, 0, 1], 32134).into(), &root).await?;
     let mut service = Service::default();
@@ -35,7 +35,7 @@ async fn main() -> anyhow::Result<()> {
         "API preview: http://{}/iidx/mecha/ (Ctrl+C to stop)",
         server.address
     );
-    println!("{}", preview::PreviewError::Syntax);
+    println!("{}", preview::HELP);
     loop {
         tick.tick().await;
         let millis = now.elapsed().as_millis() as u64;
@@ -59,6 +59,8 @@ async fn main() -> anyhow::Result<()> {
             );
             let _ = message.reply.send(result);
         }
-        server.publish(service.snapshots())?;
+        let mut snapshots = service.snapshots();
+        snapshots.push(("/api/v1/preview".into(), simulator.events()));
+        server.publish(snapshots)?;
     }
 }

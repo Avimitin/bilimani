@@ -29,14 +29,14 @@ npm run build 独立打包 Card、Mecha，产物位于 dist/web/iidx/<style>/，
 
 ## 不启动游戏的预览
 
-前端已构建后，Windows 可双击 `scripts/preview.bat` 启动 Rust 预览。它会切换到仓库目录，并为这次 PowerShell 调用设置执行策略；构建失败时保留窗口以查看错误。
+安装前端依赖后，Windows 可双击 `scripts/preview.bat` 构建预览页面并启动 Rust 预览。它会切换到仓库目录，并为这次 PowerShell 调用设置执行策略；构建失败时保留窗口以查看错误。命令行等价操作：
 
 ```powershell
-npm run build
+npm run build:preview
 ./scripts/build.ps1 -CargoArgs @('run', '-p', 'bilimani-iidx', '--example', 'api_preview')
 ```
 
-打开 http://127.0.0.1:32134/iidx/card/ 或 /iidx/mecha/。这是使用真实 HTTP/选曲服务的**假游戏**：9 首 Preview Song，自动确认选曲，并提供合成曲目信息、密度/雷达/键位和演奏进度，不执行任何游戏函数。构建后页面已带默认配置；仅看布局可将产物目录 config.json 的 platform.enabled 设为 false。例程不随发行包交付，不需要真实游戏文件或单独的 Node mock server。Windows 使用上述脚本，其他支持 Rust 的开发环境可直接 `cargo run -p bilimani-iidx --example api_preview`；只有 DLL 原生接入依赖 Windows。
+打开 http://127.0.0.1:32134/iidx/card/ 或 /iidx/mecha/。这是使用真实 HTTP/选曲服务的**假游戏**：9 首 Preview Song，自动确认选曲，并提供合成曲目信息、密度/雷达/键位和演奏进度，不执行任何游戏函数。`build:preview` 将预览页面写入 `dist/preview/`，在构建时接入本地模拟弹幕源，不连接真实直播间，不需要 authCode；相邻配置保留显示/点歌参数，真实平台开关固定关闭。正式 `build` 仍写入 `dist/web/`，发布包不会包含预览代码。例程不随发行包交付，不需要真实游戏文件或单独的 Node mock server。Windows 使用上述脚本，其他支持 Rust 的开发环境在构建预览页面后可直接 `cargo run -p bilimani-iidx --example api_preview`；只有 DLL 原生接入依赖 Windows。
 
 预览还提供 `/api/v1/iidx/user` 的合成玩家 PREVIEW、SP/DP 段位与周统计。`play` 增加合成计数，`other` 清空玩家，`select` 恢复，便于验证左下角轮换和退卡后的清空。
 
@@ -44,18 +44,28 @@ npm run build
 
 | 命令 | 效果 |
 |---|---|
+| help | 列出终端命令 |
+| logout | 清空登录状态与模式，Mecha 约 1.2 秒后回到全屏等待登录遮罩 |
+| select | 恢复选曲；从等待登录进入时显示绿色成功提示，再渐隐遮罩 |
+| other | 暂时清空曲目信息；进入过选曲后只显示底栏蜂巢动画，不弹遮罩 |
+| menu / menu Preview | 模拟点歌，在网页展开候选屏；先打开网页并进入选曲 |
+| reply n / reply p / reply 2 | 候选翻页或用编号确认；确认后通过真实 API 入队并收回机械臂 |
+| chat 任意文字 | 向页面发送预览观众的模拟弹幕 |
+| 1p / 2p | 切换当前玩家侧，观察机械臂的伸出方向 |
 | add 2 | 模拟观众将歌曲 ID 2 加入真实队列，打印响应及请求 ID |
 | queue | 列出当前点歌、等待项的请求 ID 和错误 |
 | pause / resume | 模拟打开/关闭菜单，暂停/继续自动出队 |
 | priority 3 / remove 3 | 优先选或删除队列请求 ID 3（不是歌曲 ID） |
-| play / select / other | 开始游玩、回选曲、进入无曲目信息场景 |
+| play | 开始游玩 |
 | sp / dp | 切换模式；对应模式的队列才会执行 |
 | fail | 下一次定位失败，验证保留行及错误状态 |
 | reload | 重读当前目录 bilimani_iidx_aliases.csv，可用 BILIMANI_PREVIEW_ALIASES 指定测试文件 |
 
-例如依次输入 pause、add 1、add 2，然后用打印出的 ID 执行 priority，即可观察队列替换；play/ select 验证当前项结束和下一首。也可以直接调用文档中的 HTTP API。预览始终显示合成数据，只用于页面和协议调试，不证明原生游戏调用正确；没有伪造真实直播平台身份。需要验证候选/弹幕流程时，浏览器集成测试会模拟外部 HTTP/WebSocket。
+例如先打开网页，输入 `logout` 观察等待遮罩，再输入 `select` 观察成功过渡；输入 `menu` 展开候选，`reply n` 翻页，`reply 6` 确认并收回。不回复则按页面配置超时。`other` 用于观察无遮挡的底部加载动画。每条命令后可停留观察效果；刷新页面清空候选，不重放之前的终端命令。
 
-运行浏览器集成检查（保留预览进程，在另一终端）：
+也可依次输入 pause、add 1、add 2，然后用打印出的 ID 执行 priority 观察队列替换；play/select 验证当前项结束和下一首。`add` 直接入队，不产生候选。预览始终显示合成数据，只用于页面和协议调试，不证明原生游戏调用正确；没有伪造真实直播平台身份。
+
+验证正式页面时，先运行 `npm run build`，再用 `./scripts/build.ps1 -CargoArgs @('run', '-p', 'bilimani-iidx', '--example', 'api_preview', '--', 'dist/web')` 启动服务，明确使用正式静态目录。在另一终端运行：
 
 ```powershell
 npx playwright install chromium
@@ -67,6 +77,10 @@ npm run test:browser
 机械臂候选屏可单独运行 `npm run test:browser:arm`，使用同一预览地址和 Chrome 设置。它从 Rust 预览读取合成曲库/遥测并加载生产页面，在浏览器内拦截所有后续游戏及平台请求，不修改预览队列；检查弹幕区域尺寸、1P/2P/DP 方向、分段收放、翻页、多观众切换、超时、中途取消/重新展开和关闭动效。截图保存为 `analysis/browser/arm-*.png`。纯动画状态和方向判断另由 `npm test` 验证。
 
 要直接观看动画，运行 `npm run test:browser:arm -- --headed`：测试会打开可见的浏览器窗口，自动演示并检查上述场景，结束后关闭窗口。只需预览服务，无需游戏或真实直播间；无需在预览终端输入 `add`，该命令直接入队，不会产生前端候选。
+
+登录遮罩和底栏蜂巢动画可用 `npm run test:browser:startup -- --headed` 单独演示；省略 `--headed` 则在后台验证并将截图保存到 `analysis/browser/startup-*.png`。同样使用上述正式静态目录。
+
+终端与网页的端到端检查使用 `npm run test:browser:preview`：先构建 Rust 的 `api_preview` 和 `npm run build:preview`，关闭占用 32134 的预览进程。测试自行启动 Rust 例程，向真实 stdin 发送 logout/select/other/menu/reply/2p/dp，验证网页动效、真实搜索与入队、刷新不重放事件，结束后自动关闭进程。此测试不拦截 HTTP，不访问直播平台。
 
 开发热更新使用 npm run dev。默认连接 32133 的 DLL；假游戏可设置 BILIMANI_API_URL=http://127.0.0.1:32134。从 Vite 打开的 /card/、/mecha/ 使用对应 dist/web/iidx/<style>/config.json，与 DLL 反代读取同一份配置。部署目录为其他路径时设置 BILIMANI_WEB_ROOT。Vite 转发重写 Origin/Host 以匹配本地 API，生产部署无需此开发代理。
 

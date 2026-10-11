@@ -147,6 +147,7 @@ export class Controller {
         remaining: remaining(p.until), duration: this.policy.selectionTimeoutSeconds, page: p.page, page_size: 5, page_count: Math.ceil(p.songs.length / 5),
         candidates: p.songs.map(song => ({ title: song.title, available: supports(song, p) })) })),
       feed: this.feed.slice(), feed_limit: this.feedLimit, mode: this.online ? this.game.mode : null,
+      phase: this.online ? this.game.phase : null,
       now_playing: this.online ? this.game.now_playing : emptyGame().now_playing,
     };
   }

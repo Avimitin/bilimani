@@ -9,10 +9,13 @@
   ],
   "scripts": {
     "build": "npm run build -w @bilimani/iidx",
+    "build:preview": "node web/apps/iidx/build.mjs --preview",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test web/tests/*.test.ts",
     "test:browser": "node web/tests/browser.mjs",
     "test:browser:arm": "node web/tests/choice-arm.browser.mjs",
+    "test:browser:startup": "node web/tests/startup.browser.mjs",
+    "test:browser:preview": "node web/tests/preview.browser.mjs",
     "dev": "npm run dev -w @bilimani/iidx"
   },
   "devDependencies": {

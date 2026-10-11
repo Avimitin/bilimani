@@ -6,7 +6,36 @@ use bilimani_iidx::{
     iidx,
     service::{GameAction, Service},
 };
-use std::{io::BufRead, path::Path, sync::mpsc};
+use serde::Serialize;
+use std::{collections::VecDeque, io::BufRead, path::Path, sync::mpsc};
+
+pub const HELP: &str = "Preview commands:
+  logout              Show the login overlay and loading strip
+  select / play       Enter song selection / start playing
+  other               Clear song data (loading strip only after login)
+  menu [query]        Show webpage candidates (default: Preview)
+  reply <1-9|n|p>     Choose a song / next page / previous page
+  chat <text>         Send a local preview chat message
+  1p / 2p / sp / dp  Change player side or play mode
+  add <song-id>       Enqueue directly, without candidates
+  queue               List queued request IDs
+  pause / resume      Pause / resume automatic queue selection
+  priority <id>       Prioritize a queued request
+  remove <id>         Remove a queued request
+  fail / reload       Fail next selection / reload alias CSV
+  help                Show this list";
+
+#[derive(Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum PreviewAction {
+    Request { query: String },
+    Chat { text: String },
+}
+#[derive(Serialize)]
+struct PreviewEvent {
+    id: u64,
+    action: PreviewAction,
+}
 
 pub fn input() -> mpsc::Receiver<String> {
     let (tx, rx) = mpsc::channel();
@@ -21,15 +50,17 @@ pub fn input() -> mpsc::Receiver<String> {
 }
 #[derive(Debug, thiserror::Error)]
 pub enum PreviewError {
-    #[error(
-        "Commands: select | play | other | sp | dp | pause | resume | fail | queue | add <song-id> | remove <request-id> | priority <request-id> | reload"
-    )]
+    #[error("Unknown or incomplete command; type help to list commands")]
     Syntax,
+    #[error("Preview is logged out; type select before menu")]
+    NotLoggedIn,
     #[error(transparent)]
     Api(#[from] bilimani_api::ApiError),
 }
 pub struct Simulator {
     phase: Phase,
+    logged_in: bool,
+    side: u8,
     mode: Mode,
     epoch: u64,
     plays: u64,
@@ -37,11 +68,15 @@ pub struct Simulator {
     started: u64,
     fail_next: bool,
     ack: Option<SelectionResult>,
+    events: VecDeque<PreviewEvent>,
+    last_event: u64,
 }
 impl Default for Simulator {
     fn default() -> Self {
         Self {
             phase: Phase::Select,
+            logged_in: true,
+            side: 1,
             mode: iidx::SP,
             epoch: 1,
             plays: 0,
@@ -49,6 +84,8 @@ impl Default for Simulator {
             started: 0,
             fail_next: false,
             ack: None,
+            events: VecDeque::new(),
+            last_event: 0,
         }
     }
 }
@@ -63,11 +100,13 @@ impl Simulator {
         let parts: Vec<_> = line.split_whitespace().collect();
         let command = match parts.as_slice() {
             ["select"] => {
+                self.logged_in = true;
                 self.phase = Phase::Select;
                 self.epoch += 1;
                 None
             }
             ["play"] => {
+                self.logged_in = true;
                 self.phase = Phase::Playing;
                 self.plays += 1;
                 self.started = now;
@@ -76,6 +115,45 @@ impl Simulator {
             ["other"] => {
                 self.phase = Phase::Other;
                 self.epoch += 1;
+                None
+            }
+            ["logout"] => {
+                self.logged_in = false;
+                self.phase = Phase::Other;
+                self.epoch += 1;
+                None
+            }
+            ["help"] => {
+                println!("{HELP}");
+                None
+            }
+            ["menu", query @ ..] => {
+                if !self.logged_in {
+                    return Err(PreviewError::NotLoggedIn);
+                }
+                self.emit(PreviewAction::Request {
+                    query: if query.is_empty() {
+                        "Preview".into()
+                    } else {
+                        query.join(" ")
+                    },
+                });
+                None
+            }
+            ["reply" | "chat", first, rest @ ..] => {
+                let text = std::iter::once(*first)
+                    .chain(rest.iter().copied())
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                self.emit(PreviewAction::Chat { text });
+                None
+            }
+            ["1p"] => {
+                self.side = 1;
+                None
+            }
+            ["2p"] => {
+                self.side = 2;
                 None
             }
             ["sp"] => {
@@ -152,7 +230,7 @@ impl Simulator {
             user: self.user(),
             snapshot: Snapshot {
                 phase: self.phase,
-                mode: Some(self.mode),
+                mode: self.logged_in.then_some(self.mode),
                 epoch: self.epoch,
                 can_open_menu: self.phase == Phase::Select,
             },
@@ -161,6 +239,19 @@ impl Simulator {
             selection_result: self.ack.take(),
             ..Default::default()
         }
+    }
+    fn emit(&mut self, action: PreviewAction) {
+        self.last_event += 1;
+        self.events.push_back(PreviewEvent {
+            id: self.last_event,
+            action,
+        });
+        while self.events.len() > 32 {
+            self.events.pop_front();
+        }
+    }
+    pub fn events(&self) -> serde_json::Value {
+        serde_json::json!({ "last_id": self.last_event, "events": self.events })
     }
     pub fn execute(&mut self, action: GameAction) {
         match action {
@@ -181,13 +272,13 @@ impl Simulator {
     }
     fn user(&self) -> iidx::user::UserSnapshot {
         use iidx::user::*;
-        if self.phase == Phase::Other {
+        if !self.logged_in || self.phase == Phase::Other {
             return UserSnapshot::default();
         }
         UserSnapshot {
-            active_side: Some(1),
+            active_side: Some(self.side),
             players: vec![UserProfile {
-                side: 1,
+                side: self.side,
                 dj_name: "PREVIEW".into(),
                 sp: StyleProfile {
                     dan: Some(DanRank::Kaiden),
@@ -214,7 +305,7 @@ impl Simulator {
         }
     }
     fn telemetry(&self, now: u64) -> NowPlaying {
-        if self.phase == Phase::Other {
+        if !self.logged_in || self.phase == Phase::Other {
             return NowPlaying::default();
         }
         let charts: Vec<_> = iidx::available_charts([0, 5, 10, 12, 0, 0, 5, 9, 12, 0])
@@ -279,20 +370,81 @@ impl Simulator {
                 game_version: Some(33),
                 charts,
             }),
-            players: vec![PlayerChart { side: 1, chart }],
-            lane_order: (1..=if self.mode == iidx::DP { 2 } else { 1 })
-                .map(|side| LaneOrder {
-                    side,
-                    random: RandomMode::Off,
-                    mirror: false,
-                    status: LaneOrderStatus::Ready,
-                    keys: Some([1, 2, 3, 4, 5, 6, 7]),
-                })
-                .collect(),
+            players: vec![PlayerChart {
+                side: self.side,
+                chart,
+            }],
+            lane_order: (if self.mode == iidx::DP {
+                vec![1, 2]
+            } else {
+                vec![self.side]
+            })
+            .into_iter()
+            .map(|side| LaneOrder {
+                side,
+                random: RandomMode::Off,
+                mirror: false,
+                status: LaneOrderStatus::Ready,
+                keys: Some([1, 2, 3, 4, 5, 6, 7]),
+            })
+            .collect(),
             playback: (self.phase == Phase::Playing).then_some(PlaybackProgress {
                 position_ms: now.saturating_sub(self.started).min(120_000) as u32,
                 duration_ms: 120_000,
             }),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn logout_is_distinct_from_an_empty_song_scene() {
+        let mut simulator = Simulator::default();
+        let mut service = Service::default();
+        let aliases = Path::new("unused.csv");
+        simulator
+            .command("other", &mut service, 0, aliases)
+            .unwrap();
+        let other = simulator.update(0);
+        assert_eq!(other.snapshot.mode, Some(iidx::SP));
+        assert!(other.now_playing.song.is_none());
+        simulator
+            .command("logout", &mut service, 10, aliases)
+            .unwrap();
+        let logged_out = simulator.update(10);
+        assert_eq!(logged_out.snapshot.mode, None);
+        assert!(logged_out.user.players.is_empty());
+        assert!(matches!(
+            simulator.command("menu", &mut service, 10, aliases),
+            Err(PreviewError::NotLoggedIn)
+        ));
+        simulator
+            .command("select", &mut service, 20, aliases)
+            .unwrap();
+        assert!(simulator.update(20).now_playing.song.is_some());
+    }
+
+    #[test]
+    fn candidate_commands_publish_bounded_events_without_enqueuing_in_rust() {
+        let mut simulator = Simulator::default();
+        let mut service = Service::default();
+        let aliases = Path::new("unused.csv");
+        for _ in 0..40 {
+            simulator.command("menu", &mut service, 0, aliases).unwrap();
+        }
+        simulator
+            .command("reply 2", &mut service, 0, aliases)
+            .unwrap();
+        simulator.command("2p", &mut service, 0, aliases).unwrap();
+        let events = simulator.events();
+        assert_eq!(events["last_id"], 41);
+        assert_eq!(events["events"].as_array().unwrap().len(), 32);
+        assert_eq!(events["events"][30]["action"]["query"], "Preview");
+        assert_eq!(events["events"][31]["action"]["text"], "2");
+        assert!(service.queue.view(0).items.is_empty());
+        assert_eq!(simulator.update(0).user.active_side, Some(2));
     }
 }

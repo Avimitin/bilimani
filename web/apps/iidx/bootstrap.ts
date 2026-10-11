@@ -1,6 +1,6 @@
-import { Controller } from '@bilimani/controller';
+import { Controller, type ChatSource } from '@bilimani/controller';
 import { createGameClient } from '@bilimani/game-api';
-import { BilibiliSource } from '@bilimani/platform-bilibili';
+import { createChatSource } from './chat-source';
 import { loadConfig, type Config } from './config';
 import { iidxRules } from './rules';
 import { emptyUser, readUser, type UserSnapshot } from './user';
@@ -13,7 +13,7 @@ export async function startPage(render: (view: View & { user: UserSnapshot }, di
   let user = emptyUser();
   const lifetime = new AbortController();
   let controller: Controller | undefined;
-  let source: BilibiliSource | undefined;
+  let source: ChatSource | undefined;
   let generation = 0;
   const obs = 'obsstudio' in window;
   // OBS has change events, but no synchronous getter for initial active state.
@@ -54,7 +54,7 @@ export async function startPage(render: (view: View & { user: UserSnapshot }, di
         generation++; source?.stop(); source = undefined; controller!.suspendChat();
       } else if (!source) {
         const session = ++generation;
-        source = new BilibiliSource({ ...config.platform, relayUrl: new URL(config.platform.relayUrl, document.baseURI).href.replace(/\/+$/, '') });
+        source = createChatSource({ ...config.platform, relayUrl: new URL(config.platform.relayUrl, document.baseURI).href.replace(/\/+$/, '') }, config.requests);
         source.start(event => { if (!stopped && generation === session) controller!.event(event); });
       }
     };
