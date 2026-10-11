@@ -21,9 +21,9 @@ try {
   const page = await browser.newPage({ viewport: headed ? { width: 1280, height: 720 } : { width: 1920, height: 1080 }, reducedMotion: 'reduce' });
   page.setDefaultTimeout(7000);
   const errors = []; page.on('pageerror', error => errors.push(String(error)));
-  let phase = 'other', hasSong = false, effects = true;
+  let phase = 'other', hasSong = false, effects = true, mode = 'SP';
   await page.route('**/config.json', route => route.fulfill({ json: { ...config, platform: { ...config.platform, enabled: false }, display: { ...config.display, vfdEffects: effects } } }));
-  await page.route('**/api/v1/state', route => route.fulfill({ json: { ...native, ready: true, phase, mode: 'SP',
+  await page.route('**/api/v1/state', route => route.fulfill({ json: { ...native, ready: true, phase, mode,
     queue: { revision: 0, capacity: 20, current: null, items: [], events: [] },
     now_playing: hasSong ? selectedSong : { phase: 'idle', song: null, players: [], lane_order: [], playback: null },
   } }));
@@ -98,6 +98,15 @@ try {
   phase = 'select'; await page.waitForTimeout(1000);
   assert.equal(await mask.isVisible(), false);
   hasSong = true; await strip.waitFor({ state: 'hidden' });
+  // A real logout must restore the mask after its previous success/fade completed.
+  phase = 'other'; hasSong = false; mode = null;
+  await stage('waiting');
+  assert.equal(await mask.isVisible(), true, 'logout restores the full-screen mask');
+  assert.equal(await mask.evaluate(el => Number(getComputedStyle(el).opacity)), 1);
+  assert.equal(await mask.getAttribute('data-pattern'), 'plus', 'logout restarts the waiting layout');
+  await screenshot('logout');
+  phase = 'select'; hasSong = true; mode = 'SP';
+  await stage('success'); await stage('hidden');
   phase = 'playing'; await page.reload(); await stage('hidden');
   assert.equal(await mask.isVisible(), false, 'refresh during gameplay skips startup confirmation');
 

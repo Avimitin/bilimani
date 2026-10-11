@@ -13,8 +13,26 @@ pub mod playback;
 mod search_index;
 pub mod song_info;
 pub mod user;
+const PARTICIPATION_RVA: usize = 0xacd79b0;
 pub const SUPPORTED_SHA256: &str =
     "c61b6dcb8894062e56d60da8ca90053b27f129e1a8e8da5e54457aa42602397d";
+
+/// Scene callbacks stop on logout, so their last SP/DP mode can outlive the players.
+/// Only an explicit empty participation sample outside selection/play clears it.
+#[cfg(any(windows, test))]
+fn session_snapshot(
+    snapshot: crate::game::Snapshot,
+    participants: Option<&[u8]>,
+) -> crate::game::Snapshot {
+    match (snapshot.phase, participants) {
+        (crate::game::Phase::Other, Some([0, 0, 0, 0, 0, 0, 0, 0])) => crate::game::Snapshot {
+            mode: None,
+            can_open_menu: false,
+            ..snapshot
+        },
+        _ => snapshot,
+    }
+}
 
 #[cfg(windows)]
 pub(crate) fn attach(
@@ -97,6 +115,9 @@ impl crate::game::GameAdapter for Adapter {
             Default::default()
         };
         let mut m = native::MAILBOX.lock().unwrap();
+        // Read the already-verified participation flags even after scene hooks stop.
+        // Profile availability (including guest play) is not a session-end signal.
+        let participants = native::read_memory(self.base + PARTICIPATION_RVA, 8).ok();
         let toggle_menu = m
             .menu_event
             .take()
@@ -105,7 +126,7 @@ impl crate::game::GameAdapter for Adapter {
             user,
             toggle_menu,
             navigation: m.navigation.drain(..).collect(),
-            snapshot: m.snapshot,
+            snapshot: session_snapshot(m.snapshot, participants.as_deref()),
             now_playing: m.now_playing.clone(),
             plays: m.plays,
             selection_result: m.ack.take(),
@@ -136,5 +157,72 @@ impl crate::game::GameAdapter for Adapter {
     fn stop(&self) {
         self.set_menu_open(false);
         native::DISABLED.store(true, std::sync::atomic::Ordering::Release);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::session_snapshot;
+    use crate::{
+        game::{Phase, Snapshot},
+        iidx,
+    };
+
+    #[test]
+    fn logout_clears_stale_mode_after_scene_callbacks_stop() {
+        for mode in [iidx::SP, iidx::DP] {
+            let previous = Snapshot {
+                phase: Phase::Other,
+                mode: Some(mode),
+                epoch: 7,
+                can_open_menu: true,
+            };
+            let current = session_snapshot(previous, Some(&[0; 8]));
+            assert_eq!(current.mode, None);
+            assert_eq!(current.phase, Phase::Other);
+            assert_eq!(current.epoch, previous.epoch);
+            assert!(!current.can_open_menu);
+            assert_eq!(
+                previous.mode,
+                Some(mode),
+                "sampling does not overwrite game-thread state"
+            );
+        }
+    }
+
+    #[test]
+    fn participation_preserves_mode_during_results_and_guest_play() {
+        let previous = Snapshot {
+            phase: Phase::Other,
+            mode: Some(iidx::SP),
+            ..Default::default()
+        };
+        for participants in [
+            [1, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 1, 0, 0, 0],
+            [1, 0, 0, 0, 1, 0, 0, 0],
+        ] {
+            assert_eq!(
+                session_snapshot(previous, Some(&participants)).mode,
+                previous.mode
+            );
+        }
+    }
+
+    #[test]
+    fn failed_reads_and_active_scenes_cannot_be_mistaken_for_logout() {
+        let previous = Snapshot {
+            mode: Some(iidx::DP),
+            ..Default::default()
+        };
+        for participants in [None, Some([0; 4].as_slice()), Some([0; 9].as_slice())] {
+            assert_eq!(session_snapshot(previous, participants).mode, previous.mode);
+        }
+        for phase in [Phase::Select, Phase::Playing] {
+            assert_eq!(
+                session_snapshot(Snapshot { phase, ..previous }, Some(&[0; 8])).mode,
+                previous.mode
+            );
+        }
     }
 }

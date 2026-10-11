@@ -27,6 +27,8 @@ POST 示例：`{"song_id":33001,"mode":"SP","chart":"SPA"}`。chart 可省略，
 
 state 是同一次 worker 采样的独立数据，不包含内存地址。plays 是本次运行的累计开曲计数。IIDX 的 now_playing 保留歌曲、谱面、BPM、密度、雷达、原谱数量、随机键位与演奏进度；这些扩展不作为其他游戏必须实现的模型。
 
+IIDX 在 `phase: other` 且两侧参与标志均为零时返回 `mode: null`，避免退卡后沿用上一次的 SP/DP。结算或曲目切换期间仍有参与玩家时保留模式。参与标志读取失败不视为退卡；玩家资料接口缺失、游客或资料未就绪也不用于推断退出登录。
+
 GET 支持 HEAD，API 和配置文件禁用缓存。服务默认只监听 127.0.0.1:32133；页面与 API 同源，校验 Host/Origin。带业务正文的写接口只接收有大小上限的 application/json；DELETE、priority 和 aliases/reload 不带正文。静态资源限制在配置根目录内，拒绝路径穿越及越界符号链接。
 
 访问静态目录时，缺少结尾 `/` 会返回 308 并补齐斜杠，原样保留查询参数，使相对资源和 config.json 始终从正确目录加载。例如 `/iidx/mecha?authCode=...` 跳转到 `/iidx/mecha/?authCode=...`。

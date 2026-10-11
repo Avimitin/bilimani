@@ -54,6 +54,9 @@ try {
   await page.waitForTimeout(1200);
   assert.equal(await page.locator('.candidate').count(), 0, 'refresh must not replay earlier menu commands');
   assert.equal((await (await fetch(`${base}/api/v1/queue`)).json()).current.song_id, 2, 'refresh preserves the real queue');
+  send('logout'); await login('waiting');
+  assert.equal(await page.locator('#login-overlay').isVisible(), true, 'logout can reopen the mask after a completed login');
+  assert.equal(await page.locator('#login-overlay').evaluate(el => Number(getComputedStyle(el).opacity)), 1);
   assert.deepEqual(external, []); assert.deepEqual(errors, []);
   console.log('PASS preview REPL: real logout/select/other/menu/reply/2p/dp commands, real search and queue, no external platform traffic or command replay');
 } finally {

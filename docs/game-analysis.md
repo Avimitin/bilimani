@@ -47,6 +47,14 @@ in-memory guards for native entry points. An update needs a new analysis/profile
 | `0x7f2b60` / `0x7f2910` | Native prefix / substring search over title map |
 | `0x7f35d0` | Search update calls substring search, resolves IDs using `0x951e80`, deduplicates results |
 
+The worker also reads the two participation u32s at `0xacd79b0` when publishing
+snapshots. Selection/stage exit hooks retain the previous mode, and no further
+scene callbacks may run after logout. An `Other` snapshot with an exact eight-byte
+all-zero participation sample publishes `mode: null`; active selection/play,
+nonzero participation and failed/short reads preserve the sampled mode. This
+does not depend on card/profile readiness and does not call a game function from
+the worker or write back into the scene mailbox.
+
 `MusicReserveImpl` fields: +8 enabled, +9 consumed flag, +16 music ID, +20 mode,
 +24 difficulty. Passing difficulty `-1` follows the native song-only path and
 uses the current player difficulty. The reservability check's fourth argument is
@@ -549,6 +557,213 @@ actual DLL's worker-to-HTTP path with synthetic 2P memory; `--bad-user` verifies
 that changing a getter guard only disables this optional feature.
 Real values, weekly rollover, point
 updates and logout timing still require validation in the supported game.
+
+## Arena availability in Battle Mode
+
+Static IDA/Hex-Rays analysis of the same binary establishes both a server gate
+and local restrictions. This is evidence only; no Arena patch, hook or API is
+installed. A separate server-response probe is recorded below; a running game's
+effective values were not sampled.
+
+`0xae0f00` registers `IIDX33gameSystem`, with the `systemInfo` method descriptor.
+Its response parser at `0xae0f40` reads `arena_schedule`. The schema at
+`0x1094330` describes `season`, `phase`, `rule_type`, `start` and `end`: the first
+three occupy bytes 0/1/2, and the last two occupy 32-bit slots at bytes 4/8.
+The parser copies this twelve-byte record to response-buffer offset 3324.
+Successful system-info completion at `0x5bdcc0` copies its phase byte from
+`0x1e7ce3c + 1` to `0xa7af969`, and sets the system-info-ready byte at
+`0xa7b0f28`. The getter at `0x59e9e0` returns zero unless that ready byte is set.
+
+The effective-phase getter at `0x8675d0` then applies a local override:
+
+```text
+phase = system_info_ready ? cached_arena_schedule.phase : 0
+if event_mode_enabled && phase >= 2:
+    phase = 2
+```
+
+This setting is specifically **EVENT MODE**: getter `0x5d2ef0` reads
+`CGameSettings + 16`; `0x5d3400` tests it against zero. Test-menu renderer
+`0x98c560` pairs that getter's display values (`NO`, `YES[4 MIN]`,
+`YES[6 MIN]`, `YES[8 MIN]`) with the `EVENT MODE` entry in table `0xdb4bd0`.
+Do not confuse it with the separate free-play setting.
+
+Mode-selection initialization at `0x8e2c00` inserts Arena (ID 0) into its
+allowed Battle-mode choices only if the participant count is one and
+`0x867dc0` accepts the effective phase. That predicate is an unsigned
+`phase - 2 <= 2`, accepting exactly 2, 3 and 4. Participant getter `0x949480`
+counts the two flags at `0xacd79b0/+4`, but treats joined DP as one player;
+two simultaneous SP players do not pass. An earlier `CFreeGameData + 9`
+branch restricts the entire mode list to Free (ID 3); its business meaning
+has not been established and does not explain an otherwise visible Battle
+submenu. BPL uses its own predicate, so BPL availability does not prove that
+Arena's phase is valid.
+
+| Effective phase | Arena entry (one participant) | Arena Online choice |
+| --- | --- | --- |
+| 0, 1 | Disabled | Unavailable |
+| 2, 3 | Enabled | Disabled; Local remains selectable |
+| 4 | Enabled | Enabled |
+| Other values | Disabled | Unavailable |
+
+The renderer at `0x8e4790` shows `bn_not_select_arena` when Arena is absent
+from the allowed-choice vector. It independently masks the Online choice
+unless effective phase equals 4. Input handling at `0x8e7cd0` enforces the
+same restriction, using choice 0 for Online and 1 for Local. Thus enabling
+EVENT MODE can disable Online while preserving the Arena entry; it does not
+by itself explain the entire Arena entry being disabled.
+
+The entry predicates consume the server-provided phase directly, rather than
+calculating it from the local date and the schedule's start/end fields.
+`0x867520` converts those timestamps for the schedule display. The phase
+table above describes observed menu behavior, not guessed official names for
+the protocol's enum values. It also does not establish that matchmaking will
+succeed after the menu becomes selectable.
+
+For a disabled Arena entry with Battle still visible, inspect the actual
+`IIDX33gameSystem.systemInfo` response's `arena_schedule/phase`, the ready
+byte, cached phase and participant count. For a disabled Online choice,
+also inspect EVENT MODE. These checks distinguish server configuration or
+response-loading failures from local menu restrictions without changing code.
+
+## Server-controlled FPS and synchronization correction
+
+Static analysis of this same build confirms that `IIDX33pc.common` supplies
+switches for client-side FPS/synchronization correction. The server does not
+provide a numeric target FPS through these fields. The static investigation did
+not modify the game. A separate server-response probe and optional local patcher
+overrides are recorded below; effective flags in a running game were not sampled.
+
+`0xacd5d0` registers the `IIDX33pc` method table, whose `common` entry uses
+response parser `0xaba780`. That parser checks for the **presence** of child
+nodes, writing byte 1 when present; it does not parse their text or a boolean
+attribute. A node whose contents say zero therefore still takes the enable
+branch. Absence does not explicitly clear a flag in this parser; do not assume
+that removing a node during a running session disables a previously set flag.
+
+| Child node | Common request pointer offset | Effective byte RVA | Getter RVA |
+| --- | --- | --- | --- |
+| `fps_fix` | 2000 | `0xa78e1cf` | `0x5ab970` |
+| `save_unsync_log` | 2008 | `0xa78e1d0` | `0x5a7a70` |
+| `fix_framerate` | 2032 | `0xa78e1d3` | `0x5a2900` |
+| `fix_real` | 2040 | `0xa78e1d4` | `0x5a2910` |
+
+Request setup `0x5b7740` builds the pointer table for common data. Successful
+completion `0x59adf0` copies the staging block into the effective common block,
+which explains why direct cross-references to the effective flag bytes only
+show their readers. The table, parser and completion copy establish the mapping
+above without relying on the names alone.
+
+`fps_fix` enables the write in `0x90de80`. Its observed callers require native
+definition type 3. With a nonzero frame count and more than 40,000 ms elapsed,
+the function compares elapsed time with `frame_count * 1000 / current_fps`.
+An integer absolute difference above 16 ms increments a consecutive-error
+counter; a valid check without that error resets the counter. At count >= 2,
+and only with `fps_fix` enabled, it calculates `frame_count * 1000 / elapsed_ms`,
+clamps that value to **[118.5, 121.5]**, and writes it to both the runtime FPS
+field and `CLocalInfo + 12` through `0x5d4c50`. `save_unsync_log` also permits
+the measurement path via `0x90efc0`, but does not satisfy the FPS-write gate.
+The write and floating-point argument were checked against the assembly.
+
+`fix_framerate` controls another write in sequencer tick `0x824b00`, in its
+end-of-playback branch. It requires a recorded synchronization error, more than
+20 nominal seconds of ticks, an additional native counter check below 2, and
+an absolute error greater than 17 ms. With `F` the FPS captured at chart load,
+`E` the accumulated error in milliseconds and `N` the tick count, it computes:
+
+```text
+corrected_fps = F / (1 + F * E / (1000 * N))
+```
+
+This path writes runtime FPS only when the result is in **[118.5, 121.5)**.
+The extra counter's complete semantics have not been established. The sampled
+sound position is obtained through `0x5c5da0(1)` and compared with chart time.
+
+`fix_real` selects how that error is accumulated in `0x824b00`: when sound
+position leads chart time by over 17 ms, the enabled branch adds one frame's
+duration to the accumulator, while the disabled branch assigns the measured
+position difference. The extra timeline-frame advance occurs in either branch;
+this flag must not be described as enabling all frame catch-up. A chart-time
+lead above 34 ms has a separate error-recording branch.
+
+The corrected runtime field is read by `0xa59d50`; chart preparation
+`0x8245c0` captures it and chart timing conversions consume it. Thus these are
+functional timing changes, not display-only FPS labels. The analysis establishes
+internal timing calibration around 120 FPS, not a change to the monitor's
+refresh rate or a guarantee of higher rendering performance.
+
+The `IIDX33music.reg` request serializer at `0xadc8b0` separately emits
+`fix_sound_unsync` telemetry (`is_fix`, `fps_before`, `fps_after`, `unsync_ms`,
+`unsync_cnt`) and `fix_frame_unsync` telemetry (`fix_framerate`, `fix_realtime`,
+`unsync_ms`) when their enclosing guards allow it. These are outgoing logs;
+the incoming switch is named `fix_real`, not `fix_realtime`.
+
+## Read-only server-response probe (2026-10-11)
+
+Using the user-supplied server and PCBID, a standalone XML client queried
+`services.get`, then the advertised `local` endpoint for `IIDX33pc.common` and
+`IIDX33gameSystem.systemInfo`. The request model was the repository-recorded
+`LDJ:J:D:A:2026081900`; it was not captured from a running game. Both game
+responses returned HTTP 200 and module `status="0"`.
+
+The system-info request contained `ver` as `s32` with value **101**, following
+request setup `0x5b45a0`, getter `0x95c4d0`, and serializer schema `0x1093ec0`.
+The common request has no method-specific fields (serializer `0xabbf10`).
+
+- The common response omitted all four nodes: `fps_fix`, `save_unsync_log`,
+  `fix_framerate` and `fix_real`. This response therefore does not enable those
+  flags; it does not establish the values already cached in a running game.
+- The system-info response supplied `arena_schedule` with `phase=4`,
+  `rule_type=0`, `season=1`, `start=0`, and `end=0`. Phase 4 passes the analyzed
+  Arena/Online phase gates, subject to local conditions and successful loading
+  of the response. Zero schedule timestamps do not fail those menu predicates.
+
+These are observations of one server at one time, not protocol defaults or proof
+of working matchmaking. No game process was available for checking cached flags,
+participant count or EVENT MODE. Server identifiers and PCBID are intentionally
+excluded from the repository; redacted response artifacts remain in ignored
+`analysis/server-config-check/`. No score/profile write or registration request
+was made.
+
+## Optional Spice patcher overrides for timing switches
+
+For the exact image identified above, Spice's per-PE patch file is
+`patches/LDJ-6a713632_b1cccc.json`: the identifier combines the PE timestamp
+and entry-point RVA. Three `type: "union"` entries provide `Server controlled
+(Default)`, `Force ON`, and `Force OFF`. Each replaces only the corresponding
+eight-byte leaf getter. Spice JSON `offset` is a **file offset**, not an RVA.
+
+| Switch | Getter RVA | File offset | Original eight bytes |
+| --- | --- | --- | --- |
+| `fps_fix` | `0x5ab970` | `0x5aad70` (5942640) | `0FB60558281E0AC3` |
+| `fix_framerate` | `0x5a2900` | `0x5a1d00` (5905664) | `0FB605CCB81E0AC3` |
+| `fix_real` | `0x5a2910` | `0x5a1d10` (5905680) | `0FB605BDB81E0AC3` |
+
+All three getters originally perform `movzx eax, byte ptr [cached_flag]; ret`.
+`Force ON` uses `B8010000009090C3` (`mov eax, 1; nop; nop; ret`), while
+`Force OFF` uses `B8000000009090C3`. The default option restores each getter's
+original bytes. No cached data is overwritten, and later common responses do
+not override a forced getter. The original calibration thresholds, cabinet
+checks and accepted FPS ranges remain in place. `fix_real` still selects only
+the error-accounting branch described above; it does not gate all catch-up.
+
+These are intended for the analyzed 120 Hz timing paths. Change selections before
+playing and restart the game for a clean comparison: stopping future correction
+does not restore an FPS value already modified by an earlier correction.
+`save_unsync_log` is not overridden. The score-request preparation code at
+`0x5aff40` reads the cached `fix_framerate`/`fix_real` flags directly, so outgoing
+telemetry can still describe the server settings instead of the forced getter
+values. These patches do not make server logs a reliable override-state check.
+
+Validation checked the installed DLL's full SHA-256, original bytes, PE section
+translation, non-overlap with all existing patch entries, and JSON union layout.
+In an isolated process, `LoadLibraryExW(DONT_RESOLVE_DLL_REFERENCES)` mapped the
+image without invoking its entry point or resolving imports. Executing only
+these three getters passed 24 combinations of server flag, override selection
+and restoration; cached flags were unchanged. The original 41 patch-file entries
+were preserved, a backup was saved, and the DLL on disk remained byte-identical.
+Artifacts are under ignored `analysis/fps-patcher/`. Actual Spice UI selection
+and gameplay timing have not been tested.
 
 ## Validation boundary
 

@@ -1,4 +1,5 @@
 //! Read-only IIDX 33/20260812 player snapshots. Evidence: docs/game-analysis.md.
+use super::PARTICIPATION_RVA;
 use crate::iidx::user::{
     ActivityCounts, ActivityPeriod, DanRank, StyleProfile, UserProfile, UserSnapshot,
     WeeklyActivity,
@@ -7,7 +8,6 @@ use crate::iidx::user::{
 const ROOT: usize = 0x10b90f0;
 const PLAYER: usize = 0x3101488;
 const STRIDE: usize = 0x3b103a0;
-const JOINED: usize = 0xacd79b0;
 const ACTIVITY_OBJECT: usize = 0xaab3cb0;
 const WEEK_IDS: usize = ROOT + 0x206bc94;
 const WEEK_DATES: usize = ROOT + 0x206bca8;
@@ -75,7 +75,7 @@ fn identity(
 ) -> ReadResult {
     let offset = STRIDE * side;
     let initialized = memory.rva(0x10b90e8, 8)?;
-    let joined = memory.rva(JOINED + 4 * side, 4)?;
+    let joined = memory.rva(PARTICIPATION_RVA + 4 * side, 4)?;
     let session = memory.rva(0x6c11808 + offset, 28)?;
     let ready = memory.rva(0x312771e + offset, 1)?;
     if u32_at(&initialized, 0)? == 0
@@ -223,7 +223,7 @@ mod tests {
             let mut f = Self(BTreeMap::new());
             let offset = STRIDE * side;
             f.rva(0x10b90e8, &[1, 0, 0, 0, 1, 0, 0, 0]);
-            f.rva(JOINED + 4 * side, &1u32.to_le_bytes());
+            f.rva(PARTICIPATION_RVA + 4 * side, &1u32.to_le_bytes());
             f.rva(0x6c11808 + offset, &[0; 28]);
             f.rva(0x6c11808 + offset, &123u64.to_le_bytes());
             f.rva(0x312771e + offset, &[1]);
@@ -289,7 +289,7 @@ mod tests {
         f.rva(0x6c11820, &1u32.to_le_bytes());
         assert!(sample(|a, n| f.read(a, n), BASE).players.is_empty());
         f.rva(0x6c11820, &0u32.to_le_bytes());
-        f.rva(JOINED, &0u32.to_le_bytes());
+        f.rva(PARTICIPATION_RVA, &0u32.to_le_bytes());
         assert!(sample(|a, n| f.read(a, n), BASE).players.is_empty());
     }
     #[test]
