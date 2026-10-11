@@ -1,6 +1,6 @@
 # References and third-party notices
 
-The Bilibili transport is a Rust adaptation of the protocol/signing/session logic in:
+The browser Bilibili transport adapts Open Live relay/session and packet handling from:
 
 - [xfgryujk/blivedm](https://github.com/xfgryujk/blivedm), commit
   `3bf17fe862b8c2fc6bc04c81c3f0c5db95de93d6`, MIT, copyright (c) 2018 xfgryujk.
@@ -51,18 +51,15 @@ The mecha stream frame was visually inspired by a user-supplied IIDX-style skin
 atlas (local folder name `ECFN`, play frame `SP/Default/main.png`). The frame is
 drawn entirely in CSS/SVG; no atlas artwork is incorporated or distributed.
 
-Configuration persistence uses [rusqlite](https://github.com/rusqlite/rusqlite),
-MIT, with bundled [SQLite](https://sqlite.org/), public domain. The database engine
-is linked into the DLL; users do not need a separate SQLite installation.
+Browser compression uses [fflate](https://github.com/101arrowz/fflate), MIT,
+copyright (c) 2020 Arjun Barrett. Its MIT permission and warranty terms are the
+same as reproduced above. Runtime JavaScript is bundled into each page.
 
-The in-game panel uses [egui](https://github.com/emilk/egui), MIT OR Apache-2.0.
-Its components and design tokens use
-[ouroboros-ui](https://github.com/Type-zero-labs/ouroboros-ui), commit
-`c390d7deffa7955e28b2e3bcb9c22ac0899a261b`, MIT, copyright 2026 Type Zero Labs.
-Bundled Iosevka fonts are licensed under SIL Open Font License 1.1; Phosphor
-icons are provided by egui-phosphor under MIT. See the upstream repository for
-the code license, font license and credits.
-Its D3D9 painter and Win32 input bridge are implemented in this project; no
-egui-d3d9 implementation is incorporated. Spice SDK v0.4 drawing ABI is declared
-by the upstream `sdk/include/spicesdk.h`. Chinese/Japanese fonts are read from
-the user's Windows installation and are not included in the DLL or ZIP.
+Frontend versions are locked in `package-lock.json`. TypeScript (Apache-2.0),
+Vite (MIT), tsx (MIT), and Playwright (Apache-2.0) are development dependencies;
+they are not required by users or included as runtime programs in the ZIP.
+The removed v0.3 SQLite configuration application is no longer shipped.
+The limited in-game queue menu uses [egui](https://github.com/emilk/egui) and
+epaint (MIT OR Apache-2.0); versions and transitive crates are in Cargo.lock.
+The menu loads optional CJK fonts from Windows at runtime; no Windows fonts
+are copied into the release. It provides no text/IME or clipboard integration.

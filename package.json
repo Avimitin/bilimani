@@ -1,0 +1,24 @@
+{
+  "name": "bilimani-workspace",
+  "private": true,
+  "version": "0.4.0",
+  "type": "module",
+  "workspaces": [
+    "web/packages/*",
+    "web/apps/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @bilimani/iidx",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test web/tests/*.test.ts",
+    "test:browser": "node web/tests/browser.mjs",
+    "dev": "npm run dev -w @bilimani/iidx"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "playwright": "^1.64.0",
+    "tsx": "^4.21.0",
+    "typescript": "~5.9.3",
+    "vite": "^7.3.0"
+  }
+}

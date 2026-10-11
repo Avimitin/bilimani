@@ -1,0 +1,10 @@
+[package]
+name = "bilimani-queue"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Platform-independent in-memory song request queue"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"

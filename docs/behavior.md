@@ -1,95 +1,52 @@
-# Agreed behavior
+# 点歌与队列行为
 
-- One Rust DLL loaded by Spice `-k`; no installed companion or playlister dependency.
-- SQLite beside the DLL, with built-in defaults and GUI-only configuration;
-  paths relative to that directory unless absolute. Import legacy TOML only when
-  initializing a database. JSON backups are explicit GUI import/export operations.
-- `点歌 <song name> [SPB|SPN|SPH|SPA|SPL|DPB|DPN|DPH|DPA|DPL]`.
-- Without difficulty, retain current SP/DP mode and use the game's song-only jump.
-- Reject requests for the opposite mode or a nonexistent chart.
-- Fuzzy subsequence search, configurable candidate count (5), GUI alias editor.
-- Multiple matches require a numbered reply from the same sender, with a configurable
-  60-second deadline. One pending selection per sender; a new request replaces it.
-- Everyone may request. Optional per-user cooldown starts on successful enqueue;
-  disabled by default. A full queue rejects new requests.
-- FIFO waiting queue, configurable capacity. Pop only after a successful jump;
-  retain the item separately as the current request.
-- Automatically jump once on entering song select, or upon a request when idle there.
-- Playing any song consumes/skips the current request; advance on return.
-- In single-player SP song select, double-tap the opposite Start to toggle the egui
-  control panel, including with an empty queue. Read-only Spice SDK input. Default 400 ms
-  between presses, configurable in the controls page, enabled by default. Requires a
-  release between presses; unavailable SDK, DP, two joined players and noninteractive
-  screens disable this shortcut. Each gesture is tied to the active side and scene.
-- Navigate on the logged-in side: B1 next item, B2 previous item, B6 confirm,
-  B7 back, scratch left/right. While open, that side's seven keys and turntable
-  are captured after the native input poll, preventing simultaneous song-select
-  actions. Start, the other side and service keys remain unchanged. Held menu
-  keys stay suppressed until release when closing. Free text uses keyboard/paste.
-- The panel has live chat (last 500 text messages) and an editable queue, a fuzzy
-  alias table, and categorized settings. Delete waiting entries by token; reject
-  deletion of an in-flight jump. Pick any waiting song by mouse or controller;
-  validate its token, selection epoch, mode and absence of an in-flight jump.
-  The queue and event log sit left of live chat. Opening the panel returns to the
-  live page and focuses the first selectable queued song for one B6 confirmation;
-  an empty/unavailable queue falls back to its sidebar entry. Queue buttons
-  receive controller focus and scroll into view. On successful
-  acknowledgement, close the panel and remove only that request, replacing the
-  current song. Failed/cancelled manual picks preserve the queue and current song.
-  Automatic jumps wait while the panel is open; gameplay closes the panel.
-- Apply/save validates aliases, output paths and the new HTTP listener before an
-  SQLite transaction. Existing requests/deadlines survive within the same profile. Connection changes
-  stop the old transport before starting the new one. Native module/catalog settings
-  can be edited in the GUI but take effect after restart. Concurrent database
-  updates require an explicit refresh before saving. JSON import only stages a
-  draft; apply uses the same validation. Export includes credentials, excludes
-  unsaved edits/chat/queue, and refuses to overwrite an existing file.
-- A global stream profile serves unbound cards, guests and ambiguous two-player
-  contexts. A logged-in unbound player can create a room from the panel; saving
-  binds its settings to that card. Profiles support names, multiple cards, removal
-  and deletion. Duplicate card assignments are rejected. Edits are drafts until
-  saved; login-bound saves reject a changed login. Selecting a profile to edit
-  does not change the active connection. Profile switches cancel pending native
-  selections and clear queue/current/pending/cooldowns/chat/processing history;
-  monotonic tokens reject late acknowledgements. Cards sharing a profile do not
-  clear state or reconnect. SQLite v1 migrates to v2; JSON backups include all
-  profiles/cards and accept the previous version. Card IDs remain outside OBS.
-- The control panel header displays the active room's anchor, title and connection
-  state on one line. Long titles truncate with a full-text tooltip. Metadata refreshes
-  every minute alongside the socket; failures preserve the last known information
-  and do not block chat. Source changes clear old metadata and discard late events.
-- Current request expires 600 seconds after a successful jump, configurable.
-  Expiration can advance while still in song select; never jump during gameplay.
-- Separate UTF-8 OBS files for current/waiting requests and interactions.
-- Optional HTTP service, bound to loopback by default, with a queue and persistent chat/event history,
-  enabled by default on port 32133. The canvas uses the fixed OBS source height;
-  unused space stays transparent.
-  History retains the latest 10 arrivals by default (configurable 1–100), evicts
-  oldest first and never expires by time. Refresh restores the running worker's
-  history; disconnection preserves it, profile switches and restarts clear it.
-  Long messages show at most two lines. Pending choices replace the current/queue
-  display with one viewer's complete list of 1–20 candidates, using two columns
-  above eight options. The song panel inverts to the accent background and dark
-  text while asking that viewer to send a number;
-  multiple viewers rotate every six seconds, without splitting their options.
-  The queue and normal palette return after pending choices finish. Empty queues
-  collapse to the banner, retaining a compact current-song card when applicable;
-  waiting songs or candidates expand the panel with a 320ms transition. Reduced
-  motion disables the animation. Empty chat/event history collapses to its header,
-  keeping connection warnings visible. Its background grows with the actual mix
-  of chat and event cards, capped at the remaining height, with a 320ms transition.
-  Chat uses 16px text in padded 46px cards; events keep 12px text in slim 24px cards.
-  Cards shrink when needed and truncate text to the available complete lines.
-  At capacity, new records replace the oldest; the source height stays fixed.
-  HTML/CSS/JS ship next to the
-  DLL in `bilimani_web/` inside the release ZIP. `overlay.static_dir` can
-  select another public asset directory, relative to the DLL or absolute. Read
-  files per request so replacements take effect on refresh; `/api/state` retains
-  live snapshots. Directory changes validate before save and reuse the listener.
-  Existing text files remain available; web bind failures do not stop requests.
-  `overlay.bind_address` accepts an IPv4 or IPv6 address; `0.0.0.0` enables all
-  IPv4 interfaces. Address and port changes apply live, preserving snapshots and
-  restoring the previous listener if rebinding fails. Host/Origin checks match
-  the connection's server address, including for wildcard listeners.
-- Queue and pending selections are not persisted across game restarts.
-- Game share is read-only. Analysis uses local copies, excluded from git and releases.
+DLL 拥有公共内存队列，网页管理平台会话、候选和冷却；游戏内菜单操作同一份 DLL 状态。职责约束见 [architecture.md](architecture.md)。
+
+## 生命周期与页面隔离
+
+每套静态页面独立部署、读取自身旁边的 config.json。多个主播可以选择不同页面；选择复用同一页面时，通过 URL 的 `?authCode=身份码` 区分 Bilibili 连接，不建立直播间 mapping。身份码不从配置文件或 OBS 推流设置读取，其他平台可在自己的页面定义接入方式。
+
+页面刷新重新读取配置并连接平台，保留 DLL 的等待队列和当前请求，只清空页面候选、冷却与消息记录。首次读取队列不重播旧事件。DLL 队列在游戏退出时清空，不持久化、不恢复、不自动重试结果不明的 POST。
+
+一个直播会话只运行一个活动点歌来源。OBS 多场景复用同一来源；隐藏/停用后停止弹幕、清除未确认候选，重新激活后新建平台会话。首次加载仅能以文档可见性判断，收到 active 事件后再跟随 active；OBS Studio 预览可能保持来源可见，不保证只凭页面识别唯一节目输出。不同主播来源应配合“不可见时关闭源”和场景切换，避免同时运行。普通浏览器副本也会接收弹幕；项目不做多来源选主。
+
+这些事件的依据见 [obs-browser 接口](https://github.com/obsproject/obs-browser/blob/master/README.md) 和 [来源事件实现](https://github.com/obsproject/obs-browser/blob/master/obs-browser-source.cpp)。不接入 obs-websocket，不读取推流密钥。
+
+## 命令与执行
+
+命令前缀后需要空白和搜索词。IIDX 页面解析可选 SP/DP 谱面后缀，共享 TS 控制器只处理模式/谱面标识。
+
+同一观众重复搜索替换尚未确认的候选，旧异步结果不能覆盖新请求。单个候选直接尝试入队；多个候选只接受发起者回复编号。使用平台稳定用户 ID 关联候选，重名互不干扰。编号为整个列表编号，n/p 翻页，每页 5 首，翻页不延长超时。
+
+页面检查模式、谱面和冷却，再 POST /api/v1/queue。DLL 再验证曲库、谱面、名称和容量，成功入队才开始观众冷却。平台身份 ID 不传 DLL，requester 仅作展示。HTTP 201 表示已进入权威队列，不代表已经定位；页面不直接调度 selections。
+
+DLL 在可选曲、无当前请求且菜单关闭时选择第一首匹配模式的等待项；不匹配模式的项保留。菜单中的“优先选这首”可替换当前点歌，打开菜单也可执行。只有原生定位成功才移出等待队列并更新当前项；失败保留原行和先前当前项，显示错误，等待手动重试或删除，不无限自动重试。
+
+已定位不代表已开曲。开始游玩任意歌曲、超时或菜单跳过后结束当前请求。开曲计数处理轮询间的短暂状态。正在执行的队列项不能删除/替换；其他等待项可删。网页通过同一 /state 中的 queue 快照和最近 64 个事件显示删除、定位、失败等结果。
+
+传输失败时页面提示结果不明，不重发 POST，后续 GET 显示 DLL 实际状态。原生操作可在 30 秒期限内等待适合场景，以新 epoch 重新提交；不涉及跨重启恢复。
+
+## 配置
+
+页面 config.json：
+
+| 字段 | 默认值 | 范围/含义 |
+|---|---|---|
+| platform.type | bilibili | 当前平台实现 |
+| platform.enabled | true | false 只展示游戏信息，无需 authCode |
+| platform.relayUrl | ./_proxy/relay | 本页代理路径，或支持 CORS 的 HTTPS relay |
+| proxy.relay | https://api1.blive.chat | 固定上游 |
+| requests.prefix | 点歌 | 非空字符串 |
+| requests.candidateLimit | 20 | 1–100 |
+| requests.selectionTimeoutSeconds | 60 | 1–3600，候选确认期限 |
+| requests.cooldownSeconds | 0 | 0–86400，0 关闭 |
+| requests.maxPendingUsers | 100 | 1–1000，同时搜索/待选人数 |
+| display.feedLimit | 10 | 1–100 |
+
+启用 Bilibili 时 URL 必须含单个非空 authCode 参数。需要编码特殊字符；不允许重复参数、控制字符或超过 512 字符。各页面配置互不覆盖。配置只在页面启动时读取，缺失/无效则停止启动并显示错误。反代每次请求只读 proxy 映射。
+
+DLL 的 bilimani_iidx.json：queue.capacity 为 1–1000（默认 20）；queue.current_timeout_seconds 为 1–86400（默认 600）；controls.enabled 默认 true，double_tap_ms 为 100–2000（默认 400）。aliases_path 默认 bilimani_iidx_aliases.csv，路径以 DLL 目录为基准。
+
+CSV 表头 alias,target；目标是歌曲 ID 或唯一完整曲名。UTF-8/BOM/引号受支持，按 NFKC/小写检查重复别名，精确别名命中优先，其他情况参与模糊匹配。全量校验成功才替换表，失败保留旧表。启动时文件不存在表示无别名，主动重读时缺失会报错。文件上限 1 MiB，无自动监控或游戏内编辑。
+
+Bilibili JS 创建 Open Live 会话、协商 zlib、心跳重连并按消息 ID 去重。关闭/停用时尽力结束上游会话；异常关闭后的最终清理由上游心跳机制决定。DLL 不代管这些状态。

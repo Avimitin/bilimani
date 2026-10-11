@@ -1,7 +1,7 @@
-# IIDX 33 adapter evidence
+# IIDX 33 / 20260812 adapter evidence
 
-Implementation: `src/games/iidx/v33/`. Game/version selection lives in
-`src/games/mod.rs`; upper layers use the contracts in `src/game.rs`.
+Implementation: `crates/bilimani-iidx/src/versions/v33/b20260812/`. Game/version selection lives in
+`crates/bilimani-iidx/src/versions/mod.rs`; upper layers use the contracts in `crates/bilimani-iidx/src/game.rs`.
 
 Analyzed with IDA/Hex-Rays using a local copy of `modules/bm2dx.dll` from the
 user-supplied share. The share was only read. IDA database and game files remain
@@ -214,7 +214,7 @@ display averages 5s windows (10s for songs over 3 minutes), normalizes a partial
 last window by its duration, and quantizes to 12 illuminated segments. The
 displayed peak remains the original 1s peak; empty windows retain unlit segments.
 
-`tests/density.rs` covers layout, all ten indices, corruption and song identity.
+`crates/bilimani-iidx/tests/density.rs` covers layout, all ten indices, corruption and song identity.
 `smoke-dll.py --song-info` uses a private mapped image and synthetic native
 objects to test the actual request lock/unlock ABI, busy publication lock,
 asynchronous publication, cached stage data, and stale-song rejection. It does
@@ -329,13 +329,12 @@ map unavailable. This can hide a map when native helper eligibility would have
 rejected another condition, but avoids claiming a fixed map for a dynamic chart.
 Unknown options, invalid tables and read errors never produce a guessed mapping.
 
-`tests/lane_order.rs` exercises inverse direction, options, SP/DP, reflections,
+`crates/bilimani-iidx/tests/lane_order.rs` exercises inverse direction, options, SP/DP, reflections,
 dynamic and invalid states. `smoke-dll.py --song-info` runs the actual scene hooks
-against synthetic data, including retry and API clearing. `check-frame.py` covers
-the seven-digit display, option labels, DP, missing data and text escaping. These
+against synthetic data, including retry and API clearing. The historical v0.3 check-frame.py covered the seven-digit display, option labels, DP, missing data and text escaping; current browser coverage is described in development.md. These
 checks do not replace testing the new DLL during a real gameplay session.
-Additional DLL regressions use `--song-info --lane-generator-patch --input-detour`
-to exercise existing generator/input patches and `--song-info --bad-lane-layout`
+Additional DLL regressions use `--song-info --lane-generator-patch`
+to exercise existing generator patches and `--song-info --bad-lane-layout`
 or `--song-info --bad-lane-update` to verify web/metadata availability when lane
 sampling is disabled. No test overwrites or executes the live game's code.
 The unit regression toggles `0xaab19ae` through normal loading/play states and
@@ -344,13 +343,22 @@ stage updates and a changed retry map, verifying published API keys stay valid.
 
 ## Opposite-Start input eligibility
 
+The v0.4 DLL retains this verified gesture for the limited queue menu. It does
+not use card identity or stream profiles. The worker toggles visibility only
+when the menu renderer is available and the selection context is eligible.
+
+
 The shortcut reads `0x9493e0(0/1)` on selection frames and requires exactly one
 participating side plus SP mode. Unlike `0x949230`, which can return zero for
 ambiguous states, these two flags allow both absent and both present states to
 disable the shortcut. The function's first 16 bytes are guarded at installation.
 No card identifiers or authentication state are inferred from it.
 
-## Logged-in card snapshot
+## Logged-in card snapshot (historical)
+
+These findings describe v0.3.x only. The v0.4 DLL no longer reads card identities
+or routes stream profiles. Retained as reverse-engineering evidence only.
+
 
 The IIDX 33 adapter reads static player state with `ReadProcessMemory`, without
 calling authentication or reader functions. Both subsystem flags at `0x10b90e8`
@@ -408,6 +416,11 @@ usable. No extra install, manual XML copy, or search-window prerequisite is need
 for basic requests. The touchscreen's own matching and result ownership are unchanged.
 
 ## Controller navigation capture
+
+The v0.4 DLL retains this input hook and compatible MinHook-chain validation.
+The UI now sends only queue deletion, priority and alias-reload commands to
+the worker; there are no platform settings, text fields or IME integration.
+
 
 The supported image's `IO::InputManagerIIDX` vtable is at RVA `0xdd05c0`.
 Slot 3 points to the input poll at RVA `0xa7a2f0`; the guarded first 16 bytes are
@@ -477,18 +490,16 @@ An optional failure never prevents the core adapter or web server from starting.
 Unit tests cover frame conversion, fractional FPS and corrupt/short snapshots.
 DLL smoke tests exercise actual callback-to-HTTP publication with synthetic
 native clock values, including frozen time, retry, invalid-clock clearing,
-recovery, cleanup and independent guard failures. Browser checks cover exact
-5/10-second boundaries, absent data, refresh, backwards progress, two-player
-plots and stable DOM identity. These verify the integration with a private
+recovery, cleanup and independent guard failures. Historical v0.3 browser checks covered exact 5/10-second boundaries, absent data, backwards progress, two-player plots and stable DOM identity. Current automated checks are documented in development.md. These verify the integration with a private
 mapped image; synchronization against audible music still needs live gameplay.
 
 ## Validation boundary
 
-`scripts/check-profile.py` checks the file hash, architecture, function guards and
+The runtime installer and scripts/smoke-dll.py check the file hash, architecture, function guards and
 selection/search vtable targets and the database accessor. Automated tests cover
 request state, transport, expanded native snapshots, dictionary layouts and fuzzy
 matching of native keywords;
 the DLL smoke test maps the game image without resolving imports or running its
 entry point, then tests hook installation. This is not a live gameplay test.
-The README lists the remaining interactive checks, especially frame timing,
+development.md lists the remaining interactive checks, especially frame timing,
 song-only jumps, chart availability, and coexistence with installed hooks.

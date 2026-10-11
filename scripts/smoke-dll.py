@@ -1,248 +1,124 @@
-"""Exercise real DLL startup/shutdown without executing game code or networking.
+"""Exercise the release DLL in a separate process without launching the game.
 
-Usage: py scripts/smoke-dll.py [--reject | --input-detour | --bad-input-detour]
-Additional options: --occupied-port --no-sdk-input --sdk-renderer --profiles
---song-info exercises song callbacks with synthetic records and stubbed originals.
---lane-generator-patch simulates an existing hook on the RANDOM generator.
---bad-lane-layout / --bad-lane-update verify optional lane-only degradation.
---bad-playback verifies that an incompatible clock does not affect other features.
-Requires the built release DLL and the ignored local game copy for positive mode.
-Artifacts remain under analysis/smoke-* for inspection.
+Requires npm run build and the release bilimani_iidx.dll.
+Positive tests map the developer's ignored analysis/bm2dx.dll without resolving
+imports or executing its entry point. All invoked originals are synthetic stubs.
+No platform traffic is made. Artifacts remain under analysis/smoke-*.
 """
+import argparse
 import ctypes
 import json
-import os
 import pathlib
 import shutil
 import socket
-import sqlite3
 import struct
-import sys
 import time
 import uuid
 import urllib.request
 import urllib.error
 
-root = pathlib.Path(__file__).resolve().parent.parent
-reject = "--reject" in sys.argv
-occupied_port = "--occupied-port" in sys.argv
-profiles = "--profiles" in sys.argv
-song_info = "--song-info" in sys.argv
-lane_generator_patch = "--lane-generator-patch" in sys.argv
-bad_lane_layout = "--bad-lane-layout" in sys.argv
-bad_lane_update = "--bad-lane-update" in sys.argv
+parser = argparse.ArgumentParser(description=__doc__)
+for name in ['reject', 'occupied-port', 'song-info', 'queue', 'lane-generator-patch', 'bad-lane-layout', 'bad-lane-update', 'bad-playback']:
+    parser.add_argument('--' + name, action='store_true')
+args = parser.parse_args()
+reject, occupied_port, song_info = args.reject, args.occupied_port, args.song_info or args.queue
+lane_generator_patch, bad_lane_layout, bad_lane_update = args.lane_generator_patch, args.bad_lane_layout, args.bad_lane_update
 lane_disabled = bad_lane_layout or bad_lane_update
-bad_playback = "--bad-playback" in sys.argv
+bad_playback = args.bad_playback
 playback_disabled = bad_playback or bad_lane_update
-bad_input_detour = "--bad-input-detour" in sys.argv
-input_detour = "--input-detour" in sys.argv or bad_input_detour
-startup_rejected = reject or bad_input_detour
-assert not (reject and input_detour), "Detour checks require the supported game image"
-work = root / "analysis" / ("smoke-" + uuid.uuid4().hex)
+startup_rejected = reject or occupied_port
+root = pathlib.Path(__file__).resolve().parent.parent
+work = root / 'analysis' / ('smoke-' + uuid.uuid4().hex)
 work.mkdir(parents=True)
-dll_path = work / "bilimani.dll"
-shutil.copy2(root / "target/release/bilimani.dll", dll_path)
-shutil.copytree(root / "web/card", work / "bilimani_web/card")
-config = (root / "tests/fixtures/legacy-config.toml").read_text(encoding="utf-8")
-config = config.replace("enabled = true", "enabled = false", 1)
+dll_path = work / 'bilimani_iidx.dll'
+shutil.copy2(root / 'target/release/bilimani_iidx.dll', dll_path)
+shutil.copytree(root / 'dist/web/iidx/card', work / 'bilimani_web/iidx/card', ignore=shutil.ignore_patterns('config.json'))
 port_blocker = socket.socket()
-port_blocker.bind(("127.0.0.1", 0))
+port_blocker.bind(('127.0.0.1', 0))
 overlay_port = port_blocker.getsockname()[1]
-if occupied_port:
-    port_blocker.listen()
-else:
-    port_blocker.close()
-config = config.replace("port = 32133", f"port = {overlay_port}")
-if reject:
-    config = config.replace('module = "bm2dx.dll"', 'module = "kernel32.dll"')
-profile_ids = [str(uuid.uuid4()), str(uuid.uuid4())]
-if profiles:
-    assert not startup_rejected
-    for profile_id, cards in zip(profile_ids, [["E004012345678901", "E004012345678902"], ["E004012345678903"]]):
-        config += f'\n[[profiles]]\nid = "{profile_id}"\nname = "Smoke profile"\ncards = {json.dumps(cards)}\n[profiles.bilibili]\nenabled = false\nauth_code = "smoke-only-disabled"\n'
-(work / "bilimani.toml").write_text(config, encoding="utf-8")
-
-kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+if occupied_port: port_blocker.listen()
+else: port_blocker.close()
+config = {'listen':f'127.0.0.1:{overlay_port}', 'module':'kernel32.dll' if reject else 'bm2dx.dll'}
+if args.queue:
+    fixture = bytearray(0x7f8)
+    title = 'Queue fixture'.encode('utf-16-le')
+    fixture[:len(title)] = title
+    struct.pack_into('<I', fixture, 0x67c, 33001)
+    fixture[0x3ec + 3] = 12
+    lookup = bytearray(b'\xff' * (33002 * 4))
+    struct.pack_into('<I', lookup, 33001 * 4, 0)
+    (work / 'catalog.bin').write_bytes(struct.pack('<4sIII', b'IIDX', 33, 1, 33002) + lookup + fixture)
+    (work / 'bilimani_iidx_aliases.csv').write_text('alias,target\nfixture alias,33001\n', encoding='utf-8')
+    config.update(database_path='catalog.bin')
+(work / 'bilimani_iidx.json').write_text(json.dumps(config), encoding='utf-8')
+kernel = ctypes.WinDLL('kernel32', use_last_error=True)
 kernel.LoadLibraryExW.argtypes = [ctypes.c_wchar_p, ctypes.c_void_p, ctypes.c_uint32]
 kernel.LoadLibraryExW.restype = ctypes.c_void_p
 if not reject:
-    # Map/relocate only. DONT_RESOLVE_DLL_REFERENCES prevents imports, TLS
-    # callbacks and the game entry point from running. Never call game exports.
-    game = kernel.LoadLibraryExW(str(root / "analysis/bm2dx.dll"), None, 1)
+    game = kernel.LoadLibraryExW(str(root / 'analysis/bm2dx.dll'), None, 1)
     assert game, ctypes.WinError(ctypes.get_last_error())
-if input_detour or song_info or lane_generator_patch or lane_disabled or bad_playback:
-    # Synthetic MinHook x64 entry + relay in this process's private image.
-    # Route to a real loaded executable module, never to the game body.
-    kernel.VirtualProtect.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_uint32,
-                                      ctypes.POINTER(ctypes.c_uint32)]
-    kernel.VirtualProtect.restype = ctypes.c_int
-    kernel.GetCurrentProcess.argtypes = []
-    kernel.GetCurrentProcess.restype = ctypes.c_void_p
-    kernel.FlushInstructionCache.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t]
-    kernel.FlushInstructionCache.restype = ctypes.c_int
-
-    def patch(address, code):
-        protection = ctypes.c_uint32()
-        assert kernel.VirtualProtect(address, len(code), 0x40, ctypes.byref(protection))
-        try:
-            ctypes.memmove(address, code, len(code))
-        finally:
-            unused = ctypes.c_uint32()
-            assert kernel.VirtualProtect(address, len(code), protection.value, ctypes.byref(unused))
-        assert kernel.FlushInstructionCache(kernel.GetCurrentProcess(), address, len(code))
-
-if input_detour:
-    input_entry = game + 0xa7a2f0
-    input_relay = game + 0x1000
-    input_target = ctypes.cast(kernel.GetCurrentProcessId, ctypes.c_void_p).value
-    original_entry = ctypes.string_at(input_entry, 16)
-    assert original_entry == bytes.fromhex("48894c24085553565741544155415641")
-    patched_entry = b"\xe9" + struct.pack("<i", input_relay - input_entry - 5) + original_entry[5:]
-    if bad_input_detour:
-        patched_entry = patched_entry[:5] + bytes([patched_entry[5] ^ 1]) + patched_entry[6:]
-    relay_code = bytes.fromhex("ff2500000000") + struct.pack("<Q", input_target)
-    patch(input_relay, relay_code)
-    patch(input_entry, patched_entry)
+kernel.VirtualProtect.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32)]
+kernel.VirtualProtect.restype = ctypes.c_int
+kernel.GetCurrentProcess.restype = ctypes.c_void_p
+kernel.FlushInstructionCache.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t]
+kernel.FlushInstructionCache.restype = ctypes.c_int
+def patch(address, code):
+    protection = ctypes.c_uint32()
+    assert kernel.VirtualProtect(address, len(code), 0x40, ctypes.byref(protection))
+    try: ctypes.memmove(address, code, len(code))
+    finally:
+        unused = ctypes.c_uint32()
+        assert kernel.VirtualProtect(address, len(code), protection.value, ctypes.byref(unused))
+    assert kernel.FlushInstructionCache(kernel.GetCurrentProcess(), address, len(code))
 if lane_generator_patch:
     lane_generator = game + 0x8236e0
-    # A ret stub stands in for a plugin-owned generator. Display sampling must
-    # never execute it, and must accept a valid table written by that plugin.
     generator_patch = b'\xc3' + ctypes.string_at(lane_generator + 1, 15)
     patch(lane_generator, generator_patch)
-if bad_lane_layout:
-    patch(game + 0x897890, b'\xc3')
-if bad_lane_update:
-    patch(game + 0xda50a8 + 15 * 8, struct.pack('<Q', game + 0x933640))
-if bad_playback:
-    patch(game + 0x824b00, b'\xc3')
+if bad_lane_layout: patch(game + 0x897890, b'\xc3')
+if bad_lane_update: patch(game + 0xda50a8 + 15 * 8, struct.pack('<Q', game + 0x933640))
+if bad_playback: patch(game + 0x824b00, b'\xc3')
 plugin = ctypes.CDLL(str(dll_path))
 plugin.bilimani_shutdown.argtypes = []
 plugin.bilimani_shutdown.restype = None
-
 deadline = time.monotonic() + 20
-logfile = work / "bilimani.log"
+logfile = work / 'bilimani_iidx.log'
 while time.monotonic() < deadline:
-    text = logfile.read_text(encoding="utf-8") if logfile.exists() else ""
-    if "Startup failed" in text or ("Native hooks installed" in text and "[status]" in text and "select_updates=0" in text):
-        break
-    time.sleep(0.05)
-else:
-    raise AssertionError("DLL worker did not initialize within 20 seconds")
-with sqlite3.connect(work / "bilimani.db") as database:
-    assert database.execute("PRAGMA user_version").fetchone()[0] == 2
-    settings = json.loads(database.execute("SELECT settings FROM settings").fetchone()[0])
-    profile = json.loads(database.execute("SELECT p.settings FROM stream_profiles p JOIN settings s ON p.id = s.default_profile").fetchone()[0])
-    assert settings["overlay"]["port"] == overlay_port
-    assert "bilibili" not in settings and profile["enabled"] is False
-    if profiles:
-        assert database.execute("SELECT count(*) FROM stream_cards").fetchone()[0] == 3
-assert (work / "bilimani.toml").read_text(encoding="utf-8") == config
+    text = logfile.read_text(encoding='utf-8') if logfile.exists() else ''
+    if 'Startup failed' in text or 'select_updates=0' in text: break
+    time.sleep(.05)
+else: raise AssertionError('DLL worker did not initialize within 20 seconds')
 if startup_rejected:
-    reason = "Unsupported bm2dx.dll build" if reject else "Input poll at RVA a7a2f0 is incompatible"
-    assert reason in text, text
-    assert "Native hooks installed" not in text
-    assert reason in (work / "obs/interaction.txt").read_text(encoding="utf-8")
-    if bad_input_detour:
-        assert "Unsupported input entry patch: observed=" in text, text
-        for table, slot, rva in [(0xd84788, 13, 0x8eb820), (0xdd05c0, 3, 0xa7a2f0)]:
-            assert ctypes.c_void_p.from_address(game + table + slot * 8).value == game + rva
+    assert ('Unsupported IIDX binary fingerprint' if reject else 'Cannot listen for game API') in text, text
+    if reject: assert 'Native hooks installed' not in text
 else:
-    assert "Native hooks installed" in text, text
-    assert "[status]" in text and "select_updates=0" in text, text
-    assert "select_hooks_intact=true" in text, text
-    if occupied_port:
-        assert "网页界面启动失败" in text, text
-        assert "网页界面启动失败" in (work / "obs/interaction.txt").read_text(encoding="utf-8")
-    else:
-        with urllib.request.urlopen(f"http://127.0.0.1:{overlay_port}/queue", timeout=3) as response:
-            assert b"/overlay.js" in response.read()
-        with urllib.request.urlopen(f"http://127.0.0.1:{overlay_port}/api/state", timeout=3) as response:
-            state = json.load(response)
-            assert state["ready"] is False and state["queue"] == []
-            assert state["feed"] == [] and state["feed_limit"] == 10
-        with urllib.request.urlopen(f"http://127.0.0.1:{overlay_port}/api/now-playing", timeout=3) as response:
-            assert json.load(response) == state["now_playing"] == dict(phase="idle", song=None, players=[], lane_order=[], playback=None)
+    assert 'Native hooks installed' in text and 'select_hooks_intact=true' in text, text
+    with urllib.request.urlopen(f'http://127.0.0.1:{overlay_port}/iidx/card/', timeout=3) as response:
+        assert b'./assets/' in response.read()
+    with urllib.request.urlopen(f'http://127.0.0.1:{overlay_port}/api/v1/state', timeout=3) as response:
+        state = json.load(response)
+        assert (args.queue or state['ready'] is False) and state['queue']['items'] == [] and 'feed' not in state
+    with urllib.request.urlopen(f'http://127.0.0.1:{overlay_port}/api/v1/iidx/now-playing', timeout=3) as response:
+        assert json.load(response) == state['now_playing'] == dict(phase='idle', song=None, players=[], lane_order=[], playback=None)
     for table, slot, rva in [(0xd84788, 13, 0x8eb820), (0xd84788, 14, 0x8ebeb0),
                              (0xd84788, 15, 0x8ec1f0), (0xce9f40, 1, 0x7f2fd0),
-                             (0xdd05c0, 3, 0xa7a2f0), (0xda50a8, 14, 0x933640),
-                             (0xda50a8, 15, 0x9336a0), (0xdae728, 15, 0x8d2350)]:
+                             (0xda50a8, 14, 0x933640), (0xda50a8, 15, 0x9336a0), (0xdae728, 15, 0x8d2350)]:
         hooked = ctypes.c_void_p.from_address(game + table + slot*8).value
         if lane_disabled and playback_disabled and table in (0xda50a8, 0xdae728) and slot == 15:
-            expected = 0x933640 if bad_lane_update and table == 0xda50a8 else rva
-            assert hooked == game + expected, 'Disabled lane sampler modified a stage update'
-            continue
-        assert hooked != game+rva, f"Slot {slot} was not patched"
-        assert abs(hooked-plugin._handle) < 0x4000000, "Hook is not inside plugin image"
-    if lane_disabled:
-        assert 'Lane-order sampling disabled:' in text and 'other features remain available' in text, text
-        assert 'observed=' in text, text
+            assert hooked == game + (0x933640 if bad_lane_update and table == 0xda50a8 else rva)
+        else:
+            assert hooked != game+rva, f'Slot {slot} was not patched'
+            assert abs(hooked-plugin._handle) < 0x4000000, 'Hook is not inside plugin image'
+    # The restored menu captures controller navigation through the verified hook.
+    assert ctypes.c_void_p.from_address(game + 0xdd05c0 + 3 * 8).value != game + 0xa7a2f0
+    if lane_disabled: assert 'Lane-order sampling disabled:' in text, text
     elif lane_generator_patch:
         assert 'patched RANDOM generator at RVA 8236e0' in text, text
         assert ctypes.string_at(lane_generator, 16) == generator_patch
-    else:
-        assert 'Lane-order sampling enabled' in text, text
+    else: assert 'Lane-order sampling enabled' in text, text
     assert ('Playback sampling disabled:' if playback_disabled else 'Playback sampling enabled') in text, text
-    if input_detour:
-        assert "Input poll chain: MinHook -> " in text, text
-        assert ctypes.string_at(input_entry, 16) == patched_entry
-        assert ctypes.string_at(input_relay, 14) == relay_code
-        # Call the installed vtable wrapper and prove it preserves the existing
-        # detour and its return value. GetCurrentProcessId ignores extra x64 args.
-        instance = ctypes.create_string_buffer(0x68)
-        ctypes.c_void_p.from_buffer(instance).value = game + 0xdd05c0
-        input_slot = ctypes.c_void_p.from_address(game + 0xdd05c0 + 3 * 8).value
-        poll = ctypes.CFUNCTYPE(ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t,
-                               ctypes.c_size_t, ctypes.c_size_t)(input_slot)
-        assert poll(ctypes.addressof(instance), 0, 0, 0) == os.getpid()
-        print("PASS: existing MinHook relay preserved and called through the installed input wrapper")
-    else:
-        assert "Input poll chain: native" in text, text
-
-if profiles:
-    # Synthetic state in our private mapped image; never execute the game's code.
-    # Exercise the actual DLL worker's read-only card polling and routing.
-    def word(rva, value):
-        ctypes.c_uint32.from_address(game + rva).value = value
-
-    def wait_switches(count):
-        deadline = time.monotonic() + 4
-        while time.monotonic() < deadline:
-            text = logfile.read_text(encoding="utf-8")
-            lines = [line for line in text.splitlines() if "Active stream profile changed id=" in line]
-            if len(lines) >= count:
-                assert len(lines) == count, lines
-                return lines
-            time.sleep(0.05)
-        raise AssertionError(f"Profile transition {count} did not arrive")
-
-    word(0x10b90e8, 1)
-    word(0x10b90ec, 1)
-    word(0x6c11820, 0)
-    ctypes.c_ubyte.from_address(game + 0x312771e).value = 1
-    ctypes.c_uint64.from_address(game + 0x6c11808).value = 0xE004012345678901
-    word(0xacd79b0, 1)
-    assert f"id={profile_ids[0]};" in wait_switches(1)[-1]
-    ctypes.c_uint64.from_address(game + 0x6c11808).value = 0xE004012345678902
-    time.sleep(0.35)
-    assert len(wait_switches(1)) == 1  # Shared profile does not reconnect.
-    ctypes.c_uint64.from_address(game + 0x6c11808).value = 0xE004012345678903
-    assert f"id={profile_ids[1]};" in wait_switches(2)[-1]
-    word(0xacd79b0, 0)
-    assert "id=global;" in wait_switches(3)[-1]
-    # Same checks for a player joining on the right side.
-    stride = 0x3b103a0
-    word(0x6c11820 + stride, 0)
-    ctypes.c_ubyte.from_address(game + 0x312771e + stride).value = 1
-    ctypes.c_uint64.from_address(game + 0x6c11808 + stride).value = 0xE004012345678901
-    word(0xacd79b4, 1)
-    assert f"id={profile_ids[0]};" in wait_switches(4)[-1]
-    word(0x6c11820 + stride, 1)  # Guest flag overrides leftover card bytes.
-    assert "id=global;" in wait_switches(5)[-1]
-    assert "E0040123456789" not in logfile.read_text(encoding="utf-8")
-    print("PASS: DLL card routing, shared-profile cards, both sides, logout and guest fallback")
 
 if song_info:
-    assert not startup_rejected and not occupied_port and not profiles
+    assert not startup_rejected and not occupied_port
     # The real installation guards already passed. Stub only this process's
     # private mapped image; no game function body or import is executed.
     def return_value(rva, value):
@@ -315,7 +191,7 @@ if song_info:
     def wait_song(phase, title, chart_id=None, keys=None, lane_status=None, position=None):
         deadline = time.monotonic() + 3
         while time.monotonic() < deadline:
-            with urllib.request.urlopen(f'http://127.0.0.1:{overlay_port}/api/now-playing', timeout=2) as response:
+            with urllib.request.urlopen(f'http://127.0.0.1:{overlay_port}/api/v1/iidx/now-playing', timeout=2) as response:
                 data = json.load(response)
             if (data['phase'] == phase and (data['song'] or {}).get('title') == title
                     and (chart_id is None or data['players'][0]['chart']['id'] == chart_id)
@@ -400,7 +276,7 @@ if song_info:
     assert data['song']['charts'][0]['lane_counts'] == dict(sides=[dict(side=1, keys=[1,2,3,4,5,6,21], scratch=3)])
     assert data['song']['charts'][1]['lane_counts'] == dict(sides=[
         dict(side=1, keys=[1,0,1,0,0,0,0], scratch=1), dict(side=2, keys=[0,1,0,1,0,0,0], scratch=2)])
-    with urllib.request.urlopen(f'http://127.0.0.1:{overlay_port}/api/lane-counts', timeout=2) as response:
+    with urllib.request.urlopen(f'http://127.0.0.1:{overlay_port}/api/v1/iidx/lane-counts', timeout=2) as response:
         counts_api = json.load(response)
     assert counts_api['song_id'] == 33001 and counts_api['basis'] == 'original_chart'
     assert counts_api['charts'][0]['lane_counts'] == data['song']['charts'][0]['lane_counts']
@@ -437,7 +313,7 @@ if song_info:
             assert invoke(stage, 15) == 76
             current = wait_song('playing', 'Manual selection fixture', position=round(frame * 1000 / 120))
             assert current['playback']['duration_ms'] == 150000
-            with urllib.request.urlopen(f'http://127.0.0.1:{overlay_port}/api/state', timeout=2) as response:
+            with urllib.request.urlopen(f'http://127.0.0.1:{overlay_port}/api/v1/state', timeout=2) as response:
                 assert json.load(response)['now_playing']['playback'] == current['playback']
         playback_clock(600, float('nan'))
         time.sleep(.3)
@@ -451,7 +327,7 @@ if song_info:
         print('PASS: native playback clock -> both HTTP snapshots; advance, pause, retry, invalid clock clearing and recovery')
     assert cached['song']['charts'][0]['density']['notes'] == [0, 2, 42, 1]
     assert cached['song']['charts'][0]['lane_counts']['sides'][0]['keys'] == [1,2,3,4,5,6,21]
-    with urllib.request.urlopen(f'http://127.0.0.1:{overlay_port}/api/lane-order', timeout=2) as response:
+    with urllib.request.urlopen(f'http://127.0.0.1:{overlay_port}/api/v1/iidx/lane-order', timeout=2) as response:
         order_api = json.load(response)
     assert order_api['song_id'] == 33001 and order_api['lane_order'] == cached['lane_order']
     if lane_disabled:
@@ -497,67 +373,88 @@ if song_info:
     else:
         print('PASS: real DLL callbacks -> song/density/lane JSON, mapping direction, sustained gameplay after sound loading, same-stage retry, invalid/dynamic lane clearing, async request ABI, busy lock, SP/DP, cached stage, folders, cleanup and preserved returns')
 
-# Simulate Spice's documented SDK initialization/shutdown callback ABI.
+if args.queue:
+    def api(path, method='GET', body=None):
+        request = urllib.request.Request(f'http://127.0.0.1:{overlay_port}/api/v1/{path}', method=method,
+            data=None if body is None else json.dumps(body).encode(), headers={} if body is None else {'Content-Type':'application/json'})
+        with urllib.request.urlopen(request, timeout=3) as response: return json.load(response)
+    def await_queue(predicate, advance=False):
+        for _ in range(60):
+            if advance: invoke(scene, 15)
+            queue = api('queue')
+            if predicate(queue): return queue
+            time.sleep(.05)
+        raise AssertionError(f'Queue transition missing: {queue}')
+    assert api('songs?q=fixture%20alias')['songs'][0]['id'] == 33001
+    assert api('aliases/reload','POST') == {'count':1}
+    (work / 'bilimani_iidx_aliases.csv').write_text('alias,target\ninvalid,99999\n', encoding='utf-8')
+    try: api('aliases/reload','POST')
+    except urllib.error.HTTPError as error: assert error.code == 422
+    else: raise AssertionError('Invalid alias replacement accepted')
+    assert api('songs?q=fixture%20alias')['songs'][0]['id'] == 33001
+    return_value(0x82ded0,0)
+    return_value(0x606e60,1)
+    return_value(0x7d5eb0,1)  # reservation available
+    return_value(0x7d6150,0)  # synthetic update already exposes the chosen record
+    invoke(scene,13);invoke(scene,15)
+    time.sleep(.1)
+    first=api('queue','POST',{'song_id':33001,'mode':'SP','requester':'Viewer'})['id']
+    await_queue(lambda q: q['current'] and q['current']['id']==first,True)
+    second=api('queue','POST',{'song_id':33001,'mode':'SP'})['id']
+    return_value(0x7d5eb0,0)
+    api(f'queue/{second}/priority','POST')
+    await_queue(lambda q: q['items'][0]['executing'])
+    try: api(f'queue/{second}','DELETE')
+    except urllib.error.HTTPError as error: assert error.code == 409
+    else: raise AssertionError('Executing item was deleted')
+    failed=await_queue(lambda q: q['items'][0]['error'],True)
+    assert failed['current']['id']==first
+    return_value(0x7d5eb0,1)
+    api(f'queue/{second}/priority','POST')
+    await_queue(lambda q: q['current']['id']==second,True)
+    api(f'queue/{second}','DELETE')
+    assert api('queue')['current'] is None
+    return_value(0xa7a2f0,78)
+    input_fixture=ctypes.create_string_buffer(0x68)
+    ctypes.c_void_p.from_buffer(input_fixture).value=game+0xdd05c0
+    original_input=bytes(input_fixture)
+    assert invoke(input_fixture,3)==78 and bytes(input_fixture)==original_input
+    print('PASS: DLL queue -> native ack/failure/retry, busy deletion, priority replacement, CSV reload rollback and closed-menu input forwarding')
+
+# SDK v0 initializes menu rendering/input callbacks without requiring a D3D device.
 destroy_callback = None
-INIT = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_uint32, ctypes.c_void_p, ctypes.c_void_p)
 GET_BUTTON = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_uint32, ctypes.POINTER(ctypes.c_bool), ctypes.c_void_p)
-DRAW = ctypes.CFUNCTYPE(None, ctypes.c_uint32, ctypes.c_void_p, ctypes.c_void_p)
-REGISTER = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p)
-draw_callback = None
-
-@REGISTER
-def sdk_register(callback, userdata):
-    global draw_callback
-    assert callback and not userdata
-    draw_callback = DRAW(callback)
-    return 0
-
 @GET_BUTTON
-def sdk_get_button(button, pressed, velocity):
-    assert button in (14, 26)
+def get_button(button, pressed, velocity):
     pressed[0] = False
     return 0
-
+DRAW = ctypes.CFUNCTYPE(None, ctypes.c_uint32, ctypes.c_void_p, ctypes.c_void_p)
+REGISTER = ctypes.CFUNCTYPE(ctypes.c_int, DRAW, ctypes.c_void_p)
+@REGISTER
+def register(draw, user):
+    for event in [0, 1, 2, 3]: draw(event, None, user)
+    return 0
+class SdkV0(ctypes.Structure):
+    _fields_ = [('size', ctypes.c_uint32), ('functions', ctypes.c_void_p * 18)]
+INIT = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_uint32, ctypes.c_void_p, ctypes.c_void_p)
 @INIT
-def sdk_init(version, destroy, api):
+def sdk_init(version, destroy, table):
     global destroy_callback
     assert version == 0
-    assert ctypes.c_uint32.from_address(api).value == 152
-    if "--sdk-renderer" in sys.argv:
-        ctypes.c_void_p.from_address(api + 8 + 17 * 8).value = ctypes.cast(sdk_register, ctypes.c_void_p).value
-    if "--no-sdk-input" not in sys.argv:
-        # Eight-byte-aligned function table, get_button is slot 3.
-        ctypes.c_void_p.from_address(api + 8 + 3 * 8).value = ctypes.cast(sdk_get_button, ctypes.c_void_p).value
+    api = SdkV0.from_address(table)
+    assert api.size == ctypes.sizeof(SdkV0)
+    api.functions[3] = ctypes.cast(get_button, ctypes.c_void_p).value
+    api.functions[17] = ctypes.cast(register, ctypes.c_void_p).value
     destroy_callback = ctypes.CFUNCTYPE(None)(destroy)
     return 0
-
 plugin.spice_sdk_entry_point.argtypes = [INIT]
 plugin.spice_sdk_entry_point.restype = ctypes.c_int
-assert plugin.spice_sdk_entry_point(sdk_init) == 0
-assert destroy_callback
-if "--sdk-renderer" in sys.argv:
-    assert draw_callback
-    # Null/unusable frames must be ignored; lifecycle callbacks must be safe
-    # even before the host has ever supplied a device.
-    for event in (0, 1, 2, 3):
-        draw_callback(event, None, None)
-if not startup_rejected and "--no-sdk-input" not in sys.argv:
-    deadline = time.monotonic() + 3
-    while time.monotonic() < deadline:
-        if "sdk_status=-2" in logfile.read_text(encoding="utf-8"):
-            break
-        time.sleep(0.05)
-    else:
-        raise AssertionError("DLL did not retain the SDK get_button function")
+assert plugin.spice_sdk_entry_point(sdk_init) == 0 and destroy_callback
 destroy_callback()
 if not startup_rejected:
-    assert (work / "obs/queue.txt").read_text(encoding="utf-8").strip() == "点歌已停止"
-    if not occupied_port:
-        try:
-            urllib.request.urlopen(f"http://127.0.0.1:{overlay_port}/api/state", timeout=1)
-        except urllib.error.URLError:
-            pass
-        else:
-            raise AssertionError("Overlay server still running after shutdown")
+    try: urllib.request.urlopen(f'http://127.0.0.1:{overlay_port}/api/v1/state', timeout=1)
+    except urllib.error.URLError: pass
+    else: raise AssertionError('Game API still running after shutdown')
+assert not (work / 'bilimani.db').exists() and not (work / 'obs').exists()
 port_blocker.close()
-print("PASS: " + ("unsupported image rejected" if reject else "unknown input patch rejected before installing hooks" if bad_input_detour else "occupied-port fallback and SDK shutdown" if occupied_port else "mapped-image hooks, web overlay, OBS files, and SDK shutdown") + f" ({work.name})")
+print(f'PASS: DLL startup, API boundaries and SDK shutdown ({work.name})')

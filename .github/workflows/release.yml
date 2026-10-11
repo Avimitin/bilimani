@@ -34,14 +34,30 @@ jobs:
           rustup default stable
           if ($LASTEXITCODE -ne 0) { throw 'Cannot select Rust toolchain' }
 
+      - name: Install Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Verify Node and frontend
+        run: |
+          node --version
+          npm ci
+          if ($LASTEXITCODE -ne 0) { throw 'npm ci failed' }
+          npm run typecheck
+          if ($LASTEXITCODE -ne 0) { throw 'TypeScript failed' }
+          npm test
+          if ($LASTEXITCODE -ne 0) { throw 'Frontend tests failed' }
+
       - name: Check formatting
         run: cargo fmt --all --check
 
       - name: Test
-        run: ./scripts/build.ps1 -CargoArgs @('test', '--locked', '--all-targets')
+        run: ./scripts/build.ps1 -CargoArgs @('test', '--workspace', '--locked', '--all-targets')
 
       - name: Clippy
-        run: ./scripts/build.ps1 -CargoArgs @('clippy', '--locked', '--all-targets', '--', '-D', 'warnings')
+        run: ./scripts/build.ps1 -CargoArgs @('clippy', '--workspace', '--locked', '--all-targets', '--', '-D', 'warnings')
 
       - name: Build and package
         id: package

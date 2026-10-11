@@ -9,8 +9,17 @@
 /chart-requester.toml
 /chart-requester.db*
 /chart-requester-backup*.json
+/game-iidx.json
+/iidx-aliases.csv
 /backups/
 /obs/
 *.log
 *.log.*
 .github-token
+
+/node_modules/
+**/node_modules/
+/web/**/config.json
+!/web/apps/iidx/config.json
+/bilimani_iidx.json
+/bilimani_iidx_aliases.csv

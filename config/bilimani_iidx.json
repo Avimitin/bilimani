@@ -1,0 +1,9 @@
+{
+  "listen": "127.0.0.1:32133",
+  "static_root": "bilimani_web",
+  "module": "bm2dx.dll",
+  "database_path": "",
+  "aliases_path": "bilimani_iidx_aliases.csv",
+  "queue": { "capacity": 20, "current_timeout_seconds": 600 },
+  "controls": { "enabled": true, "double_tap_ms": 400 }
+}

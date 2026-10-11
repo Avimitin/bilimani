@@ -13,12 +13,14 @@ def main():
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(args.output, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
         # Every style owns its assets; no root files or sibling styles are replaced.
-        style = ROOT / 'web/mecha'
-        for source in sorted(style.rglob('*')):
+        style = ROOT / 'dist/web/iidx/mecha'
+        if not (style / 'index.html').is_file():
+            raise SystemExit('Run npm run build before packaging')
+        sources = [style / 'index.html', *sorted((style / 'assets').rglob('*'))]
+        for source in sources:
             if source.is_file():
-                archive.write(source, pathlib.PurePosixPath('bilimani_web/mecha') / source.relative_to(style).as_posix())
-        archive.write(ROOT / 'docs/stream-frame.md', 'README.md')
-        archive.write(ROOT / 'LICENSE', 'LICENSE')
+                archive.write(source, pathlib.PurePosixPath('bilimani_web/iidx/mecha') / source.relative_to(style).as_posix())
+        archive.write(ROOT / 'web/apps/iidx/config.json', 'bilimani_web/iidx/mecha/config.json')
     print(f'Packaged: {args.output}')
 
 
