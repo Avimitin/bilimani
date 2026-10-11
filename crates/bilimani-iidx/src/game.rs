@@ -232,6 +232,7 @@ pub enum SelectionError {
 }
 #[derive(Default)]
 pub struct GameUpdate {
+    pub user: crate::iidx::user::UserSnapshot,
     pub toggle_menu: bool,
     pub navigation: Vec<Navigation>,
     pub snapshot: Snapshot,

@@ -12,6 +12,7 @@ pub mod playback;
 #[cfg(windows)]
 mod search_index;
 pub mod song_info;
+pub mod user;
 pub const SUPPORTED_SHA256: &str =
     "c61b6dcb8894062e56d60da8ca90053b27f129e1a8e8da5e54457aa42602397d";
 
@@ -21,12 +22,19 @@ pub(crate) fn attach(
     controls: &crate::config::Controls,
 ) -> anyhow::Result<Box<dyn crate::game::GameAdapter>> {
     native::configure_controls(controls.clone());
+    let base = image.base;
+    let user_enabled = user::GUARDS.iter().all(|&(rva, expected)| {
+        native::read_memory(base + rva, 16).is_ok_and(|bytes| hex::encode(bytes) == expected)
+    });
     native::install(image)?;
-    Ok(Box::new(Adapter))
+    Ok(Box::new(Adapter { base, user_enabled }))
 }
 
 #[cfg(windows)]
-struct Adapter;
+struct Adapter {
+    base: usize,
+    user_enabled: bool,
+}
 
 #[cfg(windows)]
 impl crate::game::GameAdapter for Adapter {
@@ -48,6 +56,15 @@ impl crate::game::GameAdapter for Adapter {
             ("input", native::input_chain().into()),
             ("lane", native::lane_order_status().into()),
             ("playback", native::playback_status().into()),
+            (
+                "user",
+                if self.user_enabled {
+                    "Player sampling enabled"
+                } else {
+                    "Player sampling disabled: native guards changed"
+                }
+                .into(),
+            ),
         ]
     }
     fn catalog(
@@ -69,12 +86,23 @@ impl crate::game::GameAdapter for Adapter {
         native::SEARCH_INDEX.lock().unwrap().take()
     }
     fn poll(&self) -> crate::game::GameUpdate {
+        let user = if self.user_enabled {
+            user::sample(
+                |address, size| {
+                    native::read_memory(address, size).map_err(|_| user::SampleError::Unreadable)
+                },
+                self.base,
+            )
+        } else {
+            Default::default()
+        };
         let mut m = native::MAILBOX.lock().unwrap();
         let toggle_menu = m
             .menu_event
             .take()
             .is_some_and(|e| m.menu_side == Some(e.side) && m.snapshot.epoch == e.epoch);
         crate::game::GameUpdate {
+            user,
             toggle_menu,
             navigation: m.navigation.drain(..).collect(),
             snapshot: m.snapshot,

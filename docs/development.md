@@ -38,6 +38,8 @@ npm run build
 
 打开 http://127.0.0.1:32134/iidx/card/ 或 /iidx/mecha/。这是使用真实 HTTP/选曲服务的**假游戏**：9 首 Preview Song，自动确认选曲，并提供合成曲目信息、密度/雷达/键位和演奏进度，不执行任何游戏函数。构建后页面已带默认配置；仅看布局可将产物目录 config.json 的 platform.enabled 设为 false。例程不随发行包交付，不需要真实游戏文件或单独的 Node mock server。Windows 使用上述脚本，其他支持 Rust 的开发环境可直接 `cargo run -p bilimani-iidx --example api_preview`；只有 DLL 原生接入依赖 Windows。
 
+预览还提供 `/api/v1/iidx/user` 的合成玩家 PREVIEW、SP/DP 段位与周统计。`play` 增加合成计数，`other` 清空玩家，`select` 恢复，便于验证左下角轮换和退卡后的清空。
+
 在预览终端输入命令并回车：
 
 | 命令 | 效果 |
@@ -60,7 +62,7 @@ npx playwright install chromium
 npm run test:browser
 ```
 
-也可设置 PLAYWRIGHT_CHROMIUM_EXECUTABLE 为本机 Chrome 完整路径。BILIMANI_TEST_URL 可替换默认 32134 地址。测试使用生产 bundle 和真实 Rust API，仅模拟外部平台 HTTP/WebSocket；验证 URL 身份码、弹幕搜索确认、队列增删、OBS 停用/激活、刷新保留队列及配置错误，截图在忽略目录 analysis/browser/。
+也可设置 PLAYWRIGHT_CHROMIUM_EXECUTABLE 为本机 Chrome 完整路径。BILIMANI_TEST_URL 可替换默认 32134 地址。测试使用生产 bundle 和真实 Rust API，模拟外部平台 HTTP/WebSocket，以及玩家接口的数据缺失/故障；验证 URL 身份码、弹幕搜索确认、队列增删、OBS 停用/激活、刷新保留队列、配置错误、玩家轮换、页面动效设置及图表 DOM 不随轮换重建，截图在忽略目录 analysis/browser/。浏览器测试会清理预览队列，应在专用预览进程运行。
 
 开发热更新使用 npm run dev。默认连接 32133 的 DLL；假游戏可设置 BILIMANI_API_URL=http://127.0.0.1:32134。从 Vite 打开的 /card/、/mecha/ 使用对应 dist/web/iidx/<style>/config.json，与 DLL 反代读取同一份配置。部署目录为其他路径时设置 BILIMANI_WEB_ROOT。Vite 转发重写 Origin/Host 以匹配本地 API，生产部署无需此开发代理。
 
@@ -72,6 +74,8 @@ Rust 单元测试覆盖结构化错误、纯解析、HTTP 约束、选曲状态�
 py scripts/smoke-dll.py
 py scripts/smoke-dll.py --song-info
 py scripts/smoke-dll.py --queue
+py scripts/smoke-dll.py --user
+py scripts/smoke-dll.py --bad-user
 py scripts/smoke-dll.py --song-info --lane-generator-patch
 py scripts/smoke-dll.py --song-info --bad-lane-layout
 py scripts/smoke-dll.py --song-info --bad-lane-update

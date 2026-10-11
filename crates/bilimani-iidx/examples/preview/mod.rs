@@ -149,6 +149,7 @@ impl Simulator {
     }
     pub fn update(&mut self, now: u64) -> GameUpdate {
         GameUpdate {
+            user: self.user(),
             snapshot: Snapshot {
                 phase: self.phase,
                 mode: Some(self.mode),
@@ -176,6 +177,40 @@ impl Simulator {
                 });
             }
             GameAction::Cancel => self.ack = None,
+        }
+    }
+    fn user(&self) -> iidx::user::UserSnapshot {
+        use iidx::user::*;
+        if self.phase == Phase::Other {
+            return UserSnapshot::default();
+        }
+        UserSnapshot {
+            active_side: Some(1),
+            players: vec![UserProfile {
+                side: 1,
+                dj_name: "PREVIEW".into(),
+                sp: StyleProfile {
+                    dan: Some(DanRank::Kaiden),
+                    dj_points: 24680,
+                },
+                dp: StyleProfile {
+                    dan: Some(DanRank::Dan8),
+                    dj_points: 1357,
+                },
+                weekly: Some(WeeklyActivity {
+                    period: ActivityPeriod::GameWeek,
+                    week_id: 100,
+                    date: 20261005,
+                    sp: Some(ActivityCounts {
+                        songs: 128 + self.plays,
+                        keys: 186432 + self.plays * 1500,
+                    }),
+                    dp: Some(ActivityCounts {
+                        songs: 12,
+                        keys: 14200,
+                    }),
+                }),
+            }],
         }
     }
     fn telemetry(&self, now: u64) -> NowPlaying {

@@ -493,6 +493,63 @@ native clock values, including frozen time, retry, invalid-clock clearing,
 recovery, cleanup and independent guard failures. Historical v0.3 browser checks covered exact 5/10-second boundaries, absent data, backwards progress, two-player plots and stable DOM identity. Current automated checks are documented in development.md. These verify the integration with a private
 mapped image; synchronization against audible music still needs live gameplay.
 
+## Player profile and native weekly activity
+
+Implementation: `versions/v33/b20260812/user.rs`; all addresses below are RVAs
+for the same verified IIDX 33 / 20260812 image. The sampler only copies memory
+through ReadProcessMemory on the worker and publishes owned data. No getter is
+called, no additional hook is installed, and HTTP never touches game memory.
+
+Profile loader `0xabedf0` copies `pcdata.name` into player base `0x3101488 +
+side*0x3b103a0 + 0x20` (8 Shift-JIS bytes). It stores `sach`/`dach` at `+0x34`/
+`+0x38`, and `grade.sgid`/`dgid` at `+0x3c`/`+0x40`. `0x5a64a0` returns the
+name and the two point values; `0x8c5cb0` consumes those points, `0x8c4ec0`
+sums SP and DP, and `0x8aed20` renders the `1p_djpoint`/`2p_djpoint` widgets.
+`0x5a6800` reads the grades; `0x8772b0` and `0x876270` select labels from RVA
+`0x1077550`: 0..6 = 7..1 KYU, 7..16 = 1..10 DAN, 17 = CHUDEN, 18 = KAIDEN.
+Negative/unknown grade IDs remain absent.
+
+The sampler requires both initialization flags at `0x10b90e8/+4`, a joined
+side at `0xacd79b0 + side*4`, normal play type at `0x6c11820 + side*stride`,
+and profile-ready byte `0x312771e + side*stride`. Private session identity at
+`0x6c11808 + side*stride` is checked for presence and compared before/after
+sampling, but never serialized or logged. The loader clears the player block
+in `0x5abed0`. A second profile copy rejects torn updates; guests, logout and
+failed reads clear the corresponding player rather than retaining cached data.
+
+Weekly network data is `week_data[play_style]/week[week_index]` in the same
+loader. With `root = 0x10b90f0 + side*stride`:
+
+| Field | Offset from root | Native getter |
+| --- | --- | --- |
+| Week ID / date | `0x206bc94/+index*4`, `0x206bca8/+index*4` | `0x5a5530` |
+| Per-style, per-week block | `0x206bcbc + style*620 + index*124` | below |
+| music_num | block `+0` | `0x5a5650` |
+| keyboard_num | block `+112` | `0x5a55c0` |
+| scratch_num (not keys) | block `+116` | `0x5a5700` |
+| Block present | block `+120` | same getters |
+| Activity/week ready | `0x206df8c`, `0x206c194` | same getters |
+
+The current week is **index 4**, verified in `0x6f80c0`, the explicit `r9d=4`
+argument in `0x6f8000 → 0x661e30`, and graph `0x723eb0`.
+These are game week buckets, not a rolling seven-day history. Date encoding
+and reset timezone are not inferred. Native display also adds the current
+session counters: singleton pointer at `0xaab3cb0`, side block `+128+244*side`,
+style block `+120*style`, songs `+4`, keys `+116` (`0x661ca0`, `0x661c50`).
+`0x662320` clears this side block; `0x6620e0` saves counters through `0x59cc80`
+and `0x59cc10`. These deltas must not be replaced with the plugin's own `plays`
+counter or original chart note counts. Double reads reject changing counters,
+week IDs and singleton pointers. An unreadable/missing week remains null.
+
+Six getter guards independently disable player sampling on incompatible code;
+core song/queue functions remain available. Typed parsing tests use synthetic
+memory, including a heap below the image base, 2P, absent statistics, guests,
+logout and a card change during sampling. `smoke-dll.py --user` exercises the
+actual DLL's worker-to-HTTP path with synthetic 2P memory; `--bad-user` verifies
+that changing a getter guard only disables this optional feature.
+Real values, weekly rollover, point
+updates and logout timing still require validation in the supported game.
+
 ## Validation boundary
 
 The runtime installer and scripts/smoke-dll.py check the file hash, architecture, function guards and

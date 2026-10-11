@@ -53,6 +53,7 @@ pub enum GameAction {
     Cancel,
 }
 pub struct Service {
+    pub user: iidx::user::UserSnapshot,
     pub catalog: Option<Catalog>,
     pub snapshot: Snapshot,
     pub now_playing: NowPlaying,
@@ -68,6 +69,7 @@ pub struct Service {
 impl Default for Service {
     fn default() -> Self {
         Self {
+            user: Default::default(),
             catalog: None,
             snapshot: Default::default(),
             now_playing: Default::default(),
@@ -214,6 +216,7 @@ impl Service {
         Ok(value)
     }
     pub fn update(&mut self, update: GameUpdate, now: u64) -> Option<GameAction> {
+        self.user = update.user;
         self.now = now;
         self.snapshot = update.snapshot;
         self.now_playing = update.now_playing;
@@ -309,6 +312,7 @@ impl Service {
             ("/api/v1/state".into(), state),
             ("/api/v1/queue".into(), queue),
             ("/api/v1/iidx/now-playing".into(), game.clone()),
+            ("/api/v1/iidx/user".into(), json!(self.user)),
             (
                 "/api/v1/iidx/lane-counts".into(),
                 json!({"phase": game["phase"], "song_id": game["song"]["id"], "basis":"original_chart", "counting":"native_weighted",

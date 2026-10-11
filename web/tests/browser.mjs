@@ -1,9 +1,10 @@
-// Production bundles + real Rust API; only the external live platform is mocked.
+// Production bundles + real Rust API; mock platform traffic and targeted user-API failures.
 import { chromium } from 'playwright';
 import assert from 'node:assert/strict';
 import { readFile, mkdir } from 'node:fs/promises';
 const base = process.env.BILIMANI_TEST_URL ?? 'http://127.0.0.1:32134';
 const example = JSON.parse(await readFile(new URL('../apps/iidx/config.json', import.meta.url), 'utf8'));
+example.display.infoRotationSeconds = 1;
 const browser = await chromium.launch({ headless: true, ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE } : {}) });
 const packet = (op, value) => {
   const body = Buffer.from(JSON.stringify(value)); const bytes = Buffer.alloc(16 + body.length);
@@ -22,7 +23,8 @@ try {
     let starts=0, ends=0;
     await page.addInitScript(() => { window.obsstudio = {pluginVersion: "test"}; });
     let invalidConfig=false;
-    await page.route('**/config.json', route=>route.fulfill({json:invalidConfig ? {} : example}));
+    let vfdEffects=true;
+    await page.route('**/config.json', route=>route.fulfill({json:invalidConfig ? {} : {...example,display:{...example.display,vfdEffects}}}));
     await page.route('**/_proxy/relay/api/open_live/*', route=>{
       const action = route.request().url().split('/').at(-1);
       if (action === 'start_game') { starts++; assert.equal(route.request().postDataJSON().code, 'LOCAL-TEST-ONLY'); }
@@ -53,8 +55,53 @@ try {
     if (style === 'card') assert.equal(await page.locator('.current-title').textContent(),'Preview Song 2');
     assert.equal(await page.locator('[role=alert]').count(),0);
     await page.screenshot({path:new URL(`../../analysis/browser/${style}.png`,import.meta.url).pathname.replace(/^\/([A-Z]:)/,'$1'),fullPage:true});
+    if (style === 'mecha') {
+      const nativeUser = await (await fetch(`${base}/api/v1/iidx/user`)).json();
+      assert.equal(nativeUser.players[0].dj_name, 'PREVIEW');
+      const chart = await page.locator('.song-density svg').elementHandle();
+      await page.locator('.identity-viewport[data-page="song"]').waitFor();
+      await page.locator('.identity-viewport[data-page="user"]').waitFor();
+      assert.equal(await page.locator('.profile-name').textContent(), 'PREVIEW');
+      assert.deepEqual(await page.locator('.profile-rank .profile-value').allTextContents(), ['皆伝','八段']);
+      assert.equal(await page.locator('.profile-stat').first().locator('.vfd-readable').textContent(), '26037');
+      await page.waitForTimeout(920); // Capture the completed scroll, not its midpoint.
+      await page.screenshot({path:new URL('../../analysis/browser/mecha-user.png',import.meta.url).pathname.replace(/^\/([A-Z]:)/,'$1'),fullPage:true});
+      await page.locator('.identity-viewport[data-page="song"]').waitFor();
+      assert.ok(await chart.evaluate(el=>el.isConnected), 'rotation preserves the chart DOM');
+      await page.emulateMedia({reducedMotion:'reduce'});
+      await wait(()=>page.locator('.identity-viewport').getAttribute('data-reset').then(value=>value==='false'));
+      assert.equal(await page.locator('.identity-track').evaluate(el=>getComputedStyle(el).transitionDuration), '0.9s', 'broadcast effects do not inherit desktop reduced motion');
+      // Check rendered intermediate values, not just the presence of animations:
+      // steps(1) on the whole timeline used to skip every jitter keyframe.
+      await page.evaluate(()=>new Promise((resolve,reject)=>{
+        const started=performance.now();
+        let moved=false, flashed=false;
+        const sample=()=>{
+          moved ||= [...document.querySelectorAll('.identity-slide')]
+            .some(el=>Math.abs(new DOMMatrix(getComputedStyle(el).transform).m41)>=.2);
+          flashed ||= [...document.querySelectorAll('.current-title,.profile-name,.profile-value,.profile-number,.song-bpm .vfd-digits')]
+            .some(el=>Number(getComputedStyle(el).opacity)<.5);
+          if([...document.querySelectorAll('.song-bpm .vfd-digits')].some(el=>el.getAnimations().length)) return reject(new Error('BPM must remain steady'));
+          if(moved&&flashed) return resolve();
+          if(performance.now()-started>17000) return reject(new Error(`VFD intermediate frames missing: moved=${moved}, flashed=${flashed}`));
+          requestAnimationFrame(sample);
+        };sample();
+      }));
+      await page.route('**/api/v1/iidx/user', route=>route.fulfill({json:{...nativeUser, players:nativeUser.players.map(p=>({...p,weekly:null}))}}));
+      await wait(()=>page.locator('.profile-stat .vfd-readable').allTextContents().then(values=>values.join(',')==='26037,—,—'));
+      await page.unroute('**/api/v1/iidx/user');
+      await page.route('**/api/v1/iidx/user', route=>route.fulfill({status:503,json:{error:{code:'unavailable'}}}));
+      await wait(()=>page.locator('.profile-name').count().then(n=>n===0));
+      assert.equal(await page.locator('.identity-viewport').getAttribute('data-page'), 'song');
+      assert.equal(await page.locator('.connection-banner:visible').count(),0,'player API failure does not stop chat/queue');
+      assert.equal((await (await fetch(`${base}/api/v1/queue`)).json()).current.song_id,2);
+      await page.unroute('**/api/v1/iidx/user');
+      await page.locator('.profile-name').waitFor({state:'attached'});
+      vfdEffects=false;
+    }
     socket=undefined;await page.reload();await wait(async()=>!!socket);
     await wait(rendered);
+    if (style === 'mecha') assert.equal(await page.locator('.identity-track').evaluate(el=>getComputedStyle(el).transitionDuration),'0s','config can disable broadcast effects');
     await wait(()=>page.locator('.connection-banner:visible').count().then(n=>n===0));
     if (style === 'card') await wait(()=>page.locator('.current-title').textContent().then(text=>text==='Preview Song 2'));
     assert.equal((await (await fetch(`${base}/api/v1/queue`)).json()).current.song_id,2,'refresh preserves DLL current request');

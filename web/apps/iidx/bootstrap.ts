@@ -1,13 +1,17 @@
 import { Controller } from '@bilimani/controller';
 import { createGameClient } from '@bilimani/game-api';
 import { BilibiliSource } from '@bilimani/platform-bilibili';
-import { loadConfig } from './config';
+import { loadConfig, type Config } from './config';
 import { iidxRules } from './rules';
+import { emptyUser, readUser, type UserSnapshot } from './user';
 type View = ReturnType<Controller['view']>;
 
-export async function startPage(render: (view: View) => void): Promise<void> {
+export async function startPage(render: (view: View & { user: UserSnapshot }, display: Config['display']) => void, options: { user?: boolean } = {}): Promise<void> {
   let stopped = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let userTimer: ReturnType<typeof setTimeout> | undefined;
+  let user = emptyUser();
+  const lifetime = new AbortController();
   let controller: Controller | undefined;
   let source: BilibiliSource | undefined;
   let generation = 0;
@@ -33,6 +37,7 @@ export async function startPage(render: (view: View) => void): Promise<void> {
   }
   window.addEventListener('pagehide', () => {
     stopped = true; generation++; clearTimeout(timer); controller?.stop(); source?.stop();
+    clearTimeout(userTimer); lifetime.abort();
     window.removeEventListener('obsSourceActiveChanged', onActive);
     window.removeEventListener('obsSourceVisibleChanged', onVisible);
     document.removeEventListener('visibilitychange', onVisibility);
@@ -54,10 +59,19 @@ export async function startPage(render: (view: View) => void): Promise<void> {
       }
     };
     synchronize();
+    const draw = () => render({ ...controller!.view(), user }, config.display);
+    // Optional game telemetry cannot delay the chat controller or queue polling.
+    const pollUser = async () => {
+      try { user = await readUser(lifetime.signal); } catch { user = emptyUser(); }
+      if (stopped) return;
+      draw();
+      userTimer = setTimeout(pollUser, 1000);
+    };
+    if (options.user) void pollUser();
     const tick = async () => {
       await controller!.tick();
       if (stopped) return;
-      render(controller!.view());
+      draw();
       timer = setTimeout(tick, 500);
     };
     void tick();

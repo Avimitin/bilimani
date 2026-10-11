@@ -4,7 +4,7 @@ export interface Config {
   proxy: Record<string, string>;
   platform: BilibiliConfig & { type: 'bilibili' };
   requests: Policy;
-  display: { feedLimit: number };
+  display: { feedLimit: number; infoRotationSeconds: number; vfdEffects: boolean };
 }
 const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
 export function parseConfig(value: unknown, search = ''): Config {
@@ -30,7 +30,11 @@ export function parseConfig(value: unknown, search = ''): Config {
     if (typeof n !== 'number' || !Number.isInteger(n) || n < min || n > max) throw new Error(`requests.${key} 必须是 ${min}–${max} 的整数`);
   }
   if (!record(display) || typeof display.feedLimit !== 'number' || !Number.isInteger(display.feedLimit) || display.feedLimit < 1 || display.feedLimit > 100) throw new Error('display.feedLimit 必须是 1–100 的整数');
-  return { proxy: proxy as Record<string,string>, platform: { type: 'bilibili', enabled: platform.enabled, authCode, relayUrl: platform.relayUrl.replace(/\/+$/, '') }, requests: { ...requests, prefix: requests.prefix.trim() } as unknown as Policy, display: { feedLimit: display.feedLimit } };
+  const infoRotationSeconds = display.infoRotationSeconds === undefined ? 10 : display.infoRotationSeconds;
+  if (typeof infoRotationSeconds !== 'number' || !Number.isInteger(infoRotationSeconds) || infoRotationSeconds < 1 || infoRotationSeconds > 3600) throw new Error('display.infoRotationSeconds 必须是 1–3600 的整数');
+  const vfdEffects = display.vfdEffects === undefined ? true : display.vfdEffects;
+  if (typeof vfdEffects !== 'boolean') throw new Error('display.vfdEffects 必须是 true 或 false');
+  return { proxy: proxy as Record<string,string>, platform: { type: 'bilibili', enabled: platform.enabled, authCode, relayUrl: platform.relayUrl.replace(/\/+$/, '') }, requests: { ...requests, prefix: requests.prefix.trim() } as unknown as Policy, display: { feedLimit: display.feedLimit, infoRotationSeconds, vfdEffects } };
 }
 export async function loadConfig(): Promise<Config> {
   const response = await fetch(new URL('./config.json', document.baseURI), { cache: 'no-store', signal: AbortSignal.timeout(4000) });

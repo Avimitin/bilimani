@@ -1,7 +1,9 @@
 import { startPage } from "../bootstrap";
+import { createIdentityRenderer, startVfdInstability } from './identity';
 "use strict";
 (() => {
   let state = null;
+  let rotationSeconds = 10;
   let pageSince = performance.now();
   let pageIndex = 0;
   let activeChoice = null;
@@ -56,6 +58,8 @@ import { startPage } from "../bootstrap";
     el.dataset.automatic = String(!r.chart);
     return el;
   };
+  const renderIdentity = createIdentityRenderer(node, vfdNumber);
+  if (frame) startVfdInstability();
   function changed(key, value, draw) {
     const signature = JSON.stringify(value);
     if (signatures.get(key) !== signature) {
@@ -101,12 +105,6 @@ import { startPage } from "../bootstrap";
       const box = $("current-content");
       box.classList.add("game-content");
       box.replaceChildren();
-      if (!song) {
-        const empty = node("div", "current-idle");
-        empty.append(node("h2", "", offline ? "等待游戏连接" : "等待选择歌曲"));
-        box.append(empty);
-        return;
-      }
       const identity = node("div", "game-identity");
       const identityFrame = document.createElementNS("http://www.w3.org/2000/svg", "svg");
       identityFrame.setAttribute("class", "song-identity-frame");
@@ -130,11 +128,10 @@ import { startPage } from "../bootstrap";
       const outline = document.createElementNS(identityFrame.namespaceURI, "path");
       outline.setAttribute("d", "M18 3H302l12 7h166l17 17v42l-18 18H160l-12-7H3V18Z");
       identityFrame.append(outline);
-      const title = node("h1", "current-title", song.title);
-      title.title = song.title;
-      const credits = node("div", "song-credits", [song.genre, song.artist].filter(Boolean).join(" / "));
-      credits.title = credits.textContent;
-      identity.append(identityFrame, title, credits);
+      identity.append(identityFrame);
+      box.append(identity);
+      box.dataset.hasSong = String(!!song);
+      if (!song) return;
       const charts = node("div", "game-charts");
       const selected = (game.players || []).map((player) => ({player, info: song.charts.find((c) => c.chart.id === player.chart.id)}))
         .filter(({info}) => info)
@@ -157,7 +154,7 @@ import { startPage } from "../bootstrap";
         group.append(bpmDisplay, orders);
         charts.append(group);
       });
-      box.append(identity, charts);
+      box.append(charts);
       if (selected.length) {
         const plots = node("div", "song-densities");
         selected.forEach(({player, info}) => plots.append(density(info.density, player.side, info.chart.id)));
@@ -328,6 +325,8 @@ import { startPage } from "../bootstrap";
     const wrap = node("div", "song-radar");
     wrap.setAttribute("aria-label", `${side}P 谱面雷达`);
     const axes = ["notes", "peak", "scratch", "soflan", "charge", "chord"];
+    const plot = node("div", "radar-plot");
+    plot.append(node("span", "radar-caption", `${side}P RADAR`));
     if (values) {
       const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
       svg.setAttribute("viewBox", "0 0 72 72");
@@ -344,16 +343,17 @@ import { startPage } from "../bootstrap";
         polygon.setAttribute("class", ring === null ? "radar-value" : "radar-ring");
         svg.append(polygon);
       });
-      wrap.append(svg);
+      plot.append(svg);
+    } else {
+      plot.append(node("span", "radar-empty", "暂无雷达"));
     }
     const data = node("div", "radar-data");
-    data.append(node("span", "radar-caption", `${side}P RADAR`));
     axes.forEach((key) => {
       const item = node("span", "radar-axis");
       item.append(node("span", "", key.toUpperCase()), node("b", "", values ? Number(values[key]).toFixed(2) : "—"));
       data.append(item);
     });
-    wrap.append(data);
+    wrap.append(plot, data);
     return wrap;
   }
   function render(s, offline = false) {
@@ -371,6 +371,7 @@ import { startPage } from "../bootstrap";
     const c = s.current;
     if (frame) {
       renderNowPlaying(s.now_playing ?? { phase: 'idle', song: null, players: [], lane_order: [], playback: null }, offline);
+      renderIdentity(s, rotationSeconds);
     } else {
       signatures.delete("game-song");
       $("current-content").classList.remove("game-content");
@@ -551,5 +552,10 @@ import { startPage } from "../bootstrap";
   }
   new ResizeObserver(() => { if (state) renderQueue(state); }).observe($("queue-body"));
   new ResizeObserver(fitFeed).observe($("activity-list"));
-  void startPage((next) => { state = next; render(state); });
+  void startPage((next, display) => {
+    state = next;
+    rotationSeconds = display.infoRotationSeconds;
+    document.body.dataset.vfdEffects = String(display.vfdEffects);
+    render(state);
+  }, { user: frame });
 })();

@@ -42,6 +42,8 @@ DLL 在可选曲、无当前请求且菜单关闭时选择第一首匹配模式�
 | requests.cooldownSeconds | 0 | 0–86400，0 关闭 |
 | requests.maxPendingUsers | 100 | 1–1000，同时搜索/待选人数 |
 | display.feedLimit | 10 | 1–100 |
+| display.infoRotationSeconds | 10 | 1–3600，Mecha 歌曲/玩家资料轮换秒数；省略时为 10 |
+| display.vfdEffects | true | Mecha 滚动过渡、扫描光带、随机文字抖动及局部短促闪动；false 关闭动效但保留信息轮换，不依赖系统动画设置 |
 
 启用 Bilibili 时 URL 必须含单个非空 authCode 参数。需要编码特殊字符；不允许重复参数、控制字符或超过 512 字符。各页面配置互不覆盖。配置只在页面启动时读取，缺失/无效则停止启动并显示错误。反代每次请求只读 proxy 映射。
 

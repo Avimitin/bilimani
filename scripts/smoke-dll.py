@@ -18,7 +18,7 @@ import urllib.request
 import urllib.error
 
 parser = argparse.ArgumentParser(description=__doc__)
-for name in ['reject', 'occupied-port', 'song-info', 'queue', 'lane-generator-patch', 'bad-lane-layout', 'bad-lane-update', 'bad-playback']:
+for name in ['reject', 'occupied-port', 'song-info', 'queue', 'lane-generator-patch', 'bad-lane-layout', 'bad-lane-update', 'bad-playback', 'user', 'bad-user']:
     parser.add_argument('--' + name, action='store_true')
 args = parser.parse_args()
 reject, occupied_port, song_info = args.reject, args.occupied_port, args.song_info or args.queue
@@ -77,6 +77,7 @@ if lane_generator_patch:
 if bad_lane_layout: patch(game + 0x897890, b'\xc3')
 if bad_lane_update: patch(game + 0xda50a8 + 15 * 8, struct.pack('<Q', game + 0x933640))
 if bad_playback: patch(game + 0x824b00, b'\xc3')
+if args.bad_user: patch(game + 0x5a64a0, b'\xc3')
 plugin = ctypes.CDLL(str(dll_path))
 plugin.bilimani_shutdown.argtypes = []
 plugin.bilimani_shutdown.restype = None
@@ -116,6 +117,61 @@ else:
         assert ctypes.string_at(lane_generator, 16) == generator_patch
     else: assert 'Lane-order sampling enabled' in text, text
     assert ('Playback sampling disabled:' if playback_disabled else 'Playback sampling enabled') in text, text
+    assert ('Player sampling disabled:' if args.bad_user else 'Player sampling enabled') in text, text
+
+if args.user or args.bad_user:
+    assert not startup_rejected
+    def user_snapshot():
+        with urllib.request.urlopen(f'http://127.0.0.1:{overlay_port}/api/v1/iidx/user', timeout=3) as response:
+            return json.load(response)
+    def wait_user(check):
+        until = time.monotonic() + 4
+        while time.monotonic() < until:
+            value = user_snapshot()
+            if check(value): return value
+            time.sleep(.05)
+        raise AssertionError(f'Player snapshot did not converge: {value}')
+    assert user_snapshot() == dict(active_side=None, players=[])
+    # Synthetic data in this process only. The game entry point never runs.
+    side = 1
+    offset = side * 0x3b103a0
+    def put(rva, data): ctypes.memmove(game + rva, data, len(data))
+    put(0x3101488 + offset + 0x20, b'SMOKE\0\0\0')
+    put(0x3101488 + offset + 0x34, struct.pack('<IIii', 12345, 678, 18, 17))
+    put(0x6c11808 + offset, struct.pack('<Q', 123))
+    put(0x6c11820 + offset, struct.pack('<I', 0))
+    put(0x312771e + offset, b'\1')
+    for rva in [0x206df8c, 0x206c194]: put(0x10b90f0 + offset + rva, b'\1')
+    put(0x10b90f0 + offset + 0x206bc94 + 16, struct.pack('<I', 99))
+    put(0x10b90f0 + offset + 0x206bca8 + 16, struct.pack('<I', 20261005))
+    activity = ctypes.create_string_buffer(1024)
+    struct.pack_into('<I', activity, 128 + 244 * side + 4, 3)
+    struct.pack_into('<I', activity, 128 + 244 * side + 116, 4567)
+    put(0xaab3cb0, struct.pack('<Q', ctypes.addressof(activity)))
+    for style in range(2):
+        block = bytearray(124)
+        struct.pack_into('<I', block, 0, 100)
+        struct.pack_into('<I', block, 112, 100000)
+        block[120] = 1
+        put(0x10b90f0 + offset + 0x206bcbc + style * 620 + 4 * 124, bytes(block))
+    put(0x10b90e8, struct.pack('<II', 1, 1))
+    put(0xacd79b0 + side * 4, struct.pack('<I', 1))
+    if args.bad_user:
+        time.sleep(.2)
+        assert user_snapshot() == dict(active_side=None, players=[])
+    else:
+        profile = wait_user(lambda v: v['active_side'] == 2)['players'][0]
+        assert profile['dj_name'] == 'SMOKE' and profile['sp'] == dict(dan='kaiden', dj_points=12345), profile
+        assert profile['dp'] == dict(dan='chuden', dj_points=678), profile
+        assert profile['weekly']['sp'] == dict(songs=103, keys=104567), profile
+        assert profile['weekly']['dp'] == dict(songs=100, keys=100000), profile
+        assert set(profile) == {'side','dj_name','sp','dp','weekly'}
+        put(0x10b90f0 + offset + 0x206c194, b'\0')
+        wait_user(lambda v: v['players'] and v['players'][0]['weekly'] is None)
+    put(0xacd79b0 + side * 4, struct.pack('<I', 0))
+    wait_user(lambda v: v == dict(active_side=None, players=[]))
+    put(0x10b90e8, struct.pack('<II', 0, 0))
+    print('PASS player snapshot: guards, real HTTP, synthetic 2P profile/week delta, missing data, logout')
 
 if song_info:
     assert not startup_rejected and not occupied_port
