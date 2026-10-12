@@ -765,6 +765,286 @@ were preserved, a backup was saved, and the DLL on disk remained byte-identical.
 Artifacts are under ignored `analysis/fps-patcher/`. Actual Spice UI selection
 and gameplay timing have not been tested.
 
+## Patchable constants in the timing-correction paths
+
+Both correction paths share their floating-point constants, so one constant
+edit affects both paths. Constants live in .rdata (file offset = RVA −
+`0x1400`); instruction immediates live in .text (file offset = RVA − `0xc00`);
+.data uses − `0x1a00`. Every value below was verified byte-for-byte against
+the DLL identified above.
+
+| RVA | File offset | Type | Value | Consumed by |
+| --- | --- | --- | --- | --- |
+| `0xcef640` | `0xcee240` | f64 | 17.0 | `fix_framerate`: minimum absolute error before a write is considered (`comisd` at `0x824ed1`) |
+| `0xcef648` | `0xcee248` | f64 | 118.5 | Shared lower bound: `fps_fix` `maxsd` at `0x90dfcc`; `fix_framerate` accept-range check at `0x824f28` |
+| `0xcef650` | `0xcee250` | f64 | 121.5 | Shared upper bound: `fps_fix` `minsd` at `0x90dfb9`; `fix_framerate` accept-range check at `0x824f32` |
+| `0xe822a8` | `0xe80ea8` | f64 | 1.0 | `fix_framerate` denominator `1 + F·E/(1000·N)` (`addsd` at `0x824f1c`) |
+| `0xe822d0` | `0xe80ed0` | f64 | 1000.0 | Millisecond scaling in both paths (`mulsd` at `0x90df17`, `divsd` at `0x824f14`) |
+| `0xe82278` | `0xe80e78` | f32 | 0.5 | Rounding term in the `fix_framerate` tick-window check (`addss` at `0x824e8c`) |
+
+Instruction immediates (patch only the immediate bytes, not the opcode):
+
+| Instruction RVA | File offset | Original bytes | Meaning |
+| --- | --- | --- | --- |
+| `0x90df03` | `0x90d303` | `48 81 FB 40 9C 00 00` | `fps_fix`: measurement skipped until elapsed > 40000 ms (`cmp rbx, 40000`) |
+| `0x90df90` | `0x90d390` | `83 FB 10` | `fps_fix`: integer error threshold 16 ms (`cmp ebx, 16`) |
+| `0x90dfa2` | `0x90d3a2` | `83 B8 68 03 00 00 02` | `fps_fix`: consecutive-error counter must reach 2 (`cmp dword [rax+368h], 2`) |
+| `0x824d54` | `0x824154` | `41 8D 46 11` | `fix_real`: sound-lead threshold +17 ms (`lea eax, [r14+17]`) |
+| `0x824deb` | `0x8241eb` | `8D 45 22` | `fix_real`: chart-lead threshold +34 ms (`lea eax, [rbp+34]`) |
+| `0x824e7f` | `0x82427f` | `8D 0C 80 C1 E1 02` | `fix_framerate`: tick count must exceed 20 nominal seconds (`rate*5` then `shl 2`) |
+| `0x824eb1` | `0x8242b1` | `83 F8 02` | `fix_framerate`: additional native counter must stay below 2 (`cmp eax, 2`) |
+
+Widening the [118.5, 121.5] bounds lets the correction settle outside the
+120 Hz window; the bounds are also the acceptance window, so a range that
+excludes the computed value disables the write entirely. These are
+calibration constants only — they do not raise the render cap by themselves.
+
+## Judgment timing model
+
+Judgment is frame-quantized, not timestamp-based. Notes and input events carry
+integer frame positions on the chart timeline (frames at the runtime FPS). The
+judge path:
+
+1. `0x81d1c0` processes a note event when the current frame reaches it;
+   `0x8218b0` computes `delta_frames = current_frame - event_frame(+32)` as an
+   integer, converts it through `0x81fd60` as `1000 * frames / runtime_fps`
+   (float milliseconds, runtime FPS from `0xa59d50`), and stores the float in
+   lane slot `judge_mgr + 16*(lane + 8*side)` (raw frame count at slot+4).
+   Deltas are accepted only in (-350, 250] ms (`0xcef368` = -350.0f,
+   `0xce58ec` = 250.0f); an empty slot defaults to 250.0f / 15 frames
+   (`0x821a0b`). The judge manager singleton is `0x820970`.
+2. At chart load, `0x821670` fills the per-side window tables at
+   judge_mgr+292 (keys, 9 floats) and +36 within each 72-byte block (scratch),
+   converting static frame counts with `0x81fda0`:
+   `1000 * frames / divisor + 0.25`, where the divisor is the runtime FPS only
+   for definition type 2 and fixed 60.0f (`0xe82334`) otherwise; `0xe82260`
+   is the 0.25f term.
+3. `0x81fba0` classifies the stored ms delta: the first threshold >= delta
+   gives class 0-9; `0x820a30` maps classes to grades: 4/5 → PGREAT, 3/6 →
+   GREAT, 2/7 → GOOD, 1/8 → BAD, 10/11 → POOR. Miss timeout `0x8204c0` forces
+   POOR after `int(int(fps+0.5)*15/60 + 0.5)` frames (30 at 120 fps).
+4. Result processing `0x8210b0` updates EX score (+2/+1 at +576) and the
+   FAST/SLOW counters at +600/+608.
+
+Static window tables (.rdata, file offset = RVA − `0x1400`):
+
+| RVA | File offset | Contents |
+| --- | --- | --- |
+| `0xcef030` | `0xcedc30` | 9× s32 base boundaries in frames: -15, -7, -2, -1, 0, 1, 2, 7, 15 |
+| `0xcef060` | `0xcedc60` | 9× s32 pairs added for scratch: (-2,-4)×3, (0,0)×3, (2,4)×3 — the second of each pair applies when `0x949570` reports DP |
+
+Keys windows in frames: PGREAT |d| ≤ 1, GREAT ≤ 2, GOOD ≤ 7, BAD ≤ 15.
+Scratch widens GREAT/GOOD/BAD to 4/9/17 (SP) or 6/11/19 (DP); scratch PGREAT
+stays ±1. With the fixed 60.0f divisor the type-3 windows in ms are PGREAT
+±16.9, GREAT ±33.6, GOOD ±116.9, BAD ±250.3. Since the delta is quantized to
+8.33 ms frames at 120 fps, PGREAT covers frame deltas {-1, 0, +1, +2} — the
++0.25 term makes the late side one frame wider than the early side.
+
+Interaction with FPS correction: the delta conversion uses the runtime
+(recalibrated) FPS while type-3 windows divide by fixed 60.0f, so runtime FPS
+drift shifts the effective frame boundaries. The late PGREAT boundary holds
+only while fps ≥ 118.23 (2 frames = 2000/fps ms ≤ 16.92 ms); the fps_fix
+clamp [118.5, 121.5] documented above keeps +2 frames inside PGREAT, which
+looks deliberate. `disable_same_triger` suppression (`0x821a70`) also compares
+in integer frames.
+
+`0x820d50` has a hidden per-side judge debug overlay (`total:%d`, `fast:%d`,
+`slow:%d`, `count:%d`, `interval:%d`) gated on feature 53 through `0x941850`;
+in this build its gate helper `0x941ad0` always returns 0, so the overlay
+never displays.
+
+## Server-controlled switches in IIDX33pc.common
+
+Extended enumeration through IDA MCP against the same SHA-256 / image base.
+The `IIDX33pc` module (`0xacd5d0`, method table `0x10923b0`) registers twelve
+methods: `get`, `reg`, `lcommon`, `save`, `save2pp`, `getname`, `locaend`,
+`common`, `takeover`, `playstart`, `playend`, `delete`. The `lcommon` response
+parser is a stub returning success. `IIDX33gameSystem` (`0xae0f00`, table
+`0x10946a0`) registers only `systemInfo`. The remaining modules were checked
+and carry no option switches: `IIDX33music` (table `0x1092d70`; `getrank`,
+`getranksub`, `lplay`, `play`, `reg`, `crate`, `appoint`, `nosave`,
+`arenaCPU`, `movieinfo`, `retry`) handles play data, and `IIDX33streaming`
+(table `0x1094a10`; `common`, `getcm`) has response parser `0xae2080`, which
+reads only CM download metadata (`expire@`, and up to 10 `cm_info`/`cm`
+entries with `id@`, `filename@`, `texname@`, `division_num@`, `total_size@`,
+`sum_orig@`, `is_open`). `common` carries the switches below;
+the four FPS/sync rows are documented in the earlier section and not repeated.
+
+Common data is staged through a pointer table built by request setup
+`0x5b7740` (parser's table base is `0x12e0d08`; slot offsets below are relative
+to it). Parser `0xaba780` writes through those pointers into the staging block
+`[0xa78e1d8, +47856)`; completion `0x59adf0` block-copies it to the effective
+block `[0xa7826e8, +47856)` (effective = staging − `0xbaf0`), so effective
+bytes show only their readers as direct cross-references. Presence nodes write
+byte 1 when the node **exists**, regardless of its text content; value nodes
+additionally parse an integer/boolean attribute. Every switch has exactly one
+leaf getter, which is the patchable point. Getter file offset = RVA − `0xc00`
+(.text raw bias), same convention as the existing patch JSON. Patch templates:
+8-byte byte getter Force ON `B8010000009090C3` / Force OFF `B8000000009090C3`;
+7-byte dword getter `B8 <imm32 LE> 90 C3`; 16-byte value getter
+`B8 <imm32>` + 9×`90` + `C3`; 20-byte value getter `B8 <imm32>` + 13×`90` + `C3`.
+
+### Presence switches (byte flags, `movzx eax, byte ptr [flag]; ret`)
+
+| Node | Effective byte | Getter RVA | File offset | Original bytes | Function (consumers) |
+| --- | --- | --- | --- | --- | --- |
+| `vip_pass_black` | `0xa78e1a0` | `0x5a0d70` | `0x5a0170` | `0FB60529D41E0AC3` | Result bonus grant `0x5e53b0` (via thunk `0x87fc70`): adds subscription bonus points, +100 extra under the premium-pass condition, clamped to 9999 |
+| `deller_bonus` (bool `open@`) | `0xa78e1a1` | `0x5ab850` | `0x5aac50` | `0FB6054A291E0AC3` | Result reward calculation `0x5c7950`: enables the extra deller payout computed from play statistics (with its own ×1.5 branch) |
+| `pcb_check` (bool `flg@`) | `0xa78e1a2` | `0x5a0250` | `0x59f650` | `0FB6054BDF1E0AC3` | Enables the periodic PCB check request `0x5bca20` in scheduler `0x59c0a0` (interval `0xa7aed90` seconds); also gates stage-flow reporting through thunk `0x872f10` (`0x90d200`, `0x9103a0`, `0x936ec0`) |
+| `play_video` | `0xa78e1a8` | `0x5abc60` | `0x5ab060` | `0FB60541251E0AC3` | Master switch for video playback: playback predicate `0x9dce80` (definition type 3, player object present, interface state 2) and per-song video eligibility `0x872e30`/`0x872da0`; also consulted by the movie-download agreement banner flow `0x77a640` |
+| `display_asio_logo` | `0xa78e1b5` | `0x5ab8b0` | `0x5aacb0` | `0FB605FE281E0AC3` | `0x9356c0`: definition type 2 or 3 and flag set; registered through a UI callback table (`0x107fb18`, `0x18bb19198`) |
+| `force_rom_check` | `0xa78e1cd` | `0x59c9e0` | `0x59bde0` | `0FB605E6171F0AC3` | Boot state machine `0x852d40` case 55: routes to state 83 instead of 2; file-check test screen `0x993680`: lets the result screen finish without the operator skip input (bit `0x40`) |
+| `lane_gacha` | `0xa78e1ce` | `0x5a3400` | `0x5a2800` | `0FB605C7AD1E0AC3` | `0xa043f0`: lane-gacha availability; requires definition type 3, feature `0x977c80`, single participant and single layout |
+| `tourism_booster` | `0xa78e1d1` | `0x5a9d50` | `0x5a9150` | `0FB6057A441E0AC3` | `0x6efc80`: tourism-booster eligibility, consumed on the selection-update path `0x8ec450`; also requires definition type 3, single participant and the per-side event byte at `0x8834e0 + 17` |
+| `music_retry` | `0xa78e1d2` | `0x5abbf0` | `0x5aaff0` | `0FB605DB251E0AC3` | `0x74e680`: music-retry availability; requires single participant, joined side, `CFreeGameData + 104`, and retry not disabled on either side |
+| `tsujigiri_event` | `0xa78e1d5` | `0x5aa320` | `0x5a9720` | `0FB605AE3E1E0AC3` | `0x92ef30`: tsujigiri sudden-challenge event trigger on the result path (game kinds 19/20, widget 237, message 18053) |
+| `disable_cardless` | `0xa78e1d6` | `0x5a09e0` | `0x59fde0` | `0FB605EFD71E0AC3` | Inverted: when **set**, cardless entry is blocked. `0x8b72b0` and sibling wrappers `0x936c30`, `0x99d080`, `0xa5e370` require the flag clear (with `0x5d59a0` context +336 and TLS 0) |
+
+### Value options (attribute integer plus presence byte)
+
+| Node | Value dword | Presence byte | Getter RVA | File offset | Original bytes | Default | Function |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `disable_same_triger` (`frame@`) | `0xa78e1b0` | `0xa78e1b4` | `0x59e040` | `0x59d440` | `803D6D011F0A00B8040000000F45055D011F0AC3` | 4 | Same-trigger suppression window in frames: cached at input-poll start (`0xa7a2f0`), enforced in trigger handling `0x821a70` for definition type 3 (a re-trigger within N frames is ignored); displayed as `%d Frame` in the hidden information screen `0x999470` |
+| `button_release_frame` (`frame@`) | `0xa78e1b8` | `0xa78e1bc` | `0x5a0030` | `0x59f430` | `803D85E11E0A00B8020000000F450575E11E0AC3` | 2 | Applied at stage initialization `0x9335d0` to the input/judge object, vtable slot 232 |
+| `trigger_logic_type` (`type@`) | `0xa78e1c0` | `0xa78e1c4` | `0x5a9d60` | `0x5a9160` | `33C038055C441E0A0F450551441E0AC3` | 0 | Same stage-init path, vtable slot 248 |
+| `cm_movie_info` (`type@`) | `0xa78e1c8` | `0xa78e1cc` | `0x5a03c0` | `0x59f7c0` | `33C0380504DE1E0A0F4505F9DD1E0AC3` | 0 | `0xa58770`: selects the CM/movie info resource by ID through a hash map; shows `bg_2dxmark` under definition type 3 |
+| `movie_agreement` (`version@`) | `0xa78e1ac` | — (no presence byte) | `0x5a3910` | `0x5a2d10` | `8B0596A81E0AC3` | 0 | Movie-upload consent version: `0x9dcd40` requires value > 0 and equal to its argument; `0x9dcfc0` compares against the stored local version (`0x10824a8`); consent flow `0x77a0a0` stores the agreed version per side |
+| `common_evnet` (`flg@` dword) | `0xa78e1a4` | — | `0x5a03e0` | `0x59f7e0` | `8B05BEDD1E0AC3` | 0 | Getter has no code references in this build; reserved |
+
+### Non-switch common nodes
+
+Data lists parsed by the same `0xaba780` (no leaf getters; consumed through
+their staging structures): `expire@` attribute; `kac_mid` / `kac_clid` (two
+30-entry music-ID lists); `ir` `beat@`; `cm` (`id@`/`folder@`/`compo@`);
+`tdj_cm` (up to 10 entries); `playvideo_disable_music` (up to 200 music IDs);
+`music_movie_suspend` (up to 50 records); `license` (600-byte string);
+`file_recovery` / `movie_upload` (128-byte URLs); `system_voice` (5 seasons × 6
+parameters); `hitchart` (2 kinds × 3 periods × 30 ranking entries);
+`questionnaire_list` (up to 16 entries). Poll intervals are also
+server-tunable: common completion `0x59adf0` applies the response interval to
+`0xa799cc8` when positive (seconds between `common` polls in scheduler
+`0x59c0a0`); the pcbcheck completion `0x59b140` does the same for `0xa7aed90`
+with a 3600-second fallback on failure. Related interval dwords: `0xa7aed84`,
+`0xa7aed88`, `0xa7aed8c`, `0xa79ad60`, `0xa7826dc`.
+
+## Server-controlled event flags in IIDX33gameSystem.systemInfo
+
+Parser `0xae0f40` (response buffer `0x1e7c140`); completion `0x5bdcc0` copies
+the flag block into effective dwords at `0xa7b07bc`+. Each flag has a leaf
+getter (7-byte `mov eax, [dword]; ret` unless noted), patchable like the common
+switches. The parser also handles the data lists `music_open` and
+`leggendaria_open` (up to 100 music IDs each), `grade_course`, the
+`arena_*`/`maching_class_range` arena tables, `extraevent_2` gauge/score
+extras, and a `beat` protocol value that must equal 5293.
+
+| Node | Effective | Getter RVA | File offset | Original bytes | Consumer semantics |
+| --- | --- | --- | --- | --- | --- |
+| `Event1Phase` | `0xa7b07c0` | `0x5a0eb0` | `0x5a02b0` | `8B050AF9200AC3` | `0x87f060`: values 0–5 pass through and values above 6 clamp to 4; phase 6 is degraded to 5 when any of five per-side counters reads ≤ 3, otherwise stays 6 |
+| `ExtraBossEvent` | `0xa7b07c8` | `0x5a1c60` | `0x5a1060` | `8B0562EB200AC3` | `0x87c9b0`: 1 maps to 0, values above 2 clamp to 2 |
+| `isNewSongAnother12OpenFlg` | `0xa7b07cc` | `0x5a5ac0` | `0x5a4ec0` | `8B0506AD200AC3` | Boolean gate `0x872c80` |
+| `isKiwamiOpenFlg` (byte) | `0xa7b07d0` | `0x5abbe0` | `0x5aafe0` | `0FB605E94B200AC3` | `0x877da0`: definition type 3, layout predicate `0x872b60`, single layout, flag, plus local byte at object +2032 |
+| `WorldTourismOpenList` | `0xa7b07d4` | `0x5ab230` | `0x5aa630` | `8B059E55200AC3` | Bitmask: `0xa203e0` returns `(value >> entry) & 1` per event entry after participation/ownership checks |
+| `BPLBattleOpenPhase` | `0xa7b07d8` | `0x59f390` | `0x59e790` | `8B054214210AC3` | `0x7c3d50`: 0 = off; 1 = only with EVENT MODE (`0x5d3400`); ≥ 2 = on. Always requires one participant and definition type 3 |
+| `VocaloidEvent` | `0xa7b07e8` | `0x5aac30` | `0x5aa030` | `8B05B25B200AC3` | `0x6ef3c0`: value must be 1, EVENT MODE off, game kind 0 or 6 |
+| `KrankAppendSeason` | `0xa7b07ec` | `0x5a2d60` | `0x5a2160` | `8B0586DA200AC3` | `0xaac9e0`: per-side counter must reach the season value before the append applies |
+| `the4thEvent` | `0xa7b07f0` | `0x5a9a40` | `0x5a8e40` | `8B05AA6D200AC3` | Widely consumed (15+ sites); `0x64d790` switches a category data source when nonzero |
+| `option_2pp` presence (byte) | `0xa7aedcf` | `0x5ab960` | `0x5aad60` | `0FB6056834200AC3` | Gates use of the 48-byte `option_2pp` block (effective `0xa7aeda0`+); consumer `0x8bcad0` |
+
+### Flag-block layout and reserved fields
+
+Completion `0x5bdcc0` fills the 56 effective bytes `0xa7b07bc`–`0xa7b07f3`
+from staging `0x181e7e150` (parser buffer `0x181e7c140` + 8208) with three
+16-byte copies plus one 8-byte copy. Parser `0xae0f40` stores only the named
+nodes; the remaining dwords are never written anywhere and stay at their
+zero-initialized values:
+
+| Effective | Parser buffer offset | Node |
+| --- | --- | --- |
+| `0xa7b07bc` | +8208 | — reserved |
+| `0xa7b07c0` | +8212 | `Event1Phase` |
+| `0xa7b07c4` | +8216 | — reserved |
+| `0xa7b07c8` | +8220 | `ExtraBossEvent` |
+| `0xa7b07cc` | +8224 | `isNewSongAnother12OpenFlg` |
+| `0xa7b07d0` | +8228 | `isKiwamiOpenFlg` (byte) |
+| `0xa7b07d4` | +8232 | `WorldTourismOpenList` |
+| `0xa7b07d8` | +8236 | `BPLBattleOpenPhase` |
+| `0xa7b07dc` | +8240 | — reserved |
+| `0xa7b07e0` | +8244 | — reserved |
+| `0xa7b07e4` | +8248 | — reserved; latent consumer below |
+| `0xa7b07e8` | +8252 | `VocaloidEvent` |
+| `0xa7b07ec` | +8256 | `KrankAppendSeason` |
+| `0xa7b07f0` | +8260 | `the4thEvent` |
+
+Each reserved field still has a compiled leaf getter (`mov eax, [dword]; ret`,
+7 bytes), all verified against the file:
+
+| Effective | Getter RVA | File offset | Original bytes | Callers |
+| --- | --- | --- | --- | --- |
+| `0xa7b07bc` | `0x5a03d0` | `0x59f7d0` | `8B05E603210AC3` | none |
+| `0xa7b07c4` | `0x5a1900` | `0x5a0d00` | `8B05BEEE200AC3` | none |
+| `0xa7b07dc` | `0x5a5d60` | `0x5a5160` | `8B0576AA200AC3` | none |
+| `0xa7b07e0` | `0x5aa620` | `0x5a9a20` | `8B05BA61200AC3` | none |
+| `0xa7b07e4` | `0x59f3a0` | `0x59e7a0` | `8B053E14210AC3` | `0x8bc3f0` (see below) |
+
+The `0xa7b07e4` getter has the only live consumer among the reserved fields:
+scene task `0x8bc3f0`, scheduled by `0x8bc100` through `0x8bb740`
+(`&unk_18aba43a0`) depending on definition type and interface object
+`0x18b28cae8`. For each of the two sides, when per-side predicates
+`0x9493e0`/`0x9493d0` and the flag byte obtained through `0x5ab6f0` allow it,
+a field value >= 1 processes message IDs 31115 and 31116, and exactly 2 adds
+31117 (through helpers `0x89d120`/`0x89e930`/`0x89df20` or
+`0x89e900`/`0x89dbc0`, skipping entries that yield 256 or 320). Because the
+parser never writes the field, this announcement path never activates in this
+build; forcing the getter to return 1 or 2 is the only way to reach it. The
+message text for these IDs lives in game data files, not in the DLL, so the
+visible content of this latent feature cannot be determined from static
+analysis.
+
+### arena_schedule effective layout
+
+The completion copies the 12 parsed bytes from parser buffer +3324 to
+effective `0xa7af968`. The parse schema at `0x1094330` names the fields:
+
+| Effective | Type | Field | Getter |
+| --- | --- | --- | --- |
+| `0xa7af968` | u8 | `season` | `0x59eac0` (23 bytes): returns 255 while no systemInfo response is loaded (`byte_18a7b0f28 == 0`). File offset `0x59dec0`, original `803D6124210A00B9FF0000000FB605950E210A0F44C1C3` |
+| `0xa7af969` | u8 | `phase` | `0x59e9e0` (19 bytes): returns 0 while not loaded. File offset `0x59dde0`, original `0FB605820F210A33C9380D3925210A0F44C1C3` |
+| `0xa7af96a` | u8 | `rule_type` | no getter |
+| `0xa7af96c` | s32 | `start` | `0x59eae0`, file offset `0x59dee0`, original `8B05860E210AC3` |
+| `0xa7af970` | s32 | `end` | `0x59e920`, file offset `0x59dd20`, original `8B054A10210AC3` |
+
+`0x867520` converts `start`/`end` through `avs2_core_268` for the schedule
+display; the phase getter's only caller is `0x8675d0`. Forcing the phase
+getter (19-byte template: `B8 <imm32>` + 13×`90` + `C3`) satisfies the phase
+gates of the Arena section, but local conditions (definition type, participant
+count, EVENT MODE) still apply and this does not make matchmaking succeed.
+
+## Hidden system-information screen
+
+Function `0x999470` (referenced through scene-callback table entries
+`0xdad8c8` and `0x18bb1ff60`) renders SOFT ID CODE, BOOTSTRAP and AVS2
+versions, SYSTEM/HARDWARE/ACCOUNT/LICENSE KEY, AFP `2.14.18` and the game build
+stamp `Aug  4 2026 09:36:04`. While both inputs tested by `0x594ab0` (masks
+`0x40000` and `0x10000`) are held, it additionally renders
+`%.4f FPS / %d Adjust / BI2A:%s / %d Frame / %d A Frame / DEFINITION TYPE:%s`,
+where `%d Frame` is the `disable_same_triger` value and `%d A Frame` is the
+input-subsystem vtable slot 240. Observation only; nothing here writes game
+state.
+
+## Patching notes for the switches above
+
+Same PE identifier `LDJ-6a713632_b1cccc` as the existing FPS entries; reuse
+that validation flow (full SHA-256, original-byte check, PE section
+translation, non-overlap with existing patch entries). Forcing a getter leaves
+the cached flag bytes untouched, so later common/systemInfo responses still
+update the cache but the forced getter ignores them; likewise the
+telemetry serializers keep reporting the cached server values. Value options
+fall back to their documented defaults when the server omits the node; forcing
+the getter replaces both default and server value. `disable_cardless` is
+inverted (set = disabled). Arena phase, EVENT MODE and other previously
+documented gates still apply on top of these switches. Static evidence only —
+no live-game validation has been run for these switches.
+
 ## Validation boundary
 
 The runtime installer and scripts/smoke-dll.py check the file hash, architecture, function guards and
