@@ -74,3 +74,19 @@ alias,target
 **需要进一步排查**
 
 查看网页上的错误提示，以及 DLL 旁的 `bilimani_iidx.log`。向开发者反馈时，提供游戏版本、spice2x 版本、错误提示和复现步骤。
+
+## DDR WORLD（实验支持）
+
+本地预览：运行 `scripts\preview-ddr.bat`，然后打开 `http://127.0.0.1:32134/ddr/street/`。预览使用 Rust 模拟器的曲目信息及模拟弹幕，无需启动游戏或连接 Bilibili；保留终端窗口即可持续预览，输入 `quit` 停止。终端支持 `select`、`play`、`sp`、`dp`、`next`、`enqueue`。修改页面后运行 `node web/apps/ddr/build.mjs --preview` 并刷新浏览器。预览文件位于独立的 `dist/ddr-preview`，不会改写正式页面配置。
+
+使用 MDX-003-2026022400 的 64 位 gamemdx.dll，加载 `bilimani_ddr.dll`。默认配置为 `bilimani_ddr.json`、`bilimani_ddr_aliases.csv`，静态页面在 `bilimani_web/ddr/street/`。只加载当前游戏对应的 DLL，默认监听 127.0.0.1:32133。
+
+顶部展示主播名称和直播标题。名称默认取 Bilibili 连接提供的主播名；当前连接不提供直播标题，请在页面相邻的 config.json 中填写 `display.streamTitle`。可选的 `display.streamerName` 用于覆盖展示名；两项均仅影响当前页面，不用于连接或身份映射。预览中显示的是模拟名称和标题。底部只展示当前活动玩家实际选中的难度和等级；预览终端可输入 `chart ESP`、`chart CDP` 等切换。
+
+OBS 地址为 `http://127.0.0.1:32133/ddr/street/?authCode=你的身份码`，浏览器来源尺寸为 1920×1080。DDR 游戏画面保持原生 1280×720，放在浏览器来源下方，位置为 x=48、y=174，不拉伸。黑白街头涂鸦会覆盖游戏画面的右上角和左下角；主色为 #00d88d。页面读取相邻的 config.json，字体和涂鸦图片随静态资源打包。
+
+点歌示例：`点歌 曲名 ESP`、`点歌 曲名 EDP`、`点歌 曲名 bSP`。bSP 是 BEGINNER，BSP 是 BASIC。模糊搜索、候选确认和 CSV 别名规则与 IIDX 相同。
+
+在普通歌曲列表按 F8 开关队列菜单，方向键导航、Enter 确认、Esc 返回。`controls.enabled` 控制键盘快捷键。菜单只提供删除、优先选择和重新加载别名。目标歌曲必须在当前文件夹及筛选结果中；跳歌不会切换 SP/DP、解锁谱面或启动演奏。不可用的请求会报告错误。
+
+当前提供曲名、艺人、谱面等级和玩家参与席位。玩家姓名、成绩和段位尚未验证，不展示。DDR 原生支持尚未实机验证。

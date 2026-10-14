@@ -19,7 +19,7 @@ cargo fmt --all --check
 
 若系统 PowerShell 策略限制本地脚本，在当前终端设置 `Set-ExecutionPolicy -Scope Process Bypass`。build.ps1 设置 MSVC 环境后调用 Cargo，默认构建整个 workspace 的 release 产物。IIDX 的 Cargo package 为 bilimani-iidx，lib target 为 bilimani_iidx，游戏 DLL 为 target/release/bilimani_iidx.dll。
 
-npm run build 独立打包 Card、Mecha，产物位于 dist/web/iidx/<style>/，每页自带资源与 config.json，不依赖另一布局。首次构建从 web/apps/iidx/config.json 写入默认配置，已有产物目录的 config.json 会保留。发布 ZIP 始终从源码复制公开默认值，不使用本地调试配置。dist/web/index.html 为入口索引。
+npm run build 独立打包 Card、Mecha，产物位于 dist/web/iidx/<style>/，每页自带资源与 config.json，不依赖另一布局。首次构建从 web/apps/<game>/config.json 写入默认配置，已有产物目录的 config.json 会保留。发布 ZIP 始终从源码复制公开默认值，不使用本地调试配置。dist/web/index.html 为入口索引。
 
 ## spice2x 版本依据
 
@@ -112,7 +112,7 @@ py scripts/smoke-dll.py --occupied-port
 py scripts/package-frame.py
 ```
 
-package.ps1 安装锁定的 npm 依赖、构建前端和 workspace，再将 DLL、bilimani_web 与可直接使用的默认配置放入 dist/package/，输出 dist/bilimani-<version>.zip。DLL 配置及空别名 CSV 来自 config/；各页面 config.json 来自 web/apps/iidx/config.json。只覆盖受控暂存目录，不打包本地调试配置、日志、数据库、Node 或游戏文件。README、docs、AGENTS.md、LICENSE 和 THIRD-PARTY-NOTICES.md 仅保留在仓库，不进入发布包。
+package.ps1 安装锁定的 npm 依赖、构建前端和 workspace，再将各游戏的 DLL、bilimani_web 与可直接使用的默认配置分别放入 dist/package-iidx/ 与 dist/package-ddr/，输出 dist/bilimani-iidx-<version>.zip 与 dist/bilimani-ddr-<version>.zip。DLL 配置及空别名 CSV 来自 config/；各页面 config.json 来自 web/apps/<game>/config.json。只覆盖受控暂存目录，不打包本地调试配置、日志、数据库、Node 或游戏文件。README、docs、AGENTS.md、LICENSE 和 THIRD-PARTY-NOTICES.md 仅保留在仓库，不进入发布包。
 
 package-frame.py 在前端构建后产生独立 Mecha 静态 ZIP，目标是 bilimani_web/iidx/mecha/，只包含该页面的 index.html、assets/ 和源码中的默认 config.json。
 
@@ -123,3 +123,15 @@ GitHub Release workflow 在标签触发时执行 workspace Rust 检查及 TS 检
 DLL 日志为 bilimani_iidx.log，记录版本、hook/采样启用状态、曲库载入和周期性原生诊断；不会记录弹幕或身份码。平台错误展示在页面，调试时可查看浏览器网络请求。分享日志或截图前不要附带实际配置或含 authCode 的来源 URL。
 
 纯函数负责解析、校验和状态转换，IO 留在网络/文件/native 边界。普通底层错误使用 anyhow 增补上下文，领域错误使用 enum 并按类型映射 HTTP code；不得按错误文字分支。详见 [Rust 约定](architecture.md#rust-实现约定)。
+
+## DDR WORLD development
+
+`crates/bilimani-ddr` produces `bilimani_ddr.dll`; `versions/world` contains the 2026022400 x64 adapter. The local analysis target is copied from the supplied Samba location before IDA opens it. Supported SHA-256: `89756f03a0ca98c2d42776d08569364514472a97ff89f1b09b0b68f40082d62e`. The earlier 32-bit DLL is not supported.
+
+Selection scene vtable RVA 0x355158: update slot 6, exit slot 5. Gameplay actor vtable RVA 0x348438: update slot 6, exit slot 5. Catalog pointer RVA 0x6c9928, 600-byte Info records, mcode +8, MSVC strings +24/+64/+104 (title/yomi/artist), difficulty bytes +272 and signed overrides +476. Selection scene +136 is the model, +144 view; view +1088 is MusicPanel, panel +192 the list. Normal song items use secondary vtable RVA 0x35beb0 and metadata at +328. Native absolute list selection RVA 0x48370 updates the cursor and invokes the normal selected-item callback/preview. Difficulty setter RVA 0xf3460 and availability RVA 0x19fdc0 are checked before execution. All offsets are module-relative and fingerprint gated; native entry prefixes and scene slots are also checked.
+
+Only scene callbacks read game data and call selection functions. The worker reads owned snapshots and submits an epoch-tagged mailbox. Catalog capture waits for selection initialization. Player names and score data are intentionally not inferred. Selection uses the active visible folder/filter; it does not construct metadata or bypass unlock checks. Native hooks remain pass-through after shutdown because the DLL is pinned.
+
+Run `cargo test -p bilimani-ddr`, `cargo run -p bilimani-ddr --example api_preview -- dist/web` (port 32134), and `npm run typecheck && npm test && npm run build`. The Rust preview uses production HTTP/search/queue and synthetic telemetry, with terminal commands printed at startup; it is excluded from release archives. Actual DDR execution has not been validated.
+
+Build the independent DDR archive with `python scripts/package-ddr.py` after the Rust release and frontend builds; output is `dist/bilimani-ddr.zip`. `scripts/package.ps1` builds separate versioned IIDX and DDR archives; each contains only its own DLL, defaults and pages. Tag pushes publish both archives to the same GitHub Release; manual workflow runs only upload build artifacts. Archive versions come from the respective Rust packages. Run `python scripts/smoke-ddr.py`, plus `--wrong-build` and `--bad-entry`, to test the release DLL using synthetic memory. Run `node web/tests/ddr.browser.mjs` while the DDR Rust preview is running; optionally set PLAYWRIGHT_CHROMIUM_EXECUTABLE to a local Chromium executable. These checks do not run the supported game.

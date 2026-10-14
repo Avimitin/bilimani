@@ -21,5 +21,8 @@
 **/node_modules/
 /web/**/config.json
 !/web/apps/iidx/config.json
+!/web/apps/ddr/config.json
+/bilimani_ddr.json
+/bilimani_ddr_aliases.csv
 /bilimani_iidx.json
 /bilimani_iidx_aliases.csv

@@ -63,3 +63,7 @@ The limited in-game queue menu uses [egui](https://github.com/emilk/egui) and
 epaint (MIT OR Apache-2.0); versions and transitive crates are in Cargo.lock.
 The menu loads optional CJK fonts from Windows at runtime; no Windows fonts
 are copied into the release. It provides no text/IME or clipboard integration.
+
+The DDR Street page bundles Permanent Marker by Font Diner, Apache-2.0,
+from https://github.com/google/fonts/tree/main/apache/permanentmarker.
+Its license is preserved in the page stylesheet, including production assets.

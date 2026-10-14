@@ -1,0 +1,13 @@
+{
+  "listen": "127.0.0.1:32133",
+  "static_root": "bilimani_web",
+  "module": "gamemdx.dll",
+  "aliases_path": "bilimani_ddr_aliases.csv",
+  "queue": {
+    "capacity": 20,
+    "current_timeout_seconds": 600
+  },
+  "controls": {
+    "enabled": true
+  }
+}

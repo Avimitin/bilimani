@@ -1,0 +1,22 @@
+{
+  "proxy": {
+    "relay": "https://api1.blive.chat"
+  },
+  "platform": {
+    "type": "bilibili",
+    "enabled": true,
+    "relayUrl": "./_proxy/relay"
+  },
+  "requests": {
+    "prefix": "点歌",
+    "candidateLimit": 20,
+    "selectionTimeoutSeconds": 60,
+    "cooldownSeconds": 0,
+    "maxPendingUsers": 100
+  },
+  "display": {
+    "feedLimit": 10,
+    "streamerName": "",
+    "streamTitle": ""
+  }
+}

@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/bilimani-api", "crates/bilimani-queue", "crates/bilimani-menu", "crates/bilimani-iidx"]
+members = ["crates/bilimani-api", "crates/bilimani-queue", "crates/bilimani-menu", "crates/bilimani-iidx", "crates/bilimani-ddr"]
 resolver = "3"
 
 [workspace.package]

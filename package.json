@@ -8,7 +8,7 @@
     "web/apps/*"
   ],
   "scripts": {
-    "build": "npm run build -w @bilimani/iidx",
+    "build": "npm run build -w @bilimani/iidx && npm run build -w @bilimani/ddr",
     "build:preview": "node web/apps/iidx/build.mjs --preview",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test web/tests/*.test.ts",

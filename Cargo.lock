@@ -76,6 +76,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "bilimani-ddr"
+version = "0.4.1"
+dependencies = [
+ "anyhow",
+ "bilimani-api",
+ "bilimani-menu",
+ "bilimani-queue",
+ "csv",
+ "encoding_rs",
+ "hex",
+ "nucleo-matcher",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
+ "tokio",
+ "unicode-normalization",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "bilimani-iidx"
 version = "0.4.1"
 dependencies = [

@@ -1,0 +1,1 @@
+{"name":"@bilimani/ddr","version":"0.4.1","private":true,"type":"module","scripts":{"build":"node build.mjs"},"dependencies":{"@bilimani/controller":"0.4.1","@bilimani/game-api":"0.4.1","@bilimani/platform-bilibili":"0.4.1"}}
