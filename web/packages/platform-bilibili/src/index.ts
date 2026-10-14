@@ -1,6 +1,7 @@
 import type { ChatSource, PlatformEvent, Room } from '@bilimani/controller';
 import { chatFromCommand, decode, packet } from './protocol';
-export interface BilibiliConfig { enabled: boolean; authCode: string; relayUrl: string }
+export interface BilibiliConfig { enabled: boolean; authCode: string; relayUrl: string; roomInfoUrl?: string }
+export interface RoomTitleState { requested: boolean; value: { id: string; title: string } | null }
 interface Session { game_id: string; urls: string[]; auth: string; room: Room }
 const record = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value);
 export function parseSession(data: unknown): Session {
@@ -21,6 +22,12 @@ export function parseSession(data: unknown): Session {
 class RelayError extends Error {
   constructor(readonly code: number) { super(`直播连接失败（平台返回 ${code}）`); }
 }
+export function parseRoomTitle(value: unknown, roomId: string): string | null {
+  if (!record(value) || value.code !== 0 || !record(value.data)) return null;
+  const { room_id, title } = value.data;
+  if (String(room_id) !== roomId || typeof title !== 'string' || title.length > 256 || /[\x00-\x1f\x7f]/.test(title)) return null;
+  return title.trim() || null;
+}
 const delay = (ms: number, signal: AbortSignal) => new Promise<void>(resolve => {
   if (signal.aborted) { resolve(); return; }
   const stop = () => { clearTimeout(timer); signal.removeEventListener('abort', stop); resolve(); };
@@ -33,7 +40,7 @@ export class BilibiliSource implements ChatSource {
   private socket: WebSocket | null = null;
   private session: Session | null = null;
   private seen = new Set<string>();
-  constructor(private config: BilibiliConfig) {}
+  constructor(private config: BilibiliConfig, private roomTitle: RoomTitleState = { requested: false, value: null }) {}
   start(emit: (event: PlatformEvent) => void): void {
     if (this.lifetime) return;
     if (!this.config.enabled) { emit({ type: 'connection', connected: false, message: '弹幕连接已关闭' }); return; }
@@ -81,14 +88,34 @@ export class BilibiliSource implements ChatSource {
       await delay(Math.min(30_000, 1000 * 2 ** Math.min(attempt++, 5)), signal);
     }
   }
+  private async loadRoomTitle(session: Session, emit: (event: PlatformEvent) => void, signal: AbortSignal): Promise<void> {
+    if (this.roomTitle.requested || signal.aborted || !this.config.roomInfoUrl || !/^[1-9]\d*$/.test(session.room.id)) return;
+    this.roomTitle.requested = true;
+    try {
+      const response = await fetch(`${this.config.roomInfoUrl}/room/v1/Room/get_info?room_id=${encodeURIComponent(session.room.id)}`, {
+        cache: 'no-store', credentials: 'omit', referrerPolicy: 'no-referrer',
+        signal: AbortSignal.any([signal, AbortSignal.timeout(8000)]),
+      });
+      if (response.ok) {
+        const title = parseRoomTitle(await response.json(), session.room.id);
+        if (!signal.aborted && this.session === session && title !== null) {
+          this.roomTitle.value = { id: session.room.id, title };
+          session.room = { ...session.room, title };
+          emit({ type: 'room', room: session.room });
+        }
+      }
+    } catch { /* Optional metadata must never interrupt chat or requests. */ }
+  }
   private connect(session: Session, index: number, emit: (event: PlatformEvent) => void, signal: AbortSignal): Promise<void> {
     return new Promise((resolve, reject) => {
+      const metadata = new AbortController();
       const socket = this.socket = new WebSocket(session.urls[index]);
       socket.binaryType = 'arraybuffer';
       let done = false, authenticated = false, lastHeartbeat = Date.now(), lastApi = Date.now(), heartbeatPending = false;
       const finish = (error?: Error) => {
         if (done) return;
         done = true;
+        metadata.abort();
         clearInterval(timer);
         signal.removeEventListener('abort', stop);
         socket.onclose = socket.onerror = socket.onmessage = socket.onopen = null;
@@ -117,9 +144,12 @@ export class BilibiliSource implements ChatSource {
             switch (message.type) {
               case 'auth':
                 if (message.code !== 0) throw new RelayError(message.code);
+                if (authenticated) break;
                 authenticated = true; lastHeartbeat = Date.now();
                 emit({ type: 'connection', connected: true, message: '弹幕已连接' });
+                if (this.roomTitle.value?.id === session.room.id) session.room = { ...session.room, title: this.roomTitle.value.title };
                 emit({ type: 'room', room: session.room });
+                void this.loadRoomTitle(session, emit, AbortSignal.any([signal, metadata.signal]));
                 socket.send(packet(2, '{}'));
                 break;
               case 'heartbeat': lastHeartbeat = Date.now(); break;

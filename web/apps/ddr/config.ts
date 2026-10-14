@@ -16,12 +16,17 @@ export function parseConfig(value: unknown, search = ''): Config {
   if (params.getAll('authCode').length > 1 || authCode.length > 512 || /[\x00-\x1f\x7f]/.test(authCode)) throw new Error('URL 的 authCode 参数无效');
   if (platform.enabled && !authCode) throw new Error('请在浏览器源 URL 后添加 ?authCode=主播身份码');
   if (!record(proxy) || !Object.entries(proxy).every(([name,url]) => /^[a-zA-Z0-9_-]+$/.test(name) && typeof url === 'string' && /^https?:\/\//.test(url))) throw new Error('proxy 必须将代理名称映射到上游 URL');
-  if (/^\.\/_proxy\/[a-zA-Z0-9_-]+$/.test(platform.relayUrl)) {
-    if (!(platform.relayUrl.split('/').at(-1)! in proxy)) throw new Error('relayUrl 使用的代理未在 proxy 中配置');
-  } else {
-    let relay: URL;
-    try { relay = new URL(platform.relayUrl); } catch { throw new Error('platform.relayUrl 不是有效 URL'); }
-    if (relay.protocol !== 'https:' || relay.username || relay.password || relay.search || relay.hash) throw new Error('relayUrl 必须是本页代理路径或 HTTPS 地址');
+  const roomInfoUrl = platform.roomInfoUrl;
+  if (roomInfoUrl !== undefined && typeof roomInfoUrl !== 'string') throw new Error('platform.roomInfoUrl 必须是 URL');
+  for (const endpoint of [platform.relayUrl, roomInfoUrl]) {
+    if (endpoint === undefined) continue;
+    if (/^\.\/_proxy\/[a-zA-Z0-9_-]+$/.test(endpoint)) {
+      if (!(endpoint.split('/').at(-1)! in proxy)) throw new Error('平台 URL 使用的代理未在 proxy 中配置');
+    } else {
+      let relay: URL;
+      try { relay = new URL(endpoint); } catch { throw new Error('平台 URL 不是有效 URL'); }
+      if (relay.protocol !== 'https:' || relay.username || relay.password || relay.search || relay.hash) throw new Error('平台 URL 必须是本页代理路径或 HTTPS 地址');
+    }
   }
   if (!record(requests) || typeof requests.prefix !== 'string' || !requests.prefix.trim()) throw new Error('requests.prefix 必须是非空命令');
   const bounds: Record<string, [number, number]> = { candidateLimit: [1, 100], selectionTimeoutSeconds: [1, 3600], cooldownSeconds: [0, 86400], maxPendingUsers: [1, 1000] };
@@ -35,7 +40,7 @@ export function parseConfig(value: unknown, search = ''): Config {
   for (const value of [streamerName, streamTitle]) {
     if (typeof value !== 'string' || value.length > 256 || /[\x00-\x1f\x7f]/.test(value)) throw new Error('主播名称和直播标题必须为不超过 256 字符的单行文本');
   }
-  return { proxy: proxy as Record<string,string>, platform: { type: 'bilibili', enabled: platform.enabled, authCode, relayUrl: platform.relayUrl.replace(/\/+$/, '') }, requests: { ...requests, prefix: requests.prefix.trim() } as unknown as Policy, display: { feedLimit: display.feedLimit, streamerName: (streamerName as string).trim(), streamTitle: (streamTitle as string).trim() } };
+  return { proxy: proxy as Record<string,string>, platform: { type: 'bilibili', enabled: platform.enabled, authCode, relayUrl: platform.relayUrl.replace(/\/+$/, ''), roomInfoUrl: roomInfoUrl?.replace(/\/+$/, '') }, requests: { ...requests, prefix: requests.prefix.trim() } as unknown as Policy, display: { feedLimit: display.feedLimit, streamerName: (streamerName as string).trim(), streamTitle: (streamTitle as string).trim() } };
 }
 export async function loadConfig(): Promise<Config> {
   const response = await fetch(new URL('./config.json', document.baseURI), { cache: 'no-store', signal: AbortSignal.timeout(4000) });

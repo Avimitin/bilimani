@@ -23,3 +23,15 @@ test('DDR chart vocabulary distinguishes beginner from basic and derives mode', 
   assert.deepEqual(rules.parse('PARANOiA', 'DP'), { query: 'PARANOiA', mode: 'DP', chart: undefined });
   assert.equal(rules.parse('song bDP', 'SP').chart, 'BDP');
 });
+
+test('DDR room metadata endpoint uses a configured proxy or a clean HTTPS URL', () => {
+  const config = JSON.parse(readFileSync(new URL('../apps/ddr/config.json', import.meta.url), 'utf8'));
+  config.platform.enabled = false;
+  assert.equal(parseConfig(config).platform.roomInfoUrl, './_proxy/bilibili');
+  for (const endpoint of ['./_proxy/missing', 'http://example.test', 'https://example.test/?authCode=private', 123]) {
+    config.platform.roomInfoUrl = endpoint;
+    assert.throws(() => parseConfig(config));
+  }
+  delete config.platform.roomInfoUrl;
+  assert.equal(parseConfig(config).platform.roomInfoUrl, undefined);
+});

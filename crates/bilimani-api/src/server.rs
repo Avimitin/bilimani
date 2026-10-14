@@ -351,7 +351,7 @@ async fn proxy(
     target.set_query(req.uri().query());
     let mut request = http.request(req.method().clone(), target);
     // Do not forward browser cookies, Origin, Host or hop-by-hop headers.
-    for key in ["content-type", "accept", "authorization"] {
+    for key in ["content-type", "accept", "authorization", "user-agent"] {
         if let Some(value) = req.headers().get(key) {
             request = request.header(key, value);
         }

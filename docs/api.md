@@ -78,4 +78,4 @@ POST /api/v1/aliases/reload 成功返回 `{"count":条数}`；无曲库为 not_r
 
 `GET/HEAD/POST /<页面目录>/_proxy/<名称>/<路径>` 读取页面相邻 config.json 的 `proxy` 映射。例如 `/iidx/card/_proxy/relay/api/open_live/start_game` 转发到 `proxy.relay` 下的相同相对路径，查询参数和正文原样保留。Rust 不解释平台字段或响应正文，不保存上游会话。
 
-只转发 Content-Type、Accept、Authorization 请求头；不转发浏览器 Cookie、Origin、Host，不存 Cookie，不跟随上游重定向，不自动重试。只允许固定配置的 HTTPS 上游（回环 HTTP 供调试）。请求上限 1 MiB、响应上限 4 MiB、上游超时 12 秒。配置无效返回 proxy_configuration/503，上游请求失败返回 upstream/502；正常上游状态码保持，JSON 保留 JSON 类型，其他内容作为二进制返回。
+只转发 Content-Type、Accept、Authorization、User-Agent 请求头；不转发浏览器 Cookie、Origin、Referer、Host，不存 Cookie，不跟随上游重定向，不自动重试。只允许固定配置的 HTTPS 上游（回环 HTTP 供调试）。请求上限 1 MiB、响应上限 4 MiB、上游超时 12 秒。配置无效返回 proxy_configuration/503，上游请求失败返回 upstream/502；正常上游状态码保持，JSON 保留 JSON 类型，其他内容作为二进制返回。

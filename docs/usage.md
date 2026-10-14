@@ -81,7 +81,7 @@ alias,target
 
 使用 MDX-003-2026022400 的 64 位 gamemdx.dll，加载 `bilimani_ddr.dll`。默认配置为 `bilimani_ddr.json`、`bilimani_ddr_aliases.csv`，静态页面在 `bilimani_web/ddr/street/`。只加载当前游戏对应的 DLL，默认监听 127.0.0.1:32133。
 
-顶部展示主播名称和直播标题。名称默认取 Bilibili 连接提供的主播名；当前连接不提供直播标题，请在页面相邻的 config.json 中填写 `display.streamTitle`。可选的 `display.streamerName` 用于覆盖展示名；两项均仅影响当前页面，不用于连接或身份映射。预览中显示的是模拟名称和标题。底部只展示当前活动玩家实际选中的难度和等级；预览终端可输入 `chart ESP`、`chart CDP` 等切换。
+顶部展示主播名称和直播标题。名称和房间 ID 取自 blivechat 连接；页面通过 `platform.roomInfoUrl`（默认 `./_proxy/bilibili`，对应 `proxy.bilibili: https://api.live.bilibili.com`）查询 Bilibili 房间标题。每次加载页面只查询一次，不定时更新，也不因弹幕重连自动重查；手动刷新 OBS 浏览器源后重新查询。标题请求不携带身份码，失败不影响弹幕和点歌，断开后取消查询。`display.streamTitle` 留空时使用自动标题，也可以填写固定标题；可选的 `display.streamerName` 用于覆盖展示名。两项均仅影响当前页面，不用于连接或身份映射。预览中显示的是模拟名称和标题。底部只展示当前活动玩家实际选中的难度和等级；预览终端可输入 `chart ESP`、`chart CDP` 等切换。
 
 OBS 地址为 `http://127.0.0.1:32133/ddr/street/?authCode=你的身份码`，浏览器来源尺寸为 1920×1080。DDR 游戏画面保持原生 1280×720，放在浏览器来源下方，位置为 x=48、y=174，不拉伸。黑白街头涂鸦会覆盖游戏画面的右上角和左下角；主色为 #00d88d。页面读取相邻的 config.json，字体和涂鸦图片随静态资源打包。
 

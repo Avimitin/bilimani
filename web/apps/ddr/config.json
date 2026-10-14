@@ -1,11 +1,13 @@
 {
   "proxy": {
-    "relay": "https://api1.blive.chat"
+    "relay": "https://api1.blive.chat",
+    "bilibili": "https://api.live.bilibili.com"
   },
   "platform": {
     "type": "bilibili",
     "enabled": true,
-    "relayUrl": "./_proxy/relay"
+    "relayUrl": "./_proxy/relay",
+    "roomInfoUrl": "./_proxy/bilibili"
   },
   "requests": {
     "prefix": "点歌",

@@ -41,12 +41,16 @@ async fn proxy_is_page_scoped_stateless_and_does_not_forward_browser_credentials
             tokio::spawn(async move {
                 let service = service_fn(|req: Request<Incoming>| async move {
                     let path = req.uri().to_string();
-                    let browser_headers = ["cookie", "origin"]
+                    let browser_headers = ["cookie", "origin", "referer"]
                         .iter()
                         .any(|key| req.headers().contains_key(*key));
                     let auth = req
                         .headers()
                         .get("authorization")
+                        .map(|v| v.to_str().unwrap().to_owned());
+                    let user_agent = req
+                        .headers()
+                        .get("user-agent")
                         .map(|v| v.to_str().unwrap().to_owned());
                     let body = req.into_body().collect().await.unwrap().to_bytes();
                     let mut response =
@@ -56,7 +60,7 @@ async fn proxy_is_page_scoped_stateless_and_does_not_forward_browser_credentials
                             .status(302)
                             .header("Location", "https://example.com/");
                     }
-                    Ok::<_, Infallible>(response.body(Full::new(Bytes::from(json!({"path":path,"body":String::from_utf8_lossy(&body),"browser_headers":browser_headers,"authorization":auth}).to_string()))).unwrap())
+                    Ok::<_, Infallible>(response.body(Full::new(Bytes::from(json!({"path":path,"body":String::from_utf8_lossy(&body),"browser_headers":browser_headers,"authorization":auth,"user_agent":user_agent}).to_string()))).unwrap())
                 });
                 let _ = http1::Builder::new()
                     .serve_connection(TokioIo::new(socket), service)
@@ -82,6 +86,8 @@ async fn proxy_is_page_scoped_stateless_and_does_not_forward_browser_credentials
         .post(format!("{base}/send?q=1"))
         .header("Origin", format!("http://{}", server.address))
         .header("Cookie", "local=private")
+        .header("Referer", "https://example.test/?authCode=private")
+        .header("User-Agent", "Browser test")
         .header("Authorization", "test-only")
         .json(&json!({"opaque":123}))
         .send()
@@ -93,6 +99,7 @@ async fn proxy_is_page_scoped_stateless_and_does_not_forward_browser_credentials
     assert_eq!(response["body"], "{\"opaque\":123}");
     assert_eq!(response["browser_headers"], false);
     assert_eq!(response["authorization"], "test-only");
+    assert_eq!(response["user_agent"], "Browser test");
     config(&format!("{origin}/changed"));
     let changed: serde_json::Value = client
         .get(format!("{base}/read"))
