@@ -19,8 +19,8 @@ body { margin: 0; }
 .paper { position: absolute; z-index: -2; background-color: var(--paper); background-image: url('./art/paper-grain.svg'); }
 .paper-top { left: 0; top: 0; width: 1920px; height: 174px; }
 .paper-left { left: 0; top: 174px; width: 48px; height: 720px; }
-.paper-right { left: 1328px; top: 174px; width: 592px; height: 720px; }
-.paper-bottom { left: 0; top: 894px; width: 1920px; height: 186px; }
+.paper-right { left: 1328px; top: 174px; width: 592px; height: 720px; clip-path: polygon(0 0,100% 0,100% 100%,560px 100%,560px 560px,16px 560px,16px 100%,0 100%); }
+.paper-bottom { left: 0; top: 894px; width: 1920px; height: 186px; clip-path: polygon(0 0,1344px 0,1344px 146px,1888px 146px,1888px 0,100% 0,100% 100%,0 100%); }
 header { position: absolute; left: 48px; top: 14px; width: 1200px; height: 150px; display: flex; align-items: center; gap: 42px; }
 .live-stamp { display: inline-block; padding: 5px 11px; background: var(--ink); color: var(--paper); font-size: 12px; font-weight: 900; letter-spacing: 3px; transform: rotate(-2deg); }
  .stream-identity { width: 490px; flex: none; min-width: 0; transform: rotate(-3deg); }
@@ -31,12 +31,13 @@ header { position: absolute; left: 48px; top: 14px; width: 1200px; height: 150px
 .game-window { position: absolute; left: 48px; top: 174px; width: 1280px; height: 720px; outline: 7px solid var(--ink); }
 .game-window::before { content: ''; position: absolute; left: -15px; right: -13px; top: -14px; height: 18px; background: var(--ink); clip-path: polygon(0 24%,20% 60%,44% 0,77% 50%,100% 20%,100% 100%,0 100%); }
 .edge-note { position: absolute; left: 9px; top: 342px; writing-mode: vertical-rl; transform: rotate(180deg); font-size: 15px; letter-spacing: 3px; font-weight: 900; }
-.graffiti { position: absolute; z-index: 4; left: 1215px; top: -25px; width: 690px; height: auto; pointer-events: none; }
-.floor-tag { position: absolute; z-index: 5; left: -24px; top: 800px; width: 330px; height: 270px; padding: 25px 30px 15px 49px; background: var(--paper); transform: rotate(-9deg); clip-path: polygon(2% 10%,16% 5%,18% 0,42% 5%,76% 1%,100% 13%,94% 28%,100% 66%,90% 78%,95% 98%,61% 93%,32% 100%,0 91%,5% 50%); }
-.floor-tag span, .floor-tag strong { display: block; font: 76px/.9 'Permanent Marker', cursive; letter-spacing: -5px; }
-.floor-tag strong { font-size: 72px; line-height: 81px; -webkit-text-stroke: 2px var(--ink); color: var(--green); }
-.spray-arrows { display: block; width: 260px; height: 90px; object-fit: contain; margin: -2px 0 0 -8px; }
-aside { position: absolute; left: 1390px; top: 435px; width: 474px; height: 590px; display: flex; flex-direction: column; gap: 14px; }
+.graffiti { position: absolute; z-index: 4; left: -12px; top: 838px; width: 340px; height: auto; transform: rotate(-7deg); pointer-events: none; }
+/* The two paper cutouts above expose the OBS camera source beneath the page. */
+.camera-window { position: absolute; left: 1344px; top: 734px; width: 544px; height: 306px; }
+.camera-spray { position: absolute; z-index: 5; left: 1260px; top: 678px; width: 660px; height: 402px; pointer-events: none; }
+.camera-tag { position: absolute; z-index: 5; left: 1360px; top: 705px; padding: 3px 16px 6px; background: var(--green); font: 28px/1 'Permanent Marker',cursive; transform: rotate(-5deg); clip-path: polygon(2% 4%,100% 0,96% 90%,0 100%); pointer-events: none; }
+.camera-tag span { display: block; margin-top: 5px; font: 9px/1 Arial,sans-serif; font-weight: 900; letter-spacing: 3px; }
+aside { position: absolute; left: 1390px; top: 42px; width: 474px; height: 620px; display: flex; flex-direction: column; gap: 14px; }
 .queue { min-height: 0; flex: 1; overflow: hidden; padding-top: 12px; }
 h2 { font: 45px/1 'Permanent Marker', cursive; letter-spacing: -2px; margin: 0 0 15px; transform: rotate(-3deg); }
 h2 span { float: right; font: 43px/.9 Impact, sans-serif; background: var(--green); padding: 5px 16px; transform: rotate(8deg); }
@@ -58,7 +59,7 @@ li small { display: block; font-size: 13px; font-weight: 400; color: #464641; ma
 #feed { display: flex; flex-direction: column; justify-content: flex-end; gap: 10px; font-size: 19px; line-height: 1.4; flex: 1; min-height: 0; overflow: hidden; }
 #feed p { margin: 0; overflow-wrap: anywhere; flex-shrink: 0; }
 #feed b { background: var(--ink); color: var(--paper); padding: 1px 4px; margin-right: 7px; font-size: 13px; }
-footer { position: absolute; left: 335px; top: 922px; width: 993px; height: 140px; display: flex; align-items: center; gap: 24px; }
+footer { position: absolute; left: 360px; top: 922px; width: 900px; height: 140px; display: flex; align-items: center; gap: 24px; }
 .song { min-width: 0; flex: 1; align-self: flex-start; padding-top: 7px; }
 .song small { font-size: 11px; letter-spacing: 1.5px; font-weight: 900; display: inline-block; padding: 5px 8px; background: var(--green); transform: rotate(-1deg); }
 h1 { font-size: 36px; font-weight: 900; line-height: 1.03; letter-spacing: -1px; margin: 11px 0 7px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -70,7 +71,7 @@ h1 { font-size: 36px; font-weight: 900; line-height: 1.03; letter-spacing: -1px;
 .difficulty-level { position: absolute; right: 15px; top: -2px; font: 88px/1 Impact,sans-serif; color: var(--green); transform: rotate(5deg); }
 .selected-difficulty small { display: block; font-size: 11px; letter-spacing: 2px; margin-top: 3px; }
 .players { font-size: 14px; font-weight: 900; padding-top: 10px; letter-spacing: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.status { position: absolute; left: 1390px; top: 1044px; width: 474px; font-size: 12px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.status { position: absolute; left: 1390px; top: 674px; width: 474px; font-size: 12px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .status::before { content: ''; display: inline-block; background: var(--ink); width: 8px; height: 8px; margin-right: 7px; transform: rotate(-10deg); }
 .status[data-ready=true]::before { background: var(--green); }
 .choices { position: absolute; z-index: 6; top: 225px; left: 170px; width: 640px; padding: 27px 32px; background: var(--paper); border: 5px solid var(--ink); box-shadow: 12px 13px 0 var(--green); transform: rotate(-2deg); }

@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="660" height="402" viewBox="0 0 660 402">
+  <defs>
+    <filter id="rough" x="-20%" y="-40%" width="140%" height="180%">
+      <feTurbulence type="fractalNoise" baseFrequency=".075" numOctaves="3" seed="28" result="noise"/>
+      <feDisplacementMap in="SourceGraphic" in2="noise" scale="14" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+    <filter id="mist" x="-50%" y="-100%" width="200%" height="300%"><feGaussianBlur stdDeviation="5"/></filter>
+  </defs>
+  <!-- The 544 x 306 capture begins at (84,56). Paint crosses its edges. -->
+  <g fill="none" stroke="#111110" stroke-linecap="round" filter="url(#mist)" opacity=".45">
+    <path d="M54 58 631 38M77 54 68 370M86 369 642 350M637 45 632 365" stroke-width="29"/>
+  </g>
+  <g fill="none" stroke-linecap="square" filter="url(#rough)">
+    <path d="M43 73 235 47 407 55 645 34M79 49 70 186 84 269 65 376M74 367 296 382 462 357 645 363M637 38 625 194 641 365" stroke="#111110" stroke-width="28"/>
+    <path d="M36 53 174 44M371 44 641 24M53 274 47 377 194 387M485 380 652 363M649 83 645 191" stroke="#00d88d" stroke-width="13"/>
+    <path d="M99 67 289 61M91 84 94 160M166 356 322 365M617 245 619 329" stroke="#f0eee7" stroke-width="5"/>
+    <path d="M51 91 19 119M46 110 22 143M52 130 34 153M594 388 650 379" stroke="#111110" stroke-width="8"/>
+  </g>
+  <g fill="#111110">
+    <circle cx="28" cy="68" r="5"/><circle cx="16" cy="84" r="2"/><circle cx="51" cy="34" r="3"/><circle cx="73" cy="22" r="2"/>
+    <circle cx="19" cy="185" r="3"/><circle cx="42" cy="206" r="6"/><circle cx="35" cy="227" r="2"/><circle cx="56" cy="250" r="3"/>
+    <circle cx="29" cy="348" r="5"/><circle cx="19" cy="365" r="2"/><circle cx="34" cy="391" r="3"/>
+    <circle cx="326" cy="391" r="3"/><circle cx="351" cy="385" r="2"/><circle cx="470" cy="398" r="2"/>
+    <circle cx="584" cy="18" r="4"/><circle cx="561" cy="9" r="2"/><circle cx="651" cy="216" r="4"/>
+    <path d="M109 352h7v36q-3 10-7 0ZM568 40h5v42q-2 10-5 0ZM602 354h6v40q-3 9-6 0Z"/>
+  </g>
+  <g fill="#00d88d">
+    <circle cx="23" cy="291" r="4"/><circle cx="38" cy="303" r="2"/><circle cx="14" cy="318" r="1.5"/>
+    <circle cx="196" cy="28" r="3"/><circle cx="215" cy="19" r="1.5"/><circle cx="654" cy="60" r="3"/>
+    <path d="m52 362 7-1v32q-4 9-7 0ZM516 372h5v22q-2 7-5 0Z"/>
+  </g>
+</svg>

@@ -22,6 +22,12 @@ try {
   assert.ok(await page.locator('.graffiti').evaluate(img => img.complete && img.naturalWidth > 0));
   const artBounds = await page.locator('.graffiti').boundingBox();
   assert.ok(artBounds.x < bounds.x + bounds.width && artBounds.y + artBounds.height > bounds.y, 'Graffiti overlaps the capture edge');
+  assert.ok(artBounds.x < 48 && artBounds.y > 720, 'Mural occupies the lower-left corner');
+  assert.equal(await page.locator('.floor-tag').count(), 0);
+  const cameraBounds = await page.locator('.camera-window').boundingBox();
+  assert.deepEqual(cameraBounds, { x: 1344, y: 734, width: 544, height: 306 });
+  assert.equal(cameraBounds.width / cameraBounds.height, 1280 / 720);
+  assert.ok(await page.locator('.camera-spray').evaluate(img => img.complete && img.naturalWidth > 0));
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth), 1920);
   const chartBounds = await page.locator('#charts').boundingBox();
   assert.ok(chartBounds.y >= 922 && chartBounds.y + chartBounds.height <= 1080);
@@ -43,7 +49,7 @@ try {
     assert.equal(await page.locator('#count').innerText(), '05');
     const chatBounds = await page.locator('.chat').boundingBox();
     assert.ok(chatBounds.height >= 250 && chatBounds.y + chatBounds.height <= queueBounds.y);
-    assert.ok(await page.locator('.spray-arrows').evaluate(img => img.complete && img.naturalWidth > 0));
+    assert.ok(chatBounds.y < 100 && queueBounds.y + queueBounds.height < cameraBounds.y, 'Chat and queue fit above the camera');
     await page.screenshot({ path: 'analysis/ddr/street-queue-preview.png', omitBackground: true });
   } finally { for (const entry of queued) await fetch(`http://127.0.0.1:32134/api/v1/queue/${entry.id}`, {method: 'DELETE'}); }
   console.log('DDR frame: telemetry, charts, player, fonts and 1920x1080 layout passed');

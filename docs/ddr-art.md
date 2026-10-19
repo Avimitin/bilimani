@@ -1,14 +1,20 @@
 # DDR Street artwork
 
 The OBS composition is 1920 x 1080 with a native 1280 x 720 game capture at
-x=48, y=174. The upper-right mural and lower-left paper tag intentionally
-overlap the capture corners. The core palette is paper white, black and
+x=48, y=174. The mural sits at the lower left, replacing the Let's Dance tag.
+The lower-right camera accepts a 1280 x 720 OBS source scaled to 544 x 306
+at x=1344, y=734, with no source rotation. Both captures sit underneath the
+browser source. The camera's transparent opening is cut out of both paper
+panels; the rough, slanted spray frame overlaps the camera and game edges.
+The core palette is paper white, black and
 DDR green `#00d88d`.
 
-The current assets are `web/apps/ddr/street/art/dance-dance-revolution.png`
-and `web/apps/ddr/street/art/spray-arrows.png`. Both use the built-in image
-generation tool with transparent output. Danmu has a dedicated 250px-tall
-panel below the hero; the queue below it shows three entries and the total count.
+The mural asset is `web/apps/ddr/street/art/dance-dance-revolution.png`, made
+with the built-in image generation tool with transparent output. The camera
+frame is the repository-native `web/apps/ddr/street/art/camera-spray.svg`, with
+displaced paint strokes, overspray and drips. Danmu has a dedicated 250px-tall
+panel at the upper right; the queue below it shows three entries and the total count.
+The earlier `spray-arrows.png` is no longer displayed.
 
 Title edit prompt (using the previous artwork as reference):
 
