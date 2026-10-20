@@ -10,7 +10,7 @@ mod native;
 mod native_density;
 pub mod playback;
 #[cfg(windows)]
-mod search_index;
+pub(crate) mod search_index;
 pub mod song_info;
 pub mod user;
 const PARTICIPATION_RVA: usize = 0xacd79b0;
@@ -56,6 +56,9 @@ struct Adapter {
 
 #[cfg(windows)]
 impl crate::game::GameAdapter for Adapter {
+    fn build(&self) -> crate::versions::Build {
+        crate::versions::Build::V33_20260812
+    }
     fn set_menu_open(&self, open: bool) {
         native::MENU_OPEN.store(open, std::sync::atomic::Ordering::Release);
     }

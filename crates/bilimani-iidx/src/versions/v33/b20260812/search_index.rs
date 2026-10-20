@@ -7,7 +7,7 @@ fn word(bytes: &[u8], offset: usize) -> usize {
     usize::from_le_bytes(bytes[offset..offset + 8].try_into().unwrap())
 }
 
-pub(super) fn snapshot(
+pub(crate) fn snapshot(
     dictionary: usize,
     read: impl Fn(usize, usize) -> Result<Vec<u8>>,
 ) -> Result<Vec<(u32, String)>> {

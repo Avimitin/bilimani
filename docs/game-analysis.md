@@ -1,5 +1,8 @@
 # IIDX 33 / 20260812 adapter evidence
 
+This document records IIDX 33 only. See [IIDX 34 / 20260917 analysis](iidx34-analysis.md)
+for its independent scene, analyzer, option and profile layouts.
+
 Implementation: `crates/bilimani-iidx/src/versions/v33/b20260812/`. Game/version selection lives in
 `crates/bilimani-iidx/src/versions/mod.rs`; upper layers use the contracts in `crates/bilimani-iidx/src/game.rs`.
 

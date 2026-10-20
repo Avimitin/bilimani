@@ -1,6 +1,6 @@
 # 开发、验证与发布
 
-先读 [架构](architecture.md)、[API](api.md) 和根目录 [AGENTS.md](../AGENTS.md)。只有 bilimani-iidx 提供游戏实现，支持 IIDX 33 / 20260812；bilimani-api 不依赖具体游戏。根 Cargo.toml 是虚拟 workspace。
+先读 [架构](architecture.md)、[API](api.md) 和根目录 [AGENTS.md](../AGENTS.md)。bilimani-iidx 支持 IIDX 33 / 20260812、34 / 20260917；34 为实验支持，尚未实机验证。bilimani-ddr 提供独立 DDR 实现；bilimani-api 不依赖具体游戏。根 Cargo.toml 是虚拟 workspace。
 
 ## 环境与构建
 
@@ -103,7 +103,9 @@ py scripts/smoke-dll.py --occupied-port
 
 脚本只映射二进制以校验布局；回调测试用合成数据和替代函数，不启动游戏。它检查真实 DLL、HTTP 快照、hook 转发及关闭释放端口。它不能证明游戏内行为正确，也不包含平台网络连接。
 
-发布前仍需在 **IIDX 33 / 20260812** 实机检查：运行时曲库、原生搜索词、单人 SP 与 DP、自动定位、难度切换、场景变化、开曲/重试/退出、遥测、单人 SP 菜单手势/输入捕获、删除/优先、CSV 重读、OBS 刷新保留队列和实际平台连接。新增构建需独立 ABI/指纹依据，不能仅复制版本名。
+发布前仍需在各支持构建（**IIDX 33 / 20260812、34 / 20260917**）实机检查：运行时曲库、原生搜索词、单人 SP 与 DP、自动定位、难度切换、场景变化、开曲/重试/退出、遥测、单人 SP 菜单手势/输入捕获、删除/优先、CSV 重读、OBS 刷新保留队列和实际平台连接。新增构建需独立 ABI/指纹依据，不能仅复制版本名。
+
+IIDX 34 的逐项分析、RVA/布局依据、复现命令与实机待验证项见 [iidx34-analysis.md](iidx34-analysis.md)。使用 `py scripts/verify-iidx34.py <bm2dx.dll路径>` 做只读文件验证，`py scripts/smoke-iidx34.py --game-dll <bm2dx.dll路径> --queue --user` 检查正式 DLL 的合成回调和 HTTP。两者都不启动游戏。33 的回归继续使用 `scripts/smoke-dll.py`。新增分析应同步记录证据与未知项，不只保留本地 IDA 会话。
 
 ## 打包
 

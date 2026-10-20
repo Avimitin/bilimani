@@ -53,6 +53,7 @@ pub enum GameAction {
     Cancel,
 }
 pub struct Service {
+    pub build: crate::versions::Build,
     pub user: iidx::user::UserSnapshot,
     pub catalog: Option<Catalog>,
     pub snapshot: Snapshot,
@@ -69,6 +70,7 @@ pub struct Service {
 impl Default for Service {
     fn default() -> Self {
         Self {
+            build: crate::versions::Build::V33_20260812,
             user: Default::default(),
             catalog: None,
             snapshot: Default::default(),
@@ -307,7 +309,7 @@ impl Service {
         vec![
             (
                 "/api/v1/meta".into(),
-                json!({"api_version": 1, "game": "iidx", "major_version": 33, "build": "20260812", "ready": self.catalog.is_some()}),
+                json!({"api_version": 1, "game": "iidx", "major_version": self.build.major_version(), "build": self.build.date(), "ready": self.catalog.is_some()}),
             ),
             ("/api/v1/state".into(), state),
             ("/api/v1/queue".into(), queue),

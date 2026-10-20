@@ -243,6 +243,7 @@ pub struct GameUpdate {
 }
 
 pub trait GameAdapter: Send + Sync {
+    fn build(&self) -> crate::versions::Build;
     fn set_menu_open(&self, open: bool);
     fn cancel_selection(&self) {}
     fn startup_messages(&self) -> Vec<(&'static str, String)>;

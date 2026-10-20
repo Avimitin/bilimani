@@ -75,9 +75,15 @@ fn start(module: HMODULE) -> Result<()> {
                 bilimani_api::Server::start(config.listen, &config.static_root).await?;
             log(
                 root,
-                &format!("IIDX 33 / 20260812 API: http://{}", server.address),
+                &format!(
+                    "IIDX {} / {} API: http://{}",
+                    game.build().major_version(),
+                    game.build().date(),
+                    server.address
+                ),
             );
             let mut service = Service::default();
+            service.build = game.build();
             service.queue = bilimani_queue::Queue::new(
                 config.queue.capacity,
                 config.queue.current_timeout_seconds * 1000,

@@ -2,7 +2,8 @@
 
 Read docs/architecture.md and docs/api.md before changing runtime boundaries. They describe the accepted architecture, not an optional roadmap.
 
-- One game per Rust crate/DLL; versions/builds live inside that game crate. Only IIDX 33 / 20260812 is currently supported. Use bilimani_<game>.dll for DLL names, configured through [lib].name so build and release artifacts match.
+- One game per Rust crate/DLL; versions/builds live inside that game crate. IIDX profiles are 33 / 20260812 and 34 / 20260917 (34 is offline-validated, pending real-game validation). Use bilimani_<game>.dll for DLL names, configured through [lib].name so build and release artifacts match.
+- Record each binary analysis in a build-specific document with hash, ABI evidence, reproducible checks and remaining unknowns; see docs/game-analysis.md and docs/iidx34-analysis.md.
 - Use the bilimani- prefix for Rust packages/directories and bilimani_ for game DLL configuration, logs and alias files. TypeScript packages use the @bilimani/ scope; each page keeps its adjacent config.json.
 - bilimani-api must never import a game crate or platform protocol. Queue payloads use game-neutral song/mode/chart identifiers and an optional display name, never platform credentials.
 - DLLs own runtime catalogs, CSV aliases, fuzzy search, the shared in-memory bilimani-queue, game snapshots, and native selection execution. HTTP and the in-game menu operate on the same worker-owned queue.

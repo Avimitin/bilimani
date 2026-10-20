@@ -12,6 +12,17 @@ pub fn decode(
     difficulties: [Option<u32>; 2],
     phase: SongPhase,
 ) -> Result<NowPlaying> {
+    decode_for_version(record, mode, difficulties, phase, 33)
+}
+
+/// The 34/20260917 record fields were independently checked against this layout.
+pub(crate) fn decode_for_version(
+    record: &[u8],
+    mode: Mode,
+    difficulties: [Option<u32>; 2],
+    phase: SongPhase,
+    major_version: u16,
+) -> Result<NowPlaying> {
     ensure!(record.len() == RECORD_SIZE, "Invalid music record size");
     ensure!(mode == SP || mode == DP, "Invalid play mode");
     let u32_at = |offset| u32::from_le_bytes(record[offset..offset + 4].try_into().unwrap());
@@ -91,7 +102,7 @@ pub fn decode(
             title,
             artist: utf16(&record[0x1c0..0x2c0]),
             genre: utf16(&record[0x140..0x1c0]),
-            game_version: (version <= 33).then_some(version),
+            game_version: (version <= major_version).then_some(version),
             charts,
         }),
         players,
