@@ -15,11 +15,11 @@
   <main class="stream-frame overlay" data-queue-state="collapsed" data-loading="true" aria-label="直播框架">
     <!-- Fully vector mecha chassis: layered top bar, side columns, interaction
          backing and the bottom bar share one armor language of beveled plates,
-         seams, screws and cyan lamps. The turntable overlaps the lower-left. -->
+         seams, screws and violet lamps. The turntable overlaps the lower-left. -->
     <div class="chassis" aria-hidden="true">
       <svg class="chassis-deck" viewBox="0 0 1920 1080">
         <defs>
-          <pattern id="vfd-glass" width="4" height="3" patternUnits="userSpaceOnUse"><rect width="4" height="3" fill="#020807"/><path d="M0 .5H4" stroke="#66eac5" stroke-opacity=".012"/></pattern>
+          <pattern id="vfd-glass" width="4" height="3" patternUnits="userSpaceOnUse"><rect width="4" height="3" fill="#020807"/><path d="M0 .5H4" stroke="#9c78d8" stroke-opacity=".012"/></pattern>
           <!-- Local light bounds avoid a frame-sized filter surface across empty space. -->
           <filter id="glow" filterUnits="userSpaceOnUse" x="-24" y="-24" width="180" height="160">
             <feGaussianBlur stdDeviation="4" result="halo"/>
@@ -50,7 +50,7 @@
             <stop stop-color="#484e53"/><stop offset=".55" stop-color="#262a2e"/><stop offset="1" stop-color="#15181b"/>
           </radialGradient>
           <radialGradient id="tt-hub"><stop stop-color="#24282c"/><stop offset="1" stop-color="#050607"/></radialGradient>
-          <radialGradient id="tt-label" cx=".5" cy=".4" r=".8"><stop stop-color="#2c3438"/><stop offset="1" stop-color="#0d1113"/></radialGradient>
+          <radialGradient id="tt-label" cx=".5" cy=".4" r=".8"><stop stop-color="#312e36"/><stop offset="1" stop-color="#100e12"/></radialGradient>
           <radialGradient id="deck-screw" cx=".35" cy=".3" r=".9">
             <stop stop-color="#868e96"/><stop offset=".55" stop-color="#494f55"/><stop offset="1" stop-color="#23262a"/>
           </radialGradient>
@@ -73,7 +73,7 @@
             <use href="#tt-neon" filter="url(#glow-tt)"/>
             <ellipse cy="44" rx="40" ry="9" fill="#9fd4ff" opacity=".05"/>
             <circle r="34" fill="url(#tt-label)" stroke="#484f55" stroke-width="1.5"/>
-            <circle r="24" fill="none" stroke="#70f5d7" stroke-width="1.2" opacity=".55"/>
+            <circle r="24" fill="none" stroke="#a683e2" stroke-width="1.2" opacity=".55"/>
             <circle r="5" fill="url(#deck-screw)" stroke="#101214"/>
           </g>
           <g id="deck-screw">
@@ -200,10 +200,10 @@
             <g id="turntable-power" transform="translate(231 1036)">
               <path d="M0 8l8-8h38v36H0Z" fill="#242d33" stroke="#11181d"/>
               <path d="M3 9l7-6h33 M3 33h40" fill="none" stroke="#53616a"/>
-              <circle cx="13" cy="18" r="6" fill="#090f12" stroke="#48564e"/>
+              <circle cx="13" cy="18" r="6" fill="#0d0a11" stroke="#48564e"/>
               <g transform="translate(13 18)">
-                <circle r="3" fill="#70f5c9" filter="url(#power-glow)"/>
-                <circle id="lamp-power" r="2.5" fill="#8dffd1"/>
+                <circle r="3" fill="#a683e2" filter="url(#power-glow)"/>
+                <circle id="lamp-power" r="2.5" fill="#bb9def"/>
               </g>
               <path d="M30 14a5 5 0 1 0 5 0 M32.5 12v6" fill="none" stroke="#71857d" stroke-width="1.2" stroke-linecap="round"/>
             </g>
@@ -212,18 +212,18 @@
 
         <!-- Each lamp has its own local glow, so empty corners stay empty. -->
         <g transform="translate(24 14) scale(1 .5)" fill="none">
-          <path d="M0 0h66" stroke="#0b1110" stroke-width="7"/>
-          <path id="lamp-top" d="M0 0h66" stroke="#89ffe7" stroke-width="2.5"/>
+          <path d="M0 0h66" stroke="#0d0c10" stroke-width="7"/>
+          <path id="lamp-top" d="M0 0h66" stroke="#b99aee" stroke-width="2.5"/>
           <use href="#lamp-top" filter="url(#glow)" opacity=".95"/>
         </g>
         <g transform="translate(1470 951)" fill="none">
-          <path d="M0 0h41l21-17" stroke="#0b1110" stroke-width="7"/>
-          <path id="lamp-toe" d="M0 0h41l21-17" stroke="#89ffe7" stroke-width="2.5"/>
+          <path d="M0 0h41l21-17" stroke="#0d0c10" stroke-width="7"/>
+          <path id="lamp-toe" d="M0 0h41l21-17" stroke="#b99aee" stroke-width="2.5"/>
           <use href="#lamp-toe" filter="url(#glow)" opacity=".95"/>
         </g>
         <g transform="translate(1889 99)" fill="none">
-          <path d="M0 0v23" stroke="#0b1110" stroke-width="7"/>
-          <path id="lamp-header" d="M0 0v23" stroke="#89ffe7" stroke-width="2.5"/>
+          <path d="M0 0v23" stroke="#0d0c10" stroke-width="7"/>
+          <path id="lamp-header" d="M0 0v23" stroke="#b99aee" stroke-width="2.5"/>
           <use href="#lamp-header" filter="url(#glow)" opacity=".95"/>
         </g>
       </svg>
@@ -233,7 +233,7 @@
         <path class="screen-bezel" d="M12 1h289l6 9-14 87-17 18H28L1 31V12Z"/>
         <path class="screen-glass" d="M15 5h282l6 8-14 82-15 16H31L5 30V15Z"/>
         <path class="screen-highlight" d="M9 29V17l9-8h276 M33 106h236l16-15"/>
-        <path d="M26 55h252" stroke="#63d9bc28"/>
+        <path d="M26 55h252" stroke="#9374c828"/>
       </svg>
       <code id="request-hint">点歌 &lt;曲名&gt; [难度]</code>
       <div class="station-room">
@@ -288,12 +288,12 @@
       <svg class="arm-mechanism" viewBox="0 0 1920 1080" aria-hidden="true">
         <defs>
           <linearGradient id="arm-metal" x2="0" y2="1"><stop stop-color="#72818a"/><stop offset=".12" stop-color="#47535d"/><stop offset=".48" stop-color="#26343e"/><stop offset=".8" stop-color="#17242c"/><stop offset="1" stop-color="#4c5b64"/></linearGradient>
-          <linearGradient id="arm-cuff" x2="1" y2="0"><stop stop-color="#65757c"/><stop offset=".3" stop-color="#3b4b54"/><stop offset="1" stop-color="#17272f"/></linearGradient>
+          <linearGradient id="arm-cuff" x2="1" y2="0"><stop stop-color="#65757c"/><stop offset=".3" stop-color="#3b4b54"/><stop offset="1" stop-color="#211a2c"/></linearGradient>
         </defs>
         <g class="arm-mount">
           <rect x="-13" y="0" width="8" height="18" fill="url(#arm-metal)" stroke="#0b151b"/>
           <rect x="5" y="0" width="8" height="18" fill="url(#arm-metal)" stroke="#0b151b"/>
-          <rect x="-1" y="0" width="2" height="18" fill="#71cdb6" fill-opacity=".5"/>
+          <rect x="-1" y="0" width="2" height="18" fill="#967ec0" fill-opacity=".5"/>
         </g>
         <g class="arm-rails"/>
       </svg>

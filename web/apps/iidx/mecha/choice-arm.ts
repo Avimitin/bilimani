@@ -35,11 +35,11 @@ export function createChoiceArm(root: HTMLElement, onStowed: () => void) {
       // Only fixed numeric geometry enters SVG markup. No chat or song strings.
       group.innerHTML = `<rect x="${-length - 16}" y="${-h / 2}" width="${length + 28}" height="${h}" rx="4" fill="url(#arm-metal)" stroke="#090e12" stroke-width="2"/>
         <path d="M${-length - 10} ${-h / 2 + 3}H7 M${-length - 10} ${h / 2 - 3}H7" stroke="#7c8c94" stroke-opacity=".6"/>
-        <rect x="${-length - 7}" y="-5" width="${length + 6}" height="10" rx="2" fill="#0d181c"/>
-        <path d="M${-length - 4} -1H-5" stroke="#66daba" stroke-opacity=".55"/>
+        <rect x="${-length - 7}" y="-5" width="${length + 6}" height="10" rx="2" fill="#130f1a"/>
+        <path d="M${-length - 4} -1H-5" stroke="#9576ca" stroke-opacity=".55"/>
         <rect x="-12" y="${-h / 2 - 4}" width="22" height="${h + 8}" rx="4" fill="url(#arm-cuff)" stroke="#0b1013" stroke-width="2"/>
         <path d="M-8 ${-h / 2}v${h}" stroke="#9aa9b2" stroke-opacity=".7"/>
-        <circle r="4" fill="#071411" stroke="#819a95"/><circle r="1.8" fill="#91ffdb"/>`;
+        <circle r="4" fill="#0c0912" stroke="#819a95"/><circle r="1.8" fill="#bda0f0"/>`;
       return group;
     });
     rails.replaceChildren(...[...segments].reverse());
