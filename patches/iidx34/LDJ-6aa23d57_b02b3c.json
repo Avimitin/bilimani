@@ -1,0 +1,23 @@
+[
+    {
+        "gameCode": "LDJ",
+        "version": "IIDX 34; upstream label 2026-09-16 (010)",
+        "source": "Local binary analysis: docs/iidx34-monitor-check-patch-analysis.md",
+        "verifiedSha256": "3755587f44785effe5008f74cfe7dccbdf423ad09feead48e00a90f78a42fe83"
+    },
+    {
+        "name": "Disable Monitor Check (TDJ validation)",
+        "description": "Bypasses TDJ startup FPS validation, retries and MONITOR ERROR. Keeps the initial measurement period and its measured timing value. Does not change the target FPS or stabilize frame pacing.",
+        "gameCode": "LDJ",
+        "peIdentifier": "LDJ-6aa23d57_b02b3c",
+        "type": "memory",
+        "patches": [
+            {
+                "offset": 9544808,
+                "dllName": "bm2dx.dll",
+                "dataDisabled": "0F8540010000",
+                "dataEnabled": "90E940010000"
+            }
+        ]
+    }
+]
