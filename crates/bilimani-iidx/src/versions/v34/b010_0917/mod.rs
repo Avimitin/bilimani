@@ -15,7 +15,7 @@ pub mod song_info;
 pub mod user;
 const PARTICIPATION_RVA: usize = 0xb60b3b0;
 pub const SUPPORTED_SHA256: &str =
-    "3755587f44785effe5008f74cfe7dccbdf423ad09feead48e00a90f78a42fe83";
+    "c98e183ec81ecb9e1cb13c237f9c9cb0b3f65b6fdaff6fd5e6a526008c546534";
 
 /// Scene callbacks stop on logout, so their last SP/DP mode can outlive the players.
 /// Only an explicit empty participation sample outside selection/play clears it.
@@ -57,7 +57,7 @@ struct Adapter {
 #[cfg(windows)]
 impl crate::game::GameAdapter for Adapter {
     fn build(&self) -> crate::versions::Build {
-        crate::versions::Build::V34_20260917
+        crate::versions::Build::V34_010_0917
     }
     fn set_menu_open(&self, open: bool) {
         native::MENU_OPEN.store(open, std::sync::atomic::Ordering::Release);

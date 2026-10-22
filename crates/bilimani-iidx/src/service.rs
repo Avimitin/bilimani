@@ -309,7 +309,7 @@ impl Service {
         vec![
             (
                 "/api/v1/meta".into(),
-                json!({"api_version": 1, "game": "iidx", "major_version": self.build.major_version(), "build": self.build.date(), "ready": self.catalog.is_some()}),
+                json!({"api_version": 1, "game": "iidx", "major_version": self.build.major_version(), "build": self.build.label(), "ready": self.catalog.is_some()}),
             ),
             ("/api/v1/state".into(), state),
             ("/api/v1/queue".into(), queue),

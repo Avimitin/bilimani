@@ -3,19 +3,21 @@ pub mod v34;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Build {
     V33_20260812,
-    V34_20260917,
+    V34_010_0916,
+    V34_010_0917,
 }
 impl Build {
     pub fn major_version(self) -> u16 {
         match self {
             Self::V33_20260812 => 33,
-            Self::V34_20260917 => 34,
+            Self::V34_010_0916 | Self::V34_010_0917 => 34,
         }
     }
-    pub fn date(self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Self::V33_20260812 => "20260812",
-            Self::V34_20260917 => "20260917",
+            Self::V34_010_0916 => "010-0916",
+            Self::V34_010_0917 => "010-0917",
         }
     }
 }
@@ -25,7 +27,8 @@ pub struct UnsupportedBuild(pub String);
 pub fn resolve(fingerprint: &str) -> Result<Build, UnsupportedBuild> {
     match fingerprint {
         v33::b20260812::SUPPORTED_SHA256 => Ok(Build::V33_20260812),
-        v34::b20260917::SUPPORTED_SHA256 => Ok(Build::V34_20260917),
+        v34::b010_0916::SUPPORTED_SHA256 => Ok(Build::V34_010_0916),
+        v34::b010_0917::SUPPORTED_SHA256 => Ok(Build::V34_010_0917),
         other => Err(UnsupportedBuild(other.into())),
     }
 }
@@ -37,6 +40,7 @@ pub fn attach(
     let image = crate::host::windows::ModuleImage::load(module)?;
     match resolve(&image.sha256)? {
         Build::V33_20260812 => v33::b20260812::attach(image, controls),
-        Build::V34_20260917 => v34::b20260917::attach(image, controls),
+        Build::V34_010_0916 => v34::b010_0916::attach(image, controls),
+        Build::V34_010_0917 => v34::b010_0917::attach(image, controls),
     }
 }

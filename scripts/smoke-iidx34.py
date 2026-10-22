@@ -1,4 +1,4 @@
-"""Exercise the IIDX 34/20260917 profile in the release DLL in a separate process without launching the game.
+"""Exercise the IIDX 34/010-0916 profile in the release DLL in a separate process without launching the game.
 
 Requires npm run build and the release bilimani_iidx.dll.
 Positive tests map the developer's ignored analysis/iidx34/bm2dx.dll without resolving
@@ -120,7 +120,7 @@ else:
             assert abs(hooked-plugin._handle) < 0x4000000, 'Hook is not inside plugin image'
     with urllib.request.urlopen(f'http://127.0.0.1:{overlay_port}/api/v1/meta', timeout=3) as response:
         meta = json.load(response)
-        assert meta['major_version'] == 34 and meta['build'] == '20260917', meta
+        assert meta['major_version'] == 34 and meta['build'] == '010-0916', meta
     # The restored menu captures controller navigation through the verified hook.
     assert ctypes.c_void_p.from_address(game + 0xd9ff20 + 3 * 8).value != game + 0xa67d70
     if lane_disabled: assert 'Lane-order sampling disabled:' in text, text

@@ -1,4 +1,4 @@
-# IIDX 34 / 20260917 monitor-adjust follow-up
+# IIDX 34 / 010-0916 monitor-adjust follow-up
 
 Date: 2026-10-20. Read-only analysis of the same supplied binary as
 [the adapter](iidx34-analysis.md) and [signature/audio investigation](iidx34-audio-offset-analysis.md).

@@ -1,4 +1,4 @@
-# IIDX 34 / 20260917: audio-offset and file-integrity investigation
+# IIDX 34 / 010-0916: audio-offset and file-integrity investigation
 
 Date: 2026-10-20. This is a read-only follow-up to the
 [adapter analysis](iidx34-analysis.md), prompted by concern that the supplied

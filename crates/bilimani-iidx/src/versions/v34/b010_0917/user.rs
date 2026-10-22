@@ -1,4 +1,4 @@
-//! Read-only IIDX 34/20260917 player snapshots. Evidence: docs/iidx34-analysis.md.
+//! Read-only IIDX 34/010-0917 player snapshots. Evidence: docs/iidx34-0100917-analysis.md.
 use super::PARTICIPATION_RVA;
 use crate::iidx::user::{
     ActivityCounts, ActivityPeriod, DanRank, StyleProfile, UserProfile, UserSnapshot,
@@ -20,11 +20,11 @@ const STYLE_STRIDE: usize = WEEK_STRIDE * 5;
 #[cfg(windows)]
 pub const GUARDS: &[(usize, &str)] = &[
     (0x597660, "48895c240848896c2410488974241857"),
-    (0x597a20, "4883ec28e847ed010085c0754d4863c1"),
-    (0x596830, "4883ec284c63d2e834ff010085c07575"),
-    (0x5967a0, "4883ec284c63d2e8c4ff010085c07575"),
-    (0x6506e0, "4863c248ffc04c69c8f40000004963c0"),
-    (0x650730, "4863c24c69c8f40000004963c0486bd0"),
+    (0x597a20, "4883ec28e867ed010085c0754d4863c1"),
+    (0x596830, "4883ec284c63d2e854ff010085c07575"),
+    (0x5967a0, "4883ec284c63d2e8e4ff010085c07575"),
+    (0x650720, "4863c248ffc04c69c8f40000004963c0"),
+    (0x650770, "4863c24c69c8f40000004963c0486bd0"),
 ];
 
 #[derive(Debug, thiserror::Error)]

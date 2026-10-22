@@ -1,14 +1,25 @@
-# IIDX 34 / 20260917 binary analysis and adapter evidence
+# IIDX 34 / 010-0916 binary analysis and adapter evidence
 
 Analysis date: 2026-10-20. Target supplied by the user:
-`C:\Users\BeatMania IIDX LM\Downloads\bm2dx.dll`.
-The build label **20260917** is user-supplied; the native music database validator
+`C:\Users\BeatMania IIDX LM\Downloads\010-0916bm2dx.dll`.
+The build label **010-0916** is upstream sp2xpatcher's 2026-09-16 (010); the native music database validator
 independently requires major version **34**.
 
 The later [audio-offset and signature investigation](iidx34-audio-offset-analysis.md)
 records the file-integrity checks and native synchronization findings.
 The [monitor-adjust follow-up](iidx34-monitor-adjust-analysis.md) compares the
 offset calculation, defaults and calibration getter with IIDX 33.
+The [TDJ input investigation](iidx34-input-analysis.md) traces native key history,
+spice2x HID state handling and the limits of timestamp-related claims.
+The [input-cadence follow-up](iidx34-input-cadence-analysis.md) traces the main
+loop, TDJ rate selection and the nominal 8.333 ms frame interval.
+The [monitor-check patch analysis](iidx34-monitor-check-patch-analysis.md)
+documents a guarded spice2x JSON option and the exact upstream PE identifier.
+The [results-background investigation](iidx34-result-background-analysis.md)
+records the native illustration/dynamic-texture path and an asynchronous image
+rotation design, with remaining live validation requirements.
+The [010-0917 follow-up](iidx34-0100917-analysis.md) records the newer
+`LDJ-6aab51c7_b02b7c` executable and its independent profile.
 
 | Property | Value |
 |---|---|
@@ -16,7 +27,7 @@ offset calculation, defaults and calibration getter with IIDX 33.
 | File size | 18,200,216 bytes |
 | Architecture / preferred image base | PE32+ AMD64 / `0x180000000` |
 | Image size | `0xc5ff000` |
-| Implementation | `crates/bilimani-iidx/src/versions/v34/b20260917/` |
+| Implementation | `crates/bilimani-iidx/src/versions/v34/b010_0916/` |
 | Output | `bilimani_iidx.dll`, also retaining the 33/20260812 adapter |
 
 All addresses below are **RVAs**, not file offsets or absolute addresses.

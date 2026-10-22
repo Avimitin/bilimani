@@ -1,7 +1,8 @@
-"""Read-only verification of the 34/20260917 file evidence. Python stdlib only.
+"""Read-only verification of the IIDX 34 file evidence. Python stdlib only.
 
 Usage: python scripts/verify-iidx34.py path/to/bm2dx.dll
-Does not load or execute the DLL. See docs/iidx34-analysis.md for ABI reasoning.
+Does not load or execute the DLL. See docs/iidx34-analysis.md and
+docs/iidx34-0100917-analysis.md for ABI reasoning.
 """
 import argparse
 import hashlib
@@ -9,14 +10,39 @@ import pathlib
 import re
 import struct
 
+PROFILES = {
+    "3755587f44785effe5008f74cfe7dccbdf423ad09feead48e00a90f78a42fe83": {
+        "label": "IIDX 34 / 010-0916",
+        "dir": "b010_0916",
+        "database": (0x939100, "488d056937cd0ac3"),
+        "input": (0xa67d70, "48894c24085553565741544155415641"),
+        "select": {16: 0x8d7b70, 17: 0x8d7f60, 18: 0x8d8250},
+        "stage": (0x91a2c0, 0x91a330, 0x91a390),
+        "factory_stage": (0x8bea40, 0x91a330, 0x8beac0),
+        "dictionary": 0x7dc590,
+    },
+    "c98e183ec81ecb9e1cb13c237f9c9cb0b3f65b6fdaff6fd5e6a526008c546534": {
+        "label": "IIDX 34 / 010-0917",
+        "dir": "b010_0917",
+        "database": (0x939140, "488d052937cd0ac3"),
+        "input": (0xa67db0, "48894c24085553565741544155415641"),
+        "select": {16: 0x8d7bb0, 17: 0x8d7fa0, 18: 0x8d8290},
+        "stage": (0x91a300, 0x91a370, 0x91a3d0),
+        "factory_stage": (0x8bea80, 0x91a370, 0x8beb00),
+        "dictionary": 0x7dc5d0,
+    },
+}
+
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("dll", type=pathlib.Path)
 args = parser.parse_args()
 data = args.dll.read_bytes()
+digest = hashlib.sha256(data).hexdigest()
+if digest not in PROFILES:
+    raise SystemExit(f"Unsupported file SHA-256: {digest}")
+config = PROFILES[digest]
 root = pathlib.Path(__file__).resolve().parent.parent
-profile = root / "crates/bilimani-iidx/src/versions/v34/b20260917"
-expected = "3755587f44785effe5008f74cfe7dccbdf423ad09feead48e00a90f78a42fe83"
-assert hashlib.sha256(data).hexdigest() == expected, "Unsupported file SHA-256"
+profile = root / "crates/bilimani-iidx/src/versions/v34" / config["dir"]
 assert data[:2] == b"MZ"
 pe = struct.unpack_from("<I", data, 0x3c)[0]
 assert data[pe:pe+4] == b"PE\0\0"
@@ -61,16 +87,20 @@ def vtable(rva, name, slots):
 
 guards = {}
 for source in profile.glob("*.rs"):
-    for rva, prefix in re.findall(r'\(\s*0x([0-9a-f]+),\s*"([0-9a-f]{32})"\s*\)', source.read_text()):
+    for rva, prefix in re.findall(
+        r'\(\s*0x([0-9a-f]+),\s*"([0-9a-f]{32})"\s*\)', source.read_text()
+    ):
         rva, prefix = int(rva, 16), bytes.fromhex(prefix)
         assert rva not in guards or guards[rva] == prefix
         guards[rva] = prefix
 for rva, prefix in guards.items():
     assert read(rva, len(prefix)) == prefix, f"Guard mismatch: {rva:x}"
 assert len(guards) >= 40, f"Guard extraction unexpectedly small: {len(guards)}"
-assert read(0x939100, 8) == bytes.fromhex("488d056937cd0ac3")
-assert read(0xa67d70, 16) == bytes.fromhex("48894c24085553565741544155415641")
-vtable(0xd52508, ".?AVCMusicSelectScene@@", {16: 0x8d7b70, 17: 0x8d7f60, 18: 0x8d8250})
+database_rva, database_hex = config["database"]
+assert read(database_rva, len(bytes.fromhex(database_hex))) == bytes.fromhex(database_hex)
+input_rva, input_hex = config["input"]
+assert read(input_rva, len(bytes.fromhex(input_hex))) == bytes.fromhex(input_hex)
+vtable(0xd52508, ".?AVCMusicSelectScene@@", config["select"])
 stages = {
     0xd73238: "Dan", 0xd73338: "Expert", 0xd73438: "Free",
     0xd73538: "Hazard", 0xd73638: "StepUp", 0xd73738: "PremiumFree",
@@ -80,12 +110,11 @@ stages = {
 }
 for table, mode in stages.items():
     factory = mode == "FactoryCheck"
+    targets = config["factory_stage"] if factory else config["stage"]
     vtable(table, f".?AVC{mode}StageScene@@", {
-        16: 0x8bea40 if factory else 0x91a2c0,
-        17: 0x91a330,
-        18: 0x8beac0 if factory else 0x91a390,
+        16: targets[0], 17: targets[1], 18: targets[2],
     })
-assert pointer(0xcbe910 + 8) == 0x7dc590
-assert pointer(0xd9ff20 + 3 * 8) == 0xa67d70
-print(f"PASS: SHA-256, x64 PE, {len(guards)} native prefixes, database/input getters, "
-      "14 scene RTTI/lifecycle tables, dictionary and input slots")
+assert pointer(0xcbe910 + 8) == config["dictionary"]
+assert pointer(0xd9ff20 + 3 * 8) == config["input"][0]
+print(f"PASS: {config['label']} SHA-256, x64 PE, {len(guards)} native prefixes, "
+      "database/input getters, 14 scene RTTI/lifecycle tables, dictionary and input slots")

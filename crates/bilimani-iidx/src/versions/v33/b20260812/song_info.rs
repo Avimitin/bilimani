@@ -15,7 +15,7 @@ pub fn decode(
     decode_for_version(record, mode, difficulties, phase, 33)
 }
 
-/// The 34/20260917 record fields were independently checked against this layout.
+/// The 34/010-0916 record fields were independently checked against this layout.
 pub(crate) fn decode_for_version(
     record: &[u8],
     mode: Mode,

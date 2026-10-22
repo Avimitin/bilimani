@@ -78,7 +78,7 @@ fn start(module: HMODULE) -> Result<()> {
                 &format!(
                     "IIDX {} / {} API: http://{}",
                     game.build().major_version(),
-                    game.build().date(),
+                    game.build().label(),
                     server.address
                 ),
             );

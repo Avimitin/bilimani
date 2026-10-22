@@ -2,7 +2,7 @@ use anyhow::{Result, bail};
 use bilimani_iidx::{
     game::{LaneOrderStatus, PlayerChart, RandomMode, SongPhase},
     iidx::CHARTS,
-    versions::v34::b20260917::lane_order,
+    versions::v34::b010_0916::lane_order,
 };
 use std::collections::BTreeMap;
 

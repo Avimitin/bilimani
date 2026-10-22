@@ -3,12 +3,15 @@ use bilimani_iidx::{
     game::SongPhase,
     iidx,
     service::Service,
-    versions::{self, Build, v33, v34::b20260917 as profile},
+    versions::{
+        self, Build, v33,
+        v34::{b010_0916 as profile_010_0916, b010_0917 as profile_010_0917},
+    },
 };
 
 #[test]
 fn fingerprint_selects_profile_and_api_reports_detected_build() {
-    for (hash, build, major, date) in [
+    for (hash, build, major, label) in [
         (
             v33::b20260812::SUPPORTED_SHA256,
             Build::V33_20260812,
@@ -16,10 +19,16 @@ fn fingerprint_selects_profile_and_api_reports_detected_build() {
             "20260812",
         ),
         (
-            profile::SUPPORTED_SHA256,
-            Build::V34_20260917,
+            profile_010_0916::SUPPORTED_SHA256,
+            Build::V34_010_0916,
             34,
-            "20260917",
+            "010-0916",
+        ),
+        (
+            profile_010_0917::SUPPORTED_SHA256,
+            Build::V34_010_0917,
+            34,
+            "010-0917",
         ),
     ] {
         assert_eq!(versions::resolve(hash).unwrap(), build);
@@ -32,13 +41,13 @@ fn fingerprint_selects_profile_and_api_reports_detected_build() {
             .unwrap()
             .1;
         assert_eq!(meta["major_version"], major);
-        assert_eq!(meta["build"], date);
+        assert_eq!(meta["build"], label);
     }
     assert!(versions::resolve("unknown").is_err());
 }
 
 fn record() -> Vec<u8> {
-    let mut record = vec![0; profile::song_info::RECORD_SIZE];
+    let mut record = vec![0; profile_010_0916::song_info::RECORD_SIZE];
     record[0] = b'A';
     record[0x67c..0x680].copy_from_slice(&34001u32.to_le_bytes());
     record[0x3dc..0x3de].copy_from_slice(&34u16.to_le_bytes());
@@ -55,22 +64,26 @@ fn database_requires_34_and_canonical_lookup_but_preserves_record_layout() {
     data.resize(16 + 34002 * 4, 0xff);
     data[16 + 34001 * 4..16 + 34002 * 4].fill(0);
     data.extend(record());
-    let songs = profile::catalog::parse_database(&data).unwrap();
+    let songs = profile_010_0916::catalog::parse_database(&data).unwrap();
     assert_eq!(songs[0].id, 34001);
+    assert_eq!(
+        profile_010_0917::catalog::parse_database(&data).unwrap()[0].id,
+        34001
+    );
     assert_eq!(songs[0].charts.len(), 10);
     assert!(v33::b20260812::catalog::parse_database(&data).is_err());
     data[4] = 33;
     assert_eq!(
-        profile::catalog::parse_database(&data).unwrap_err(),
-        profile::catalog::DatabaseError::Version
+        profile_010_0916::catalog::parse_database(&data).unwrap_err(),
+        profile_010_0916::catalog::DatabaseError::Version
     );
     data[4] = 34;
     data[16 + 34001 * 4] = 1;
     assert_eq!(
-        profile::catalog::parse_database(&data).unwrap_err(),
-        profile::catalog::DatabaseError::Lookup(34001)
+        profile_010_0916::catalog::parse_database(&data).unwrap_err(),
+        profile_010_0916::catalog::DatabaseError::Lookup(34001)
     );
-    let song = profile::song_info::decode(&record(), iidx::DP, [None, Some(3)], SongPhase::Playing)
+    let song = profile_010_0916::song_info::decode(&record(), iidx::DP, [None, Some(3)], SongPhase::Playing)
         .unwrap();
     assert_eq!(song.song.unwrap().game_version, Some(34));
     assert_eq!(song.players[0].chart.id, "DPA");
@@ -108,7 +121,7 @@ fn analyzer_maps_two_explicit_indices_and_isolates_invalid_entries() {
         u32_at(&mut memory, detail + 112, 2000);
     }
     let capture = |m: &[u8], song, table| {
-        profile::density::read_snapshot(256, song, table, |at, n| -> Result<Vec<u8>> {
+        profile_010_0916::density::read_snapshot(256, song, table, |at, n| -> Result<Vec<u8>> {
             ensure!(n <= 4 * 3601, "Unbounded read");
             Ok(m.get(at..at.checked_add(n).unwrap())
                 .ok_or_else(|| anyhow::anyhow!("Unmapped"))?

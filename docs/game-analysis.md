@@ -1,7 +1,8 @@
 # IIDX 33 / 20260812 adapter evidence
 
-This document records IIDX 33 only. See [IIDX 34 / 20260917 analysis](iidx34-analysis.md)
-for its independent scene, analyzer, option and profile layouts.
+This document records IIDX 33 only. See [IIDX 34 / 010-0916 analysis](iidx34-analysis.md)
+and [IIDX 34 / 010-0917 analysis](iidx34-0100917-analysis.md)
+for their independent scene, analyzer, option and profile layouts.
 
 Implementation: `crates/bilimani-iidx/src/versions/v33/b20260812/`. Game/version selection lives in
 `crates/bilimani-iidx/src/versions/mod.rs`; upper layers use the contracts in `crates/bilimani-iidx/src/game.rs`.
@@ -804,9 +805,12 @@ calibration constants only — they do not raise the render cap by themselves.
 
 ## Judgment timing model
 
-Judgment is frame-quantized, not timestamp-based. Notes and input events carry
-integer frame positions on the chart timeline (frames at the runtime FPS). The
-judge path:
+The inspected judgment calculation uses integer chart-frame differences
+(frames at the runtime FPS). This arithmetic alone does not establish whether
+an earlier I/O stage preserves history or converts timestamps. The
+[IIDX 34 TDJ follow-up](iidx34-input-analysis.md) separately traces board history
+through the input decoder; its conclusions are scoped to that build and path.
+The IIDX 33 judge path:
 
 1. `0x81d1c0` processes a note event when the current frame reaches it;
    `0x8218b0` computes `delta_frames = current_frame - event_frame(+32)` as an
