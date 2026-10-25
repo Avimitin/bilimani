@@ -96,5 +96,5 @@ builds completed; the production-page turntable browser test passed.
   currently produce a decision animation. Do not infer one from `other`.
 - IIDX 33 and 34/010-0916 have no decision sampler yet; this new effect is
   limited to the analyzed 010-0917 path.
-- Check the rotating SVG and subtle outward purple trails in OBS/CEF on the
+- Check the rotating SVG and soft purple glow in OBS/CEF on the
   target machine, including the existing display-effects setting.

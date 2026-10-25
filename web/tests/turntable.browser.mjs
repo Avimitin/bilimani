@@ -45,18 +45,27 @@ try {
   const first = await angle();
   await page.waitForTimeout(300);
   assert.notEqual(await angle(), first, 'platter rotates under the explicit effects setting');
+  assert.ok(await rotor.evaluate(el => el.getAnimations()[0].effect.getTiming().duration) <= 1600 / 3, 'platter spins at least three times faster than the original');
   assert.equal(await light(), '1');
+  await page.waitForFunction(() => {
+    const housing = document.getElementById('corner-module').getBoundingClientRect();
+    const aura = document.querySelector('.turntable-aura');
+    const box = aura.getBoundingClientRect();
+    return Number(getComputedStyle(aura).opacity) > .2 && box.top < housing.top - 30 && box.right > housing.right + 30;
+  });
   const time = () => rotor.evaluate(el => el.getAnimations()[0].currentTime);
   const beforePoll = await time(); await page.waitForTimeout(1200);
   assert.ok(await time() > beforePoll + 1000, 'polling must not restart the spin');
   await mkdir(new URL('../../analysis/browser/', import.meta.url), { recursive: true });
   await page.screenshot({ path: fileURLToPath(new URL('../../analysis/browser/turntable-deciding.png', import.meta.url)), omitBackground: true });
+  await page.screenshot({ path: fileURLToPath(new URL('../../analysis/browser/turntable-energy.png', import.meta.url)), clip: { x: 0, y: 540, width: 580, height: 540 }, omitBackground: true });
   await page.reload(); await spinning(true);
   await page.locator('#login-overlay').waitFor({ state: 'hidden' });
   send('other'); await spinning(false);
   const stopped = await angle(); await page.waitForTimeout(300);
   assert.equal(await angle(), stopped, 'scene exit freezes the platter before gameplay');
   assert.equal(await light(), '0');
+  assert.ok(await page.locator('#turntable-effects').evaluate(el => el.getAnimations({ subtree: true }).every(animation => animation.playState === 'paused')), 'all glow animations stop with the native decision interval');
   send('play'); await page.waitForTimeout(700); await spinning(false);
   send('select'); await page.waitForTimeout(700);
   send('decide'); await spinning(true);
@@ -74,7 +83,7 @@ try {
   const disabled = await angle(); await page.waitForTimeout(300);
   assert.equal(await angle(), disabled);
   assert.deepEqual(external, []); assert.deepEqual(errors, []);
-  console.log('PASS turntable: real Rust decision state, rotation and purple trails, no polling restart, refresh, pre-game exit, cancellation, gameplay, logout, disabled effects');
+  console.log('PASS turntable: real Rust decision state, faster rotation, soft purple glow beyond housing, no polling restart, refresh, pre-game exit, cancellation, gameplay, logout, disabled effects');
 } finally {
   await browser?.close();
   if (server.exitCode === null && server.pid) {

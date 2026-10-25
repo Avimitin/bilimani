@@ -195,11 +195,6 @@
               <g class="turntable-rotor">
                 <use href="#turntable"/>
                 <circle r="60" fill="none" stroke="#a493bd" stroke-width="2" stroke-dasharray="1 7" opacity=".35"/>
-                <path d="M-2-52H2V-38H-2Z" fill="#cbb6eb" opacity=".75"/>
-              </g>
-              <g class="turntable-light">
-                <g><path d="M0-73A73 73 0 0 1 63 37"/><path class="light-trail" d="M0-73A73 73 0 0 1 63 37"/></g>
-                <g><path d="M0 73A73 73 0 0 1-63-37"/><path class="light-trail" d="M0 73A73 73 0 0 1-63-37"/></g>
               </g>
             </g>
             <path d="M0 1014h8l26 47h174l30-16h41v35H0Z" fill="url(#deck-rail)" stroke="#11171b"/>
@@ -239,6 +234,27 @@
         </g>
       </svg>
     </div>
+    <!-- Soft decision glow spills across the pod, above the chassis. -->
+    <svg id="turntable-effects" class="turntable-effects" viewBox="0 0 1920 1080" data-spinning="false" aria-hidden="true">
+      <defs>
+        <radialGradient id="turntable-aura">
+          <stop offset=".3" stop-color="#a36aff" stop-opacity="0"/>
+          <stop offset=".47" stop-color="#bc87ff" stop-opacity=".42"/>
+          <stop offset=".64" stop-color="#9452e8" stop-opacity=".16"/>
+          <stop offset="1" stop-color="#773abf" stop-opacity="0"/>
+        </radialGradient>
+      </defs>
+      <g transform="translate(132 944) scale(1.5)">
+        <g class="turntable-light">
+          <circle class="turntable-aura" r="170" fill="url(#turntable-aura)"/>
+          <circle class="turntable-rim" r="79"/>
+          <g class="turntable-shine">
+            <ellipse cy="-76" rx="43" ry="10" fill="#dec8ff" opacity=".75"/>
+            <ellipse cy="76" rx="32" ry="8" fill="#b785fa" opacity=".6"/>
+          </g>
+        </g>
+      </g>
+    </svg>
     <header class="station-header vfd-display">
       <svg class="display-surface" viewBox="0 0 308 116" aria-hidden="true">
         <path class="screen-bezel" d="M12 1h289l6 9-14 87-17 18H28L1 31V12Z"/>

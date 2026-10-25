@@ -1,1 +1,1 @@
-{"name":"@bilimani/iidx","version":"0.4.2","private":true,"type":"module","scripts":{"dev":"vite --host 127.0.0.1","build":"node build.mjs"},"dependencies":{"@bilimani/controller":"0.4.2","@bilimani/game-api":"0.4.2","@bilimani/platform-bilibili":"0.4.2"}}
+{"name":"@bilimani/iidx","version":"0.4.3","private":true,"type":"module","scripts":{"dev":"vite --host 127.0.0.1","build":"node build.mjs"},"dependencies":{"@bilimani/controller":"0.4.3","@bilimani/game-api":"0.4.3","@bilimani/platform-bilibili":"0.4.3"}}

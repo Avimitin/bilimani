@@ -18,7 +18,7 @@ import { createTurntable } from './turntable';
   const $ = (id) => document.getElementById(id);
   const frame = document.body.dataset.layout === "frame";
   const renderStartup = frame ? createStartupDisplay($("login-overlay"), $("loading-strip"), document.querySelector(".stream-frame")) : null;
-  const renderTurntable = frame ? createTurntable($("turntable-disc")) : null;
+  const renderTurntable = frame ? createTurntable($("turntable-disc"), $("turntable-effects")) : null;
   const moveChoiceArm = frame ? createChoiceArm($("choice-arm"), () => {
     $("pending-area").hidden = true;
     $("pending-list").replaceChildren();
