@@ -51,6 +51,7 @@ struct Adapter {
     lane_order_status: String,
     playback_enabled: bool,
     playback_status: String,
+    decision_enabled: bool,
 }
 static ADAPTER: OnceLock<Adapter> = OnceLock::new();
 pub static DISABLED: AtomicBool = AtomicBool::new(false);
@@ -90,6 +91,17 @@ pub fn playback_status() -> &'static str {
     ADAPTER
         .get()
         .map_or("not installed", |adapter| adapter.playback_status.as_str())
+}
+
+pub fn decision_status() -> &'static str {
+    if ADAPTER
+        .get()
+        .is_some_and(|adapter| adapter.decision_enabled)
+    {
+        "Song-decision sampling enabled (native music_decide interval)"
+    } else {
+        "Song-decision sampling disabled: native guards unavailable; other features remain available"
+    }
 }
 
 fn inspect_playback(base: usize) -> Result<()> {
@@ -296,6 +308,9 @@ pub fn install(image: ModuleImage) -> Result<()> {
         )
     })?
     .map_or_else(|| "native".into(), |module| format!("MinHook -> {module}"));
+    let decision_enabled = super::decision::GUARDS.iter().all(|&(rva, expected)| {
+        read_memory(base + rva, 16).is_ok_and(|bytes| hex::encode(bytes) == expected)
+    });
     let mut hooks = Vec::new();
     let stage_slots: &[usize] = if lane_order_enabled || playback_enabled {
         &[16, 17, 18]
@@ -371,6 +386,7 @@ pub fn install(image: ModuleImage) -> Result<()> {
             lane_order_status,
             playback_enabled,
             playback_status,
+            decision_enabled,
         })
         .map_err(|_| anyhow::anyhow!("Hooks already installed"))?;
     let adapter = ADAPTER.get().unwrap();
@@ -861,10 +877,51 @@ unsafe fn sample_selected_song(this: usize) {
         ..Default::default()
     });
 }
+
+unsafe fn sample_decided_song(this: usize) {
+    let adapter = ADAPTER.get().unwrap();
+    if !adapter.decision_enabled {
+        return;
+    }
+    let record = super::decision::confirmed_record(adapter.base, this, |address, size| {
+        read_memory(address, size).map_err(|_| super::decision::SampleError::Unreadable)
+    })
+    .ok()
+    .flatten();
+    let Some(record) = record else {
+        let mut m = MAILBOX.lock().unwrap();
+        if m.now_playing.phase == SongPhase::Deciding {
+            m.now_playing = NowPlaying::default();
+            m.song_sample_at = None;
+        }
+        return;
+    };
+    if MAILBOX.lock().unwrap().now_playing.phase == SongPhase::Deciding {
+        return;
+    }
+    // The decision member has committed the actual record and per-side difficulty.
+    // Do not carry a potentially stale 4 Hz selection sample into confirmation.
+    let captured = (|| -> Result<NowPlaying> {
+        let raw = read_memory(adapter.base + 0xb60b3a8, 8)?;
+        let joined: unsafe extern "system" fn(u32) -> u8 =
+            std::mem::transmute(adapter.base + 0x92fd00);
+        let difficulties = std::array::from_fn(|side| {
+            (joined(side as u32) != 0)
+                .then(|| u32::from_le_bytes(raw[side * 4..side * 4 + 4].try_into().unwrap()))
+        });
+        decode_song(record, difficulties, SongPhase::Deciding)
+    })();
+    MAILBOX.lock().unwrap().now_playing = captured.unwrap_or(NowPlaying {
+        phase: SongPhase::Deciding,
+        ..Default::default()
+    });
+}
+
 unsafe extern "system" fn select_update(this: usize, a2: usize, a3: usize, a4: usize) -> usize {
     SELECT_UPDATES.fetch_add(1, Ordering::Relaxed);
     let mut executing: Option<Selection> = None;
     let mut detected_menu = None;
+    let mut epoch = 0;
     guard(|| {
         let mode = get_mode();
         let is_ready = ready(this);
@@ -877,6 +934,7 @@ unsafe extern "system" fn select_update(this: usize, a2: usize, a3: usize, a4: u
             try_capture_database();
         }
         let mut m = MAILBOX.lock().unwrap();
+        epoch = m.snapshot.epoch;
         m.snapshot.mode = mode;
         m.snapshot.phase = if is_ready {
             Phase::Select
@@ -944,9 +1002,15 @@ unsafe extern "system" fn select_update(this: usize, a2: usize, a3: usize, a4: u
         } else if mailbox.snapshot.phase == Phase::Select {
             mailbox.snapshot.phase = Phase::Other;
         }
+        let same_scene =
+            mailbox.snapshot.epoch == epoch && ACTIVE_SCENE.load(Ordering::Acquire) == this;
         drop(mailbox);
-        if is_ready && ACTIVE_SCENE.load(Ordering::Acquire) == this {
-            sample_selected_song(this);
+        if same_scene {
+            if is_ready {
+                sample_selected_song(this);
+            } else {
+                sample_decided_song(this);
+            }
         }
         if let Some(j) = executing {
             let outcome = if let Some(e) = error {

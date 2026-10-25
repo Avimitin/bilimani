@@ -3,6 +3,7 @@ import { createIdentityRenderer, startVfdInstability } from './identity';
 import { createChoiceArm } from './choice-arm';
 import { choiceOrigin } from './choice-arm-motion';
 import { createStartupDisplay } from './startup';
+import { createTurntable } from './turntable';
 "use strict";
 (() => {
   let state = null;
@@ -17,6 +18,7 @@ import { createStartupDisplay } from './startup';
   const $ = (id) => document.getElementById(id);
   const frame = document.body.dataset.layout === "frame";
   const renderStartup = frame ? createStartupDisplay($("login-overlay"), $("loading-strip"), document.querySelector(".stream-frame")) : null;
+  const renderTurntable = frame ? createTurntable($("turntable-disc")) : null;
   const moveChoiceArm = frame ? createChoiceArm($("choice-arm"), () => {
     $("pending-area").hidden = true;
     $("pending-list").replaceChildren();
@@ -572,5 +574,6 @@ import { createStartupDisplay } from './startup';
     document.body.dataset.vfdEffects = String(display.vfdEffects);
     render(state);
     renderStartup?.(state, display.vfdEffects);
+    renderTurntable?.(state, display.vfdEffects);
   }, { user: frame });
 })();

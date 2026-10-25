@@ -1,10 +1,9 @@
-/* Soft camera registration marks, a translucent blue-black tint and static film grain. */
+/* Soft camera registration marks, a translucent dark-purple tint and static film grain. */
 .login-overlay {
   position: absolute; inset: 0; z-index: 10; pointer-events: none; isolation: isolate;
-  background: radial-gradient(ellipse at 12% 92%, rgb(31 19 100 / 25%), transparent 65%),
-    linear-gradient(115deg, rgb(9 15 57 / 65%) 0%, rgb(3 5 19 / 74%) 58%, rgb(9 12 40 / 67%) 100%);
+  background: linear-gradient(115deg, rgb(18 7 30 / 75%) 0%, rgb(8 2 14 / 75%) 58%, rgb(14 4 24 / 75%) 100%);
   backdrop-filter: blur(1.2px); color: #cbc5de;
-  box-shadow: inset 0 0 160px rgb(1 3 17 / 22%);
+  box-shadow: inset 0 0 160px rgb(5 1 10 / 14%);
 }
 .login-overlay::after { content: ""; position: absolute; inset: 0; background: url('./login-grain.svg') repeat; opacity: .18; mix-blend-mode: soft-light; }
 .login-grid { position: absolute; inset: 0; width: 100%; height: 100%; filter: blur(.55px); }
@@ -12,8 +11,8 @@
 .login-markers use { transform: rotate(0deg); }
 .login-overlay[data-pattern="cross"] .login-markers use { transform: rotate(45deg); }
 .login-label { position: absolute; top: 43px; left: 58px; display: inline-flex; align-items: center; border: 3px solid currentColor; border-radius: 9px; padding: 9px 22px 12px; filter: blur(.65px); box-shadow: 0 0 3px #e0d2ff99, inset 0 0 2px #e0d2ff66; }
-/* Keep the lower caption clear of the loading strip. */
-.login-overlay[data-pattern="cross"] .login-label { top: auto; left: auto; right: 58px; bottom: 208px; }
+/* Mirror the upper caption's inset below the fourth row of registration marks. */
+.login-overlay[data-pattern="cross"] .login-label { top: auto; left: auto; right: 58px; bottom: 43px; }
 .login-message { font-family: "Bahnschrift Condensed", "Arial Narrow", "Microsoft YaHei", sans-serif; font-size: 49px; line-height: 1.2; font-weight: 700; font-stretch: condensed; letter-spacing: .055em; text-shadow: 0 0 2px currentColor, 0 0 5px #cdb8f080; }
 .login-overlay:is([data-stage="success"], [data-stage="fading"]) .login-label { color: #a27be9; box-shadow: 0 0 4px #aa86eb99, inset 0 0 2px #aa86eb66; }
 .login-overlay:is([data-stage="success"], [data-stage="fading"]) .login-message { text-shadow: 0 0 2px currentColor, 0 0 8px #976ce770; }

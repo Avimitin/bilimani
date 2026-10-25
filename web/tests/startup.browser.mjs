@@ -38,7 +38,7 @@ try {
   await page.goto(`${base}/iidx/mecha/`);
   await stage('waiting'); await strip.waitFor();
   assert.equal(await page.locator('.login-message').textContent(), '正在等待登录中');
-  assert.equal(await page.locator('.login-markers use').count(), 15);
+  assert.equal(await page.locator('.login-markers use').count(), 20);
   assert.match(await mask.evaluate(el => getComputedStyle(el).backgroundImage), /linear-gradient\(.*rgba\(/);
   assert.equal(await mask.getAttribute('data-pattern'), 'plus');
   const upperLabel = await page.locator('.login-label').boundingBox();
@@ -56,8 +56,11 @@ try {
   await pattern('cross');
   const lowerLabel = await page.locator('.login-label').boundingBox();
   assert.ok(lowerLabel.x > upperLabel.x + 400 && lowerLabel.y > upperLabel.y + 400, 'cross layout moves the label to the lower right');
-  const stripBox = await strip.boundingBox();
-  assert.ok(lowerLabel.y + lowerLabel.height < stripBox.y, 'lower label stays above the loading strip');
+  const maskBox = await mask.boundingBox();
+  const bottomInset = maskBox.y + maskBox.height - lowerLabel.y - lowerLabel.height;
+  assert.ok(Math.abs(bottomInset - (upperLabel.y - maskBox.y)) < 1, 'lower label mirrors the upper caption inset at the screen bottom');
+  const markerBox = await page.locator('.login-markers').boundingBox();
+  assert.ok(markerBox.y + markerBox.height < lowerLabel.y, 'all four marker rows stay above the lower caption');
   assert.ok(await page.locator('.login-markers use').evaluateAll(els => els.every(el => {
     const matrix = new DOMMatrixReadOnly(getComputedStyle(el).transform);
     return Math.abs(matrix.a - Math.SQRT1_2) < .001 && Math.abs(matrix.b - Math.SQRT1_2) < .001;
@@ -71,7 +74,7 @@ try {
   phase = 'select'; hasSong = true;
   await stage('success');
   assert.equal(await page.locator('.login-message').textContent(), '登录成功');
-  assert.equal(await page.locator('.login-label').evaluate(el => getComputedStyle(el).color), 'rgb(101, 255, 163)');
+  assert.equal(await page.locator('.login-label').evaluate(el => getComputedStyle(el).color), 'rgb(162, 123, 233)');
   const confirmedCells = await lit();
   const blink = [];
   for (let i = 0; i < 8; i++) { blink.push(await page.locator('.login-label').evaluate(el => Number(getComputedStyle(el).opacity))); await page.waitForTimeout(70); }
@@ -118,5 +121,5 @@ try {
   assert.equal(await page.locator('.login-label').evaluate(el => el.getAnimations().length), 0);
   await stage('hidden');
   assert.deepEqual(errors, []);
-  console.log('PASS startup: blue-black tint, plus/cross layout cycle, loading cells beneath mask, confirmation holds position, green blink and fade, song gaps, ready-page refresh and disabled effects');
+  console.log('PASS startup: dark-purple tint, four-row plus/cross layout cycle, bottom caption inset, loading cells beneath mask, confirmation holds position, purple blink and fade, song gaps, ready-page refresh and disabled effects');
 } finally { await browser.close(); }

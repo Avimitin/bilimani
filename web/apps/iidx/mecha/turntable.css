@@ -1,0 +1,4 @@
+.turntable-rotor, .turntable-light g { transform-origin: 0 0; }
+.turntable-light { opacity: 0; pointer-events: none; fill: none; stroke: #b38aff; stroke-width: 1.8; filter: drop-shadow(0 0 3px #9c63ef); }
+#turntable-disc[data-spinning="true"] .turntable-light { opacity: 1; }
+.turntable-light .light-trail { stroke: #7746b9; stroke-width: 5; opacity: .35; }

@@ -7,6 +7,10 @@ This is a distinct exact-build profile from
 [IIDX 34 / 010-0916](iidx34-analysis.md), not support inferred from the version
 label.
 
+The [song-decision follow-up](iidx34-0100917-decision-analysis.md) records the
+confirmed-song animation interval used by Mecha's turntable, its optional guards,
+and the supplied `010-20260916.dll` filename/hash mismatch.
+
 | Property | Value |
 |---|---|
 | SHA-256 | `c98e183ec81ecb9e1cb13c237f9c9cb0b3f65b6fdaff6fd5e6a526008c546534` |

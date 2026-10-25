@@ -12,6 +12,7 @@ use std::{collections::VecDeque, io::BufRead, path::Path, sync::mpsc};
 pub const HELP: &str = "Preview commands:
   logout              Show the login overlay and loading strip
   select / play       Enter song selection / start playing
+  decide              Confirm the song (native decision interval / turntable spin)
   other               Clear song data (loading strip only after login)
   menu [query]        Show webpage candidates (default: Preview)
   reply <1-9|n|p>     Choose a song / next page / previous page
@@ -58,7 +59,7 @@ pub enum PreviewError {
     Api(#[from] bilimani_api::ApiError),
 }
 pub struct Simulator {
-    phase: Phase,
+    phase: SongPhase,
     logged_in: bool,
     side: u8,
     mode: Mode,
@@ -74,7 +75,7 @@ pub struct Simulator {
 impl Default for Simulator {
     fn default() -> Self {
         Self {
-            phase: Phase::Select,
+            phase: SongPhase::Selecting,
             logged_in: true,
             side: 1,
             mode: iidx::SP,
@@ -101,25 +102,32 @@ impl Simulator {
         let command = match parts.as_slice() {
             ["select"] => {
                 self.logged_in = true;
-                self.phase = Phase::Select;
+                self.phase = SongPhase::Selecting;
                 self.epoch += 1;
                 None
             }
             ["play"] => {
                 self.logged_in = true;
-                self.phase = Phase::Playing;
+                self.phase = SongPhase::Playing;
                 self.plays += 1;
                 self.started = now;
                 None
             }
+            ["decide"] => {
+                if !self.logged_in {
+                    return Err(PreviewError::NotLoggedIn);
+                }
+                self.phase = SongPhase::Deciding;
+                None
+            }
             ["other"] => {
-                self.phase = Phase::Other;
+                self.phase = SongPhase::Idle;
                 self.epoch += 1;
                 None
             }
             ["logout"] => {
                 self.logged_in = false;
-                self.phase = Phase::Other;
+                self.phase = SongPhase::Idle;
                 self.epoch += 1;
                 None
             }
@@ -229,10 +237,14 @@ impl Simulator {
         GameUpdate {
             user: self.user(),
             snapshot: Snapshot {
-                phase: self.phase,
+                phase: match self.phase {
+                    SongPhase::Selecting => Phase::Select,
+                    SongPhase::Playing => Phase::Playing,
+                    SongPhase::Idle | SongPhase::Deciding => Phase::Other,
+                },
                 mode: self.logged_in.then_some(self.mode),
                 epoch: self.epoch,
-                can_open_menu: self.phase == Phase::Select,
+                can_open_menu: self.phase == SongPhase::Selecting,
             },
             plays: self.plays,
             now_playing: self.telemetry(now),
@@ -272,7 +284,7 @@ impl Simulator {
     }
     fn user(&self) -> iidx::user::UserSnapshot {
         use iidx::user::*;
-        if !self.logged_in || self.phase == Phase::Other {
+        if !self.logged_in || self.phase == SongPhase::Idle {
             return UserSnapshot::default();
         }
         UserSnapshot {
@@ -305,7 +317,7 @@ impl Simulator {
         }
     }
     fn telemetry(&self, now: u64) -> NowPlaying {
-        if !self.logged_in || self.phase == Phase::Other {
+        if !self.logged_in || self.phase == SongPhase::Idle {
             return NowPlaying::default();
         }
         let charts: Vec<_> = iidx::available_charts([0, 5, 10, 12, 0, 0, 5, 9, 12, 0])
@@ -357,11 +369,7 @@ impl Simulator {
         let chart = iidx::parse_chart(if self.mode == iidx::SP { "SPA" } else { "DPA" })
             .expect("fixture chart");
         NowPlaying {
-            phase: if self.phase == Phase::Playing {
-                SongPhase::Playing
-            } else {
-                SongPhase::Selecting
-            },
+            phase: self.phase,
             song: Some(SongInfo {
                 id: self.song_id,
                 title: format!("Preview Song {}", self.song_id),
@@ -388,7 +396,7 @@ impl Simulator {
                 keys: Some([1, 2, 3, 4, 5, 6, 7]),
             })
             .collect(),
-            playback: (self.phase == Phase::Playing).then_some(PlaybackProgress {
+            playback: (self.phase == SongPhase::Playing).then_some(PlaybackProgress {
                 position_ms: now.saturating_sub(self.started).min(120_000) as u32,
                 duration_ms: 120_000,
             }),
@@ -399,6 +407,33 @@ impl Simulator {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn decision_is_display_only_until_play_and_clears_on_cancel_or_logout() {
+        let mut simulator = Simulator::default();
+        let mut service = Service::default();
+        for exit in ["select", "other", "logout", "play"] {
+            simulator
+                .command("select", &mut service, 0, Path::new("unused.csv"))
+                .unwrap();
+            let before = simulator.plays;
+            simulator
+                .command("decide", &mut service, 10, Path::new("unused.csv"))
+                .unwrap();
+            let deciding = simulator.update(10);
+            assert_eq!(deciding.snapshot.phase, Phase::Other);
+            assert!(!deciding.snapshot.can_open_menu);
+            assert_eq!(deciding.now_playing.phase, SongPhase::Deciding);
+            assert!(deciding.now_playing.song.is_some());
+            assert!(deciding.now_playing.playback.is_none());
+            assert_eq!(deciding.plays, before);
+            simulator
+                .command(exit, &mut service, 20, Path::new("unused.csv"))
+                .unwrap();
+            assert_ne!(simulator.update(20).now_playing.phase, SongPhase::Deciding);
+            assert_eq!(simulator.plays, before + u64::from(exit == "play"));
+        }
+    }
 
     #[test]
     fn logout_is_distinct_from_an_empty_song_scene() {

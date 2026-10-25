@@ -46,7 +46,8 @@ npm run build:preview
 |---|---|
 | help | 列出终端命令 |
 | logout | 清空登录状态与模式，Mecha 约 1.2 秒后回到全屏等待登录遮罩 |
-| select | 恢复选曲；从等待登录进入时显示绿色成功提示，再渐隐遮罩 |
+| select | 恢复选曲；从等待登录进入时显示紫色成功提示，再渐隐遮罩 |
+| decide | 模拟原生歌曲确认动画；Mecha 转盘旋转并显示紫色扩散光迹，other/select/play/logout 结束此状态 |
 | other | 暂时清空曲目信息；进入过选曲后只显示底栏蜂巢动画，不弹遮罩 |
 | menu / menu Preview | 模拟点歌，在网页展开候选屏；先打开网页并进入选曲 |
 | reply n / reply p / reply 2 | 候选翻页或用编号确认；确认后通过真实 API 入队并收回机械臂 |
@@ -83,6 +84,8 @@ npm run test:browser
 终端与网页的端到端检查使用 `npm run test:browser:preview`：先构建 Rust 的 `api_preview` 和 `npm run build:preview`，关闭占用 32134 的预览进程。测试自行启动 Rust 例程，向真实 stdin 发送 logout/select/other/menu/reply/2p/dp，验证网页动效、真实搜索与入队、刷新不重放事件，结束后自动关闭进程。此测试不拦截 HTTP，不访问直播平台。
 
 开发热更新使用 npm run dev。默认连接 32133 的 DLL；假游戏可设置 BILIMANI_API_URL=http://127.0.0.1:32134。从 Vite 打开的 /card/、/mecha/ 使用对应 dist/web/iidx/<style>/config.json，与 DLL 反代读取同一份配置。部署目录为其他路径时设置 BILIMANI_WEB_ROOT。Vite 转发重写 Origin/Host 以匹配本地 API，生产部署无需此开发代理。
+
+转盘可用 `npm run test:browser:turntable` 检查：先构建正式页面和 Rust `api_preview`，释放 32134 端口。测试自行启动 Rust 例程并驱动真实终端命令，检查决定动画、旋转/光迹、重复轮询、刷新、退场先于开曲、取消、退卡及关闭动效；结束后关闭例程。截图在 `analysis/browser/turntable-*.png`。正式原生触发目前仅适用于已分析的 34 / 010-0917 路径，详见 [决定动画证据](iidx34-0100917-decision-analysis.md)。
 
 ## 原生边界验证
 

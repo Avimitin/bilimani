@@ -68,6 +68,7 @@ assert "Native hooks installed for the verified IIDX 34 build" in text, text
 assert "IIDX 34 / 010-0917 API:" in text, text
 assert "select_hooks_intact=true" in text, text
 assert "Player sampling enabled" in text, text
+assert "Song-decision sampling enabled" in text, text
 
 slots = [
     (0xD52508, 16, 0x8D7BB0),
@@ -133,7 +134,7 @@ def invoke(instance, slot):
 
 
 try:
-    for rva, result in [(0x8d7bb0, 71), (0x8d7fa0, 72), (0x91a300, 74),
+    for rva, result in [(0x8d7bb0, 71), (0x8d7fa0, 72), (0x8d8290, 73), (0x91a300, 74),
                         (0x91a370, 75), (0x91a3d0, 76), (0x8bea80, 74),
                         (0x8beb00, 76), (0x81a530, 0)]:
         stub(rva, result)
@@ -153,13 +154,41 @@ try:
     put(0x328c068 + 0x20, b'SMOKE\0\0\0')
     put(0x328c068 + 0x34, struct.pack('<IIii', 12345, 678, 18, 17))
 
-    select = ctypes.create_string_buffer(16)
+    select = ctypes.create_string_buffer(9000)
     ctypes.c_void_p.from_buffer(select).value = game + 0xd52508
     assert invoke(select, 16) == 71
     wait_api('state', lambda state: state['ready'])
     assert read_api('songs?q=Gameplay')['songs'][0]['id'] == 1
     wait_api('iidx/user', lambda user: user['active_side'] == 1)
+
+    # Only the executed decision member qualifies; queued confirmation and the
+    # shared exit member are not decision frames. Exercise the real update hook.
+    controller = ctypes.create_string_buffer(112)
+    song = ctypes.create_string_buffer(bytes(record))
+    struct.pack_into('<Q', select, 152, ctypes.addressof(controller))
+    struct.pack_into('<Q', select, 8448, ctypes.addressof(song))
+    struct.pack_into('<Q', controller, 56, game + 0x8d9330)
+    assert invoke(select, 18) == 73
+    assert read_api('state')['now_playing']['phase'] != 'deciding'
+    struct.pack_into('<Q', controller, 56, 0)
+    struct.pack_into('<Q', controller, 8, game + 0x8d9330)
+    assert invoke(select, 18) == 73
+    assert read_api('state')['now_playing']['phase'] != 'deciding'
+    struct.pack_into('<I', controller, 88, 1)
+    assert invoke(select, 18) == 73
+    deciding = wait_api('state', lambda state: state['now_playing']['phase'] == 'deciding')
+    assert deciding['phase'] == 'other' and deciding['plays'] == 0
+    assert deciding['now_playing']['song']['title'] == 'Gameplay record at +0x18'
+    assert deciding['now_playing']['playback'] is None
+    # Exit starts before stage initialization; no turntable state leaks across it.
+    struct.pack_into('<Q', controller, 8, game + 0x8d9f70)
+    assert invoke(select, 18) == 73
+    wait_api('state', lambda state: state['now_playing']['phase'] == 'idle')
+    struct.pack_into('<Q', controller, 8, game + 0x8d9330)
+    assert invoke(select, 18) == 73
+    wait_api('state', lambda state: state['now_playing']['phase'] == 'deciding')
     assert invoke(select, 17) == 72
+    wait_api('state', lambda state: state['now_playing']['phase'] == 'idle')
 
     # Native +8 owns an analyzer job; the actual record is at +0x18. Keep them
     # distinct, with readable non-song data at the former (incorrect) address.
@@ -198,5 +227,5 @@ try:
 finally:
     plugin.bilimani_shutdown()
     time.sleep(0.5)
-print(f'PASS: IIDX 34 / 010-0917 guards, native catalog getter, all 13 stage families, '
+print(f'PASS: IIDX 34 / 010-0917 guards, native catalog getter, decision/exit lifecycle, all 13 stage families, '
       f'sustained song/player snapshots, missing record, cleanup and shutdown ({work.name})')

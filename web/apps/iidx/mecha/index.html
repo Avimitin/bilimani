@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="./frame.css">
   <link rel="stylesheet" href="./choice-arm.css">
   <link rel="stylesheet" href="./startup.css">
+  <link rel="stylesheet" href="./turntable.css">
   <script type="module" src="./overlay.js"></script>
 </head>
 <body data-layout="frame">
@@ -190,7 +191,17 @@
             <path d="M263 893l32 29h24v17h-27l-25-19" fill="none" stroke="#69757e"/>
             <circle cx="132" cy="944" r="127" fill="#090d10" stroke="#5c6871" stroke-width="2"/>
             <circle cx="132" cy="944" r="124" fill="#181e24" stroke="#000" stroke-width="3"/>
-            <g id="turntable-disc" transform="translate(132 944) scale(1.5)"><use href="#turntable"/></g>
+            <g id="turntable-disc" transform="translate(132 944) scale(1.5)" data-spinning="false">
+              <g class="turntable-rotor">
+                <use href="#turntable"/>
+                <circle r="60" fill="none" stroke="#a493bd" stroke-width="2" stroke-dasharray="1 7" opacity=".35"/>
+                <path d="M-2-52H2V-38H-2Z" fill="#cbb6eb" opacity=".75"/>
+              </g>
+              <g class="turntable-light">
+                <g><path d="M0-73A73 73 0 0 1 63 37"/><path class="light-trail" d="M0-73A73 73 0 0 1 63 37"/></g>
+                <g><path d="M0 73A73 73 0 0 1-63-37"/><path class="light-trail" d="M0 73A73 73 0 0 1-63-37"/></g>
+              </g>
+            </g>
             <path d="M0 1014h8l26 47h174l30-16h41v35H0Z" fill="url(#deck-rail)" stroke="#11171b"/>
             <path d="M36 1065h175l29-15h34 M56 1074h113" fill="none" stroke="#65717b"/>
             <path d="M257 970h13 M257 980h13 M257 990h13" stroke="#0b1116" stroke-width="3"/>

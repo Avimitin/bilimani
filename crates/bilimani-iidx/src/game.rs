@@ -92,6 +92,8 @@ pub enum SongPhase {
     #[default]
     Idle,
     Selecting,
+    /// Native song decision animation; selection is committed, gameplay has not begun.
+    Deciding,
     Playing,
 }
 

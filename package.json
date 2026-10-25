@@ -15,6 +15,7 @@
     "test:browser": "node web/tests/browser.mjs",
     "test:browser:arm": "node web/tests/choice-arm.browser.mjs",
     "test:browser:startup": "node web/tests/startup.browser.mjs",
+    "test:browser:turntable": "node web/tests/turntable.browser.mjs",
     "test:browser:preview": "node web/tests/preview.browser.mjs",
     "dev": "npm run dev -w @bilimani/iidx"
   },

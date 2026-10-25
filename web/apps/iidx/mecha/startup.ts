@@ -1,6 +1,6 @@
 import { advanceLogin, initialLogin, loadingCells, loadingCycle, loadingPattern, loadingCellLit, type GamePhase } from './startup-motion';
 
-interface StartupView { phase: GamePhase; mode?: string | null; now_playing?: { song?: unknown } | null }
+interface StartupView { phase: GamePhase; mode?: string | null; now_playing?: { phase?: string; song?: unknown } | null }
 const svgNamespace = 'http://www.w3.org/2000/svg';
 
 export function createStartupDisplay(overlay: HTMLElement, strip: HTMLElement, frame: HTMLElement) {
@@ -8,8 +8,8 @@ export function createStartupDisplay(overlay: HTMLElement, strip: HTMLElement, f
   const grid = overlay.querySelector<SVGGElement>('.login-markers')!;
   const cells = strip.querySelector<SVGGElement>('.loading-cells')!;
   // Static vector art; no platform/user strings are interpolated into markup.
-  grid.innerHTML = Array.from({ length: 15 }, (_, i) => {
-    const x = 170 + i % 5 * 390, y = 190 + Math.floor(i / 5) * 280;
+  grid.innerHTML = Array.from({ length: 20 }, (_, i) => {
+    const x = 170 + i % 5 * 390, y = 190 + Math.floor(i / 5) * 230;
     return `<g transform="translate(${x} ${y})"><use href="#login-cross"/></g>`;
   }).join('');
   const hexagons = loadingCells.map(({ x, y }) => {
@@ -34,7 +34,8 @@ export function createStartupDisplay(overlay: HTMLElement, strip: HTMLElement, f
 
   function draw(now: number) {
     const previousStage = login.stage;
-    login = advanceLogin(login, view.phase, now, animate, view.mode);
+    const phase = view.phase === 'other' && view.mode != null && view.now_playing?.phase === 'deciding' ? 'select' : view.phase;
+    login = advanceLogin(login, phase, now, animate, view.mode);
     if (login.stage === 'waiting' && previousStage !== 'initial' && previousStage !== 'waiting') waitingSince = now;
     const visible = login.stage !== 'hidden';
     const loading = visible || view.phase === null || !view.now_playing?.song;

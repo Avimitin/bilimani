@@ -1,5 +1,6 @@
 //! The verified IIDX 34 binary profile. No offsets escape this module.
 pub mod catalog;
+pub mod decision;
 pub mod density;
 #[cfg(windows)]
 mod input_hook;
@@ -77,6 +78,7 @@ impl crate::game::GameAdapter for Adapter {
             ("input", native::input_chain().into()),
             ("lane", native::lane_order_status().into()),
             ("playback", native::playback_status().into()),
+            ("decision", native::decision_status().into()),
             (
                 "user",
                 if self.user_enabled {
