@@ -228,7 +228,11 @@ if song_info:
     ctypes.c_void_p.from_buffer(controller, 8).value = game + 0x8da060
     stage = ctypes.create_string_buffer(16)
     ctypes.c_void_p.from_buffer(stage).value = game + 0xd73238
-    ctypes.c_void_p.from_address(game + 0xb4e0088).value = ctypes.addressof(stage_record)
+    # The old +8 field is an analyzer job, not a song record. Leave a distinct
+    # non-song object there so this fixture cannot bless the old layout again.
+    stage_job = ctypes.create_string_buffer(0x7f8)
+    ctypes.c_void_p.from_address(game + 0xb4e0088).value = ctypes.addressof(stage_job)
+    ctypes.c_void_p.from_address(game + 0xb4e0098).value = ctypes.addressof(stage_record)
     for side in range(2):
         ctypes.c_uint32.from_address(game + 0xb60b3a8 + side * 4).value = 3
         ctypes.c_uint32.from_address(game + 0xb60b3b0 + side * 4).value = 1
@@ -363,7 +367,7 @@ if song_info:
     wait_song('selecting', None)
     assert invoke(scene, 17) == 72
     assert wait_song('idle', None)['lane_order'] == []
-    ctypes.c_void_p.from_address(game + 0xb4e0088).value = ctypes.addressof(selected_record)
+    ctypes.c_void_p.from_address(game + 0xb4e0098).value = ctypes.addressof(selected_record)
     ctypes.c_uint32.from_buffer(options, 8 + 48).value = 1
     lane_table(0, [4, 3, 0, 1, 2, 5, 6, 7])
     assert invoke(stage, 16) == 74
@@ -424,7 +428,7 @@ if song_info:
     assert invoke(stage, 17) == 75
     cleared = wait_song('idle', None)
     assert cleared['lane_order'] == [] and cleared['playback'] is None
-    ctypes.c_void_p.from_address(game + 0xb4e0088).value = ctypes.addressof(stage_record)
+    ctypes.c_void_p.from_address(game + 0xb4e0098).value = ctypes.addressof(stage_record)
     assert invoke(stage, 16) == 74
     different = wait_song('playing', 'Actual stage fixture')
     assert all(c['density'] is None for c in different['song']['charts'])

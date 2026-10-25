@@ -1,1 +1,1 @@
-{"name":"@bilimani/platform-bilibili","version":"0.4.1","private":true,"type":"module","exports":"./src/index.ts","dependencies":{"@bilimani/controller":"0.4.1","fflate":"^0.8.2"}}
+{"name":"@bilimani/platform-bilibili","version":"0.4.2","private":true,"type":"module","exports":"./src/index.ts","dependencies":{"@bilimani/controller":"0.4.2","fflate":"^0.8.2"}}

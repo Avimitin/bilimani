@@ -239,6 +239,9 @@ pub fn install(image: ModuleImage) -> Result<()> {
         (0x59ebc0, "4883ec28e8a77b010085c075484863c9"),
         // Read-only stage context and per-player difficulty evidence.
         (0x8fa8a0, "488d05d957be0ac3cccccccccccccccc"),
+        // Stage record write and metadata consumer both use context +0x18.
+        (0x8fa24a, "e8415a0300488945184885c00f84ac00"),
+        (0x8f9140, "498b5718488bc8e8f43bffffe82f69f7"),
         (0x92fd10, "4863c1488d0d8eb6cd0a8b0481c3cccc"),
         (0x92fc80, "8b051eb7cd0ac3cccccccccccccccccc"),
         // IIDX 34 publishes a two-side analyzer through the selection model.
@@ -707,7 +710,9 @@ unsafe extern "system" fn stage_init(this: usize, a2: usize, a3: usize, a4: usiz
         // record, including stages entered through courses/special selectors.
         let base = ADAPTER.get().unwrap().base;
         let captured = (|| -> Result<NowPlaying> {
-            let pointer = read_memory(base + 0xb4e0088, 8)?;
+            // +8/+16 own the MusicDetailDataJobEnqueuer shared_ptr in 34.
+            // Prepare and the sequencer/metadata consumers use the song at +0x18.
+            let pointer = read_memory(base + 0xb4e0098, 8)?;
             let music = usize::from_le_bytes(pointer.try_into().unwrap());
             let raw = read_memory(base + 0xb60b3a8, 8)?;
             let mut difficulties = [None; 2];

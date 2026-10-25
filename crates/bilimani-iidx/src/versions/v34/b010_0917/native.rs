@@ -239,6 +239,9 @@ pub fn install(image: ModuleImage) -> Result<()> {
         (0x59ebc0, "4883ec28e8c77b010085c075484863c9"),
         // Read-only stage context and per-player difficulty evidence.
         (0x8fa8e0, "488d059957be0ac3cccccccccccccccc"),
+        // Stage record write and metadata consumer both use context +0x18.
+        (0x8fa28a, "e8415a0300488945184885c00f84ac00"),
+        (0x8f9180, "498b5718488bc8e8f43bffffe82f69f7"),
         (0x92fd50, "4863c1488d0d4eb6cd0a8b0481c3cccc"),
         (0x92fcc0, "8b05deb6cd0ac3cccccccccccccccccc"),
         // IIDX 34 publishes a two-side analyzer through the selection model.
@@ -637,7 +640,7 @@ fn validate_database_getter(code: &[u8]) -> Result<()> {
         code.len() == 8
             && code[0] == 0x48
             && matches!(code[1], 0x8d | 0x8b)
-            && code[2..] == [0x05, 0x69, 0x37, 0xcd, 0x0a, 0xc3],
+            && code[2..] == [0x05, 0x29, 0x37, 0xcd, 0x0a, 0xc3],
         "Unsupported native database getter; expected original or relocated-buffer accessor"
     );
     Ok(())
@@ -710,7 +713,9 @@ unsafe extern "system" fn stage_init(this: usize, a2: usize, a3: usize, a4: usiz
         // record, including stages entered through courses/special selectors.
         let base = ADAPTER.get().unwrap().base;
         let captured = (|| -> Result<NowPlaying> {
-            let pointer = read_memory(base + 0xb4e0088, 8)?;
+            // +8/+16 own the MusicDetailDataJobEnqueuer shared_ptr in 34.
+            // Prepare and the sequencer/metadata consumers use the song at +0x18.
+            let pointer = read_memory(base + 0xb4e0098, 8)?;
             let music = usize::from_le_bytes(pointer.try_into().unwrap());
             let raw = read_memory(base + 0xb60b3a8, 8)?;
             let mut difficulties = [None; 2];
@@ -1029,10 +1034,14 @@ mod tests {
     use super::*;
     #[test]
     fn native_database_accessor_accepts_relocation_but_rejects_unknown_patches() {
-        let mut code = [0x48, 0x8d, 0x05, 0x69, 0x37, 0xcd, 0x0a, 0xc3];
+        let mut code = [0x48, 0x8d, 0x05, 0x29, 0x37, 0xcd, 0x0a, 0xc3];
         validate_database_getter(&code).unwrap();
         code[1] = 0x8b;
         validate_database_getter(&code).unwrap();
+        // The preceding build has the same target but a different RIP displacement.
+        code[3] = 0x69;
+        assert!(validate_database_getter(&code).is_err());
+        code[3] = 0x29;
         code[3] ^= 1;
         assert!(validate_database_getter(&code).is_err());
         assert!(validate_database_getter(&[]).is_err());

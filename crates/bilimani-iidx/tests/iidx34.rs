@@ -83,8 +83,13 @@ fn database_requires_34_and_canonical_lookup_but_preserves_record_layout() {
         profile_010_0916::catalog::parse_database(&data).unwrap_err(),
         profile_010_0916::catalog::DatabaseError::Lookup(34001)
     );
-    let song = profile_010_0916::song_info::decode(&record(), iidx::DP, [None, Some(3)], SongPhase::Playing)
-        .unwrap();
+    let song = profile_010_0916::song_info::decode(
+        &record(),
+        iidx::DP,
+        [None, Some(3)],
+        SongPhase::Playing,
+    )
+    .unwrap();
     assert_eq!(song.song.unwrap().game_version, Some(34));
     assert_eq!(song.players[0].chart.id, "DPA");
     let old =

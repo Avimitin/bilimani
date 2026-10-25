@@ -72,10 +72,57 @@ is retained.
 | `0x91a3d0` | stage update |
 | `0x8bea80` / `0x8beb00` | `CFactoryCheckStageScene` initialize / update |
 | `0x8fa8e0` | stage-context getter, returns `0xb4e0080` |
+| `0x8fa28a` / `0x8f9180` | stage song write / metadata consumer, both context **+0x18** |
 
 The stage initialize/cleanup/update target checks in `native.rs` use the new
 RVAs above. Optional lane/playback samplers remain gated by their own entry
 guards; a mismatch disables only that display area.
+
+## Gameplay song correction (2026-10-24)
+
+The installed `modules/bm2dx.dll` supplied on the user's IIDX34 share was copied
+to ignored `analysis/iidx34-gameplay/bm2dx.dll`. Its SHA-256 is the exact
+`c98e183ec81ecb9e1cb13c237f9c9cb0b3f65b6fdaff6fd5e6a526008c546534`
+listed above. IDA autoanalysis and Hex-Rays were run on that copy; no game
+binary was modified. The local database is `bm2dx.dll.i64` alongside it.
+
+The previous adapter incorrectly read `0xb4e0088` (context +8) for the song.
+The correct field is `0xb4e0098` (context **+0x18**):
+
+| RVA | ABI evidence |
+|---|---|
+| `0x8fa260` | Preparation calls `0x92fcd0` for the selected record; `0x8fa28f` stores it with `mov [rbp+0x18], rax`. The sequencer loader `0x810b00` receives that same field. |
+| `0x91a300` | Stage initialization gets the context through `0x8fa8e0`, then calls `0x8f8f80`; the plugin samples after this original callback returns. |
+| `0x8f9180` | Initialization reads `mov rdx, [r15+0x18]` for the song metadata consumer `0x8ecd80`. Other consumers use the same field for chart lookup and music ID +0x67c. |
+| `0x8f9d04` | Initialization stores the contained `MusicDetailDataJobEnqueuer` object at context +8, with its shared ownership allocation at +0x10. Hex-Rays identifies the allocation's RTTI/vtable; `0x8f9daf` loads +8 to call job enqueue `0x622e20`. This is not a song record. |
+
+Runtime guards now verify the record write and consumer instruction windows,
+in addition to the context getter and lifecycle tables. The matching 010-0916
+instructions are 0x40 bytes earlier and use the same fields, so both 34 adapters
+are corrected. The 33 adapter is unchanged.
+
+A read-only observation of the **old installed DLL** during real gameplay
+returned `phase: playing`, `now_playing.song: null`, no chart players, a valid
+playback clock, and one valid player profile from `/api/v1/iidx/user`.
+Selection returned both a song and a player. Mecha's existing startup display
+hides the whole bottom information panel when the song is absent, explaining
+why both song and personal information disappeared. No player identity cache
+or frontend workaround is needed.
+
+The installed log also revealed a separate 010-0917 catalog failure. Its getter
+at `0x939140` is `48 8d 05 29 37 cd 0a c3`, returning `0xb60c870`.
+The adapter still compared the 010-0916 displacement beginning `69`, rejecting
+even the unmodified getter. The check now accepts this build's correct LEA and
+equivalent relocated-buffer MOV forms, and rejects the earlier displacement.
+
+The updated smoke tests deliberately keep an unrelated object at context +8
+and the actual song at +0x18. The 010-0917 test additionally exercises the
+unaltered native catalog getter, all 13 stage families, repeated gameplay
+updates with song and player data, cleanup, missing-song clearing and logout.
+All scene originals it invokes are synthetic stubs installed after guard
+verification. These are offline regressions, not real-game validation of the
+fixed DLL. The corrected artifact still needs an in-game selection → play →
+results/retry check, including Mecha's song/profile rotation.
 
 ## Catalog, dictionary, density, lane order and playback
 
@@ -104,10 +151,11 @@ shared with the earlier 34 module.
 ```powershell
 python scripts/verify-iidx34.py 'C:\path\to\010-0917bm2dx.dll'
 ./scripts/build.ps1 -CargoArgs @('test', '-p', 'bilimani-iidx')
+./scripts/build.ps1 -CargoArgs @('build', '-p', 'bilimani-iidx', '--release', '--locked')
 python scripts/smoke-iidx34-0100917.py --game-dll 'C:\path\to\010-0917bm2dx.dll'
 ```
 
-`verify-iidx34.py` checks the exact SHA-256, all 47 unique 16-byte guard
+`verify-iidx34.py` checks the exact SHA-256, all 49 unique 16-byte guard
 prefixes extracted from the module, database/input entry bytes, 14 scene
 RTTI/lifecycle tables, dictionary and input vtable slots.
 
@@ -115,18 +163,29 @@ RTTI/lifecycle tables, dictionary and input vtable slots.
 `DONT_RESOLVE_DLL_REFERENCES`, loads the release `bilimani_iidx.dll`, and checks
 that the new fingerprint is selected, every native guard and vtable check in
 `install()` passes, all hook slots are redirected into the plugin, diagnostics
-report `select_hooks_intact=true`, and shutdown releases the worker. It does
-not execute any game callback.
+report `select_hooks_intact=true`, then runs the synthetic catalog/gameplay
+regressions described above. Shutdown releases the worker. It does not run
+the game entry point or the original scene implementations.
 
 ## Validation status and unknowns
 
-Offline static and private-mapping checks passed: 46 library unit tests plus
+Initial 2026-10-22 offline static and private-mapping checks passed: 46 library unit tests plus
 the bilimani-iidx integration suites (75 tests total), Clippy with warnings
 denied, release build, the new attach smoke check above, and the existing
 `scripts/smoke-iidx34.py --queue --user` suite against the 010-0916 build as a
 regression.
 
-**Actual IIDX 34 gameplay has not been run for this build.** Still require
+For the 2026-10-24 correction, the IIDX Rust tests (including example targets),
+Clippy with warnings denied, formatting, TypeScript typecheck, 29 frontend
+tests, production page builds and IIDX release build passed. Static verification
+passed for both 34 fingerprints with 49 guards each. The expanded 010-0917
+smoke and 010-0916 `--queue --user` regression both passed. The old release
+artifact failed the new native-catalog smoke assertion before the rebuild.
+
+Tested corrected DLL: `target/release/bilimani_iidx.dll`, SHA-256
+`71f534a30dfe0466291ac835f975455b7d186aa6607705a5a313533a7fd91ca3`.
+The gameplay observations above are of the old installed DLL; **the corrected
+DLL has not been installed or validated in the real game**. Still require
 in-game checks for runtime catalog/search, SP/DP auto-selection, difficulty
 changes, scene transitions, play/retry/exit telemetry, menu input capture,
 single-player SP double-tap, queue delete/priority, alias CSV reload, OBS

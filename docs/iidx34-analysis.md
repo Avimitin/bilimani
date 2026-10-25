@@ -139,12 +139,29 @@ FactoryCheck uses `0x8bea40` / `0x91a330` / `0x8beac0`.
 The StepUp entry replaces the old Life family in this set; it was identified
 from RTTI rather than assigning the old label by table position.
 
-`0x8fa8a0` returns stage context `0xb4e0080`; the actual stage record is +8,
+`0x8fa8a0` returns stage context `0xb4e0080`; the actual stage record is **+0x18**,
 written by preparation at `0x8fa220`. Initialize calls `0x8f8f40` to prepare
 the stage. Capture after the original callback and clear after cleanup;
 do not carry the last selection record into a different stage.
 Stage initialize/cleanup target checks are mandatory. Stage update checks gate
 optional lane/playback samplers; an incompatible update disables those displays.
+
+Correction on 2026-10-24: the original analysis incorrectly identified +8 as
+the song. In 34, +8/+16 hold the `MusicDetailDataJobEnqueuer` shared pointer;
+the assignment at `0x8f9cc4` begins `48 8d 43 10 49 89 47 08`.
+Preparation at `0x8fa24a` calls the selected-record getter and stores its result
+with `mov [rbp+0x18], rax`; the consumer at `0x8f9140` loads
+`mov rdx, [r15+0x18]`. These two instruction windows are now mandatory guards.
+Their 16-byte sequences match the independently analyzed 010-0917 windows
+at +0x40, with the same stage-context address. See the
+[010-0917 gameplay investigation](iidx34-0100917-analysis.md#gameplay-song-correction-2026-10-24)
+for the IDA evidence and the live symptom observed on that build.
+The 010-0916 smoke fixture now places an unrelated object at +8 and the actual
+song at +0x18, including song changes, sustained updates and cleanup.
+On 2026-10-24, static verification passed with 49 guards, and the release DLL's
+`smoke-iidx34.py --queue --user` regression passed against this fingerprint.
+The corrected artifact and remaining live checks are recorded in the linked
+010-0917 investigation; no real-game validation of 010-0916 is claimed.
 
 ## 3. Catalog, search dictionary, and song metadata
 
